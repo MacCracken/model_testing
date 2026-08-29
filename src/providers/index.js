@@ -12,40 +12,40 @@ const PROVIDERS = {
     baseUrl: "https://api.openai.com/v1/chat/completions",
     auth: (key) => `Bearer ${key}`,
     models: ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini"],
-  },
+   },
   anthropic: {
     baseUrl: "https://api.anthropic.com/v1/chat/completions",
-    // Anthropic supports the OpenAI-compatible route at the URL above; auth is Bearer on the
-    // key. This lets the same client drive Anthropic models.
+     // Anthropic supports the OpenAI-compatible route at the URL above; auth is Bearer on the
+     // key. This lets the same client drive Anthropic models.
     auth: (key) => `Bearer ${key}`,
     models: ["claude-3-5-sonnet-latest", "claude-opus-4-20250514"],
-  },
+   },
   groq: {
     baseUrl: "https://api.groq.com/openai/v1/chat/completions",
     auth: (key) => `Bearer ${key}`,
     models: ["llama-3.3-70b-versatile", "gemma2-9b-it"],
-  },
+   },
   local: {
     baseUrl: "http://localhost:11434/v1/chat/completions",
     auth: () => "Bearer local",
-    // Models currently present in this environment's Ollama instance (from /v1/models).
+     // Models currently present in this environment's Ollama instance (from /v1/models).
     models: ["ornith-1.5:9b", "nemotron-3.5-lightning:30b-mlx", "gemma4:31b-mlx", "qwen3.8:27b-mlx"],
-  },
+   },
 };
 
 // Model -> human label for reports. Optional; override by editing this map or via .env.
 const MODEL_LABELS = {
-  "gpt-4o-mini": "GPT-4o mini",
-  "gpt-4o": "GPT-4o",
-  "gpt-4.1-mini": "GPT-4.1 mini",
-  "claude-3-5-sonnet-latest": "Claude 3.5 Sonnet",
-  "claude-opus-4-20250514": "Claude Opus 4",
-  "llama-3.3-70b-versatile": "Llama 3.3 70B",
-  "gemma2-9b-it": "Gemma 2 9B",
-  "ornith-1.5:9b": "Ornith 1.5",
-  "nemotron-3.5-lightning:30b-mlx": "Nemotron 3.5 Lightning",
-  "gemma4:31b-mlx": "Gemma 4 31B",
-  "qwen3.8:27b-mlx": "Qwen 3.8 27B",
+   "gpt-4o-mini": "GPT-4o mini",
+   "gpt-4o": "GPT-4o",
+   "gpt-4.1-mini": "GPT-4.1 mini",
+   "claude-3-5-sonnet-latest": "Claude 3.5 Sonnet",
+   "claude-opus-4-20250514": "Claude Opus 4",
+   "llama-3.3-70b-versatile": "Llama 3.3 70B",
+   "gemma2-9b-it": "Gemma 2 9B",
+   "ornith-1.5:9b": "Ornith 1.5",
+   "nemotron-3.5-lightning:30b-mlx": "Nemotron 3.5 Lightning",
+   "gemma4:31b-mlx": "Gemma 4 31B",
+   "qwen3.8:27b-mlx": "Qwen 3.8 27B",
 };
 
 export function labelModel(model) {
@@ -65,7 +65,7 @@ export function buildClient({ provider, model }) {
     apiKey: key,
     url: cfg.baseUrl,
     headers: { Authorization: cfg.auth(key) },
-  });
+   });
 }
 
 // Parse a "provider:model" string into { provider, model }.
@@ -74,7 +74,7 @@ export function parseClientSpec(spec) {
     const idx = spec.indexOf(":");
     if (idx === -1) return spec;
     return { provider: spec.slice(0, idx), model: spec.slice(idx + 1) };
-  }
+   }
   return spec;
 }
 
@@ -84,7 +84,17 @@ export function parseClientSpec(spec) {
 export function normalizeClientSpecs(spec) {
   if (!spec) return [];
   const items = Array.isArray(spec) ? spec : String(spec).split(",").filter(Boolean);
-  return items.map(parseClientSpec);
+  return items.map((item) => {
+    // Check if item is a bare provider name (no colon) or a full {provider, model} object
+    if (typeof item === "string") {
+      const idx = item.indexOf(":");
+      if (idx === -1) {
+        // Bare provider name, return as string to be expanded in resolveClients
+        return item;
+      }
+    }
+    return parseClientSpec(item);
+  });
 }
 
 // Resolve the full list of clients to run. Accepts a single provider name (uses its default
@@ -96,28 +106,34 @@ export function resolveClients(spec) {
       for (const model of cfg.models) {
         const c = buildClient({ provider, model });
         if (c) clients.push(c);
+       }
+     }
+   } else if (Array.isArray(spec) && spec.length === 2 && typeof spec[0] === "string" && typeof spec[1] === "string") {
+      // Two-element array: treat as a single "provider:model" pair.
+     const c = buildClient({ provider: spec[0], model: spec[1] });
+     if (c) clients.push(c);
+   } else {
+    for (const item of normalizeClientSpecs(spec)) {
+        // Handle both bare strings and {provider, model} objects from normalized specs
+        const provider = typeof item === "string" ? item : item.provider;
+        const model = typeof item === "object" ? item.model : undefined;
+
+        if (model === undefined) {
+             // Bare provider name: expand to all default models for that provider
+            const cfg = PROVIDERS[provider];
+            if (!cfg) continue;
+            for (const m of cfg.models) {
+                const c = buildClient({ provider, model: m });
+                if (c) clients.push(c);
+             }
+            continue;
+          }
+
+          // Explicitly specified model
+        const c = buildClient({ provider, model });
+        if (c) clients.push(c);
       }
-    }
-  } else if (Array.isArray(spec) && spec.length === 2 && typeof spec[0] === "string" && typeof spec[1] === "string") {
-    // Two-element array: treat as a single "provider:model" pair.
-    const c = buildClient({ provider: spec[0], model: spec[1] });
-    if (c) clients.push(c);
-  } else {
-    for (const { provider, model } of normalizeClientSpecs(spec)) {
-      // A bare provider name (no ":model") expands to that provider's default models, in order.
-      if (!model) {
-        const cfg = PROVIDERS[provider];
-        if (!cfg) continue;
-        for (const m of cfg.models) {
-          const c = buildClient({ provider, model: m });
-          if (c) clients.push(c);
-        }
-        continue;
-      }
-      const c = buildClient({ provider, model });
-      if (c) clients.push(c);
-    }
-  }
+   }
   return clients;
 }
 
