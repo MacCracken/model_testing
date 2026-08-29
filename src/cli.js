@@ -2,85 +2,77 @@
 // cli.js — entry point. Select providers/tasks/modes and dispatch.
 //
 // Examples:
+//   node src/cli.js list
+//   node src/cli.js serve --port 4000
 //   node src/cli.js bench --task health --mode harness --clients openai:gpt-4o-mini
 //   node src/cli.js aggregate --tasks health,hello --modes noHarness,harness
-//   node src/cli.js list
+
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 
 import { listTasks } from "./tasks/registry.js";
-import { PROVIDERS } from "./providers/index.js";
+import { PROVIDERS, apiKeyFor, labelModel, probeLocalModels } from "./providers/index.js";
+import { parseArgs } from "./args.js";
+
+const SRC = dirname(fileURLToPath(import.meta.url));
 
 async function main() {
   const [cmd, ...rest] = process.argv.slice(2);
+
   switch (cmd) {
-    case "list":
+    case "list": {
       console.log("Tasks:");
-      for (const t of listTasks()) console.log(`  ${t.name} (${t.category})`);
+      for (const t of listTasks()) {
+        console.log(`  ${t.name.padEnd(10)} ${t.category.padEnd(10)} ${t.description}`);
+      }
+      const live = await probeLocalModels();
       console.log("\nProviders:");
       for (const [name, cfg] of Object.entries(PROVIDERS)) {
-        console.log(`  ${name}: ${cfg.models.join(", ")}`);
-      }
-      break;
-
-    case "bench":
-    case "run": {
-      const { runBenchTask, resolveClients } = await import("./bench.js");
-      const args = parseArgs(rest);
-      const { getTask, tasks } = await import("./tasks/registry.js");
-      const client = resolveClients(args.clients);
-      if (!client) throw new Error(`no API key for provider=${args.provider} model=${args.model}`);
-      const modeList = Array.isArray(args.mode)
-        ? args.mode
-        : String(args.mode).split(",").map((s) => s.trim()).filter(Boolean);
-      if (modeList.length === 0) modeList = ["noHarness"];
-      const taskList = args.task === "all"
-        ? tasks
-        : (Array.isArray(args.task) ? args.task : [getTask(args.task)]);
-      for (const t of taskList) {
-        for (const m of modeList) {
-          const r = await runBenchTask({ task: t, mode: m, client, count: args.count });
-          for (const res of r) {
-            const mark = res.correct ? "PASS" : "FAIL";
-            console.log(`${mark} ${t.name} [${m}] #${res.index}  ${res.model}  ${res.latencyMs}ms  ${res.reason}`);
-            if (!res.correct) console.log(`     ${res.answerText}`);
-            if (res.error) console.log(`     ${res.error}`);
-          }
-        }
+        const models = name === "local" && live ? live : cfg.models;
+        const status = apiKeyFor(name) ? "key set" : `${name.toUpperCase()}_API_KEY missing`;
+        console.log(`  ${name.padEnd(10)} [${status}]`);
+        for (const m of models) console.log(`    ${name}:${m.padEnd(30)} ${labelModel(m)}`);
       }
       break;
     }
+
+    case "serve":
+    case "web": {
+      const args = parseArgs(rest);
+      const { serve } = await import("./web/server.js");
+      const { url } = await serve({ port: args.port ?? 4000, host: args.host ?? "127.0.0.1" });
+      if (args.open) spawn("open", [url], { stdio: "ignore", detached: true }).unref();
+      break;
+    }
+
+    // bench/aggregate own their own flag parsing; re-exec them with the remaining argv.
+    case "bench":
+    case "run":
+      await runScript(join(SRC, "bench.js"), rest);
+      break;
 
     case "aggregate":
-    case "report": {
-      const { main: aggMain } = await import("./aggregate.js");
-      await aggMain();
+    case "report":
+      await runScript(join(SRC, "aggregate.js"), rest);
       break;
-    }
 
     default:
       console.log("Usage:");
       console.log("  node src/cli.js list");
-      console.log("  node src/cli.js bench --task <name|all> --mode noHarness|harness --clients <p:model,...>");
-      console.log("  node src/cli.js aggregate --tasks <name,...> --modes noHarness,harness --clients <p:model,...>");
-      process.exit(1);
+      console.log("  node src/cli.js serve [--port 4000] [--host 127.0.0.1] [--open]");
+      console.log("  node src/cli.js bench --task <name|all> --modes noHarness,harness --clients <p:model,...> [--count N] [--json]");
+      console.log("  node src/cli.js aggregate [--tasks <name,...>] [--modes ...] [--clients ...] [--count N]");
+      process.exit(cmd ? 1 : 0);
   }
 }
 
-function parseArgs(argv) {
-  const args = { _: [] };
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i];
-    const next = () => argv[++i];
-    switch (a) {
-      case "--task": case "--tasks": args.task = next().split(",").map((s) => s.trim()).filter(Boolean); break;
-      case "--mode": case "--modes": args.mode = next().split(",").map((s) => s.trim()).filter(Boolean); break;
-      case "--clients": args.clients = next().split(",").map((s) => s.trim()).filter(Boolean); break;
-      case "--provider": args.provider = next(); break;
-      case "--model": args.model = next(); break;
-      case "--count": args.count = Number(next()); break;
-      default: args._.push(a);
-    }
-  }
-  return args;
+function runScript(file, argv) {
+  return new Promise((resolvePromise, reject) => {
+    const child = spawn(process.execPath, [file, ...argv], { stdio: "inherit" });
+    child.on("error", reject);
+    child.on("exit", (code) => (code === 0 ? resolvePromise() : process.exit(code ?? 1)));
+  });
 }
 
 main().catch((err) => {

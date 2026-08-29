@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LLM Harness Bench</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>&#129514;</text></svg>" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">&#129514;</span>
+      <div>
+        <h1>LLM Harness Bench</h1>
+        <p class="brand-sub">Does a harness &mdash; tools, output schema, structured prompts &mdash; make the model better?</p>
+      </div>
+    </div>
+    <div id="sut" class="sut" title="The system under test that harness tools call">
+      <span class="dot" aria-hidden="true"></span>
+      <span class="sut-text">checking&hellip;</span>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- ============ launch ============ -->
+    <section class="panel launch" aria-labelledby="launch-h">
+      <h2 id="launch-h">Launch a run</h2>
+
+      <div class="field">
+        <div class="field-head"><label>Tasks</label><button class="link" data-all="tasks">all</button></div>
+        <div id="tasks" class="options"></div>
+      </div>
+
+      <div class="field">
+        <div class="field-head"><label>Modes</label></div>
+        <div id="modes" class="options"></div>
+        <p class="hint">Both modes are needed to compute a harness delta.</p>
+      </div>
+
+      <div class="field">
+        <div class="field-head"><label>Models</label><button class="link" data-all="clients">all available</button></div>
+        <div id="clients" class="options providers"></div>
+      </div>
+
+      <div class="field row">
+        <label for="count">Trials per cell</label>
+        <input id="count" type="number" min="1" max="20" value="1" />
+      </div>
+
+      <div id="plan" class="plan">Select tasks, modes and models.</div>
+
+      <div class="actions">
+        <button id="run" class="primary" disabled>Run benchmark</button>
+        <button id="cancel" class="ghost" hidden>Cancel</button>
+      </div>
+      <p id="launch-error" class="error" hidden></p>
+    </section>
+
+    <!-- ============ results ============ -->
+    <section class="panel results" aria-labelledby="results-h">
+      <div class="results-head">
+        <h2 id="results-h">Results</h2>
+        <div class="results-meta">
+          <select id="history" aria-label="Past runs"><option value="">Past runs&hellip;</option></select>
+          <button id="delete-run" class="ghost small" hidden>Delete</button>
+        </div>
+      </div>
+
+      <div id="empty" class="empty">
+        <p>No run selected.</p>
+        <p class="hint">Launch one on the left, or pick a past run from the dropdown.</p>
+      </div>
+
+      <div id="report" hidden>
+        <div id="progress" class="progress" hidden>
+          <div class="bar"><div class="bar-fill"></div></div>
+          <span class="progress-text"></span>
+        </div>
+
+        <p id="warnings" class="warn" hidden></p>
+
+        <div id="cards" class="cards"></div>
+
+        <h3>Correctness by task &times; model</h3>
+        <div class="table-wrap"><table id="matrix"></table></div>
+
+        <div class="trials-head">
+          <h3>Trials</h3>
+          <label class="check inline"><input type="checkbox" id="only-failed" /> failures only</label>
+        </div>
+        <div class="table-wrap"><table id="trials"></table></div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ============ trial detail ============ -->
+  <aside id="detail" class="detail" hidden aria-label="Trial detail">
+    <div class="detail-head">
+      <div>
+        <h2 id="detail-title">Trial</h2>
+        <p id="detail-sub" class="hint"></p>
+      </div>
+      <button id="detail-close" class="ghost small" aria-label="Close">&times;</button>
+    </div>
+    <div id="detail-body" class="detail-body"></div>
+  </aside>
+  <div id="scrim" class="scrim" hidden></div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

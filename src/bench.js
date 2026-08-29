@@ -1,14 +1,17 @@
-// bench.js — run one task in one mode against one client, score it, and record a result.
+// bench.js — run tasks in one or more modes against one or more clients, score, and record.
 //
 // Usage:
-//   node src/bench.js --task health --mode harness --provider openai --model gpt-4o-mini
-//   node src/bench.js --task health --mode noHarness --provider openai --model gpt-4o-mini
-//   node src/bench.js --task hello --clients "local:ornith-1.5:9b"   (uses default modes)
+//   node src/bench.js --task health --mode harness --clients openai:gpt-4o-mini
+//   node src/bench.js --task all --modes noHarness,harness --clients local:ornith-1.5:9b --count 3
+//   node src/bench.js --task hello --clients local            # every local model
 //
-// Exit code 0 on success, 1 on error (prints a JSON error to stdout).
+// Every run is saved under results/runs/ (so the web UI can review it too); --json also prints
+// the rows to stdout, --no-save skips persistence.
 
-import { getTask, tasks } from "./tasks/registry.js";
+import { getTask, tasks as allTasks } from "./tasks/registry.js";
 import { resolveClients } from "./providers/index.js";
+import { runMatrix, runTrial, MODES } from "./runner.js";
+import { newRunId, saveRun } from "./results.js";
 import { parseArgs } from "./args.js";
 
 function fail(msg) {
@@ -16,173 +19,118 @@ function fail(msg) {
   process.exit(1);
 }
 
-// Turn a model's final message content into an answer, according to extract mode.
-async function extractAnswer(mode, resp) {
-     // Harness mode: the structured tool result is what we score, not the model's prose wrap-up.
-     // fall back to the model's final message if there was no tool result.
-    const content = mode === "structured" && resp.structured !== undefined
-       ? resp.structured
-       : resp.text ?? "";
-
-    if (mode === "structured") {
-      // If resp.structured is already an object or array (the model returned structured output), use it directly.
-      // Otherwise, try to parse the text as JSON.
-      if (typeof content === "object" && content !== null) {
-        return { value: content, schemaValid: true };
-       }
-      const parsed = tryParseJSON(content);
-      if (parsed === null) return { value: null, schemaValid: false };
-      return { value: parsed, schemaValid: true };
-     }
-
-    return { value: content, schemaValid: true };
+/** Back-compat wrapper: run one task in one mode `count` times. */
+export async function runBenchTask({ task, mode, client, count = 1, signal }) {
+  const results = [];
+  for (let i = 0; i < count; i++) {
+    results.push(await runTrial({ task, mode, client, index: i + 1, signal }));
+  }
+  return results;
 }
 
-function tryParseJSON(str) {
-  if (typeof str !== "string") return null;
-  const trimmed = str.trim();
-  if (!trimmed || trimmed[0] !== "{") return null;
-  try { return JSON.parse(trimmed); } catch { return null; }
+export function resolveTasks(spec) {
+  if (!spec) return allTasks;
+  const names = (Array.isArray(spec) ? spec : String(spec).split(","))
+    .map((s) => String(s).trim())
+    .filter(Boolean);
+  if (!names.length || names.includes("all")) return allTasks;
+  return names.map(getTask);
 }
 
-export async function runBenchTask({ task, mode, client, count = 1 }) {
-       // Tasks define optional `system`/`tools` on either mode; normalize defensively so a task
-       // missing a system prompt (e.g. the no-harness `health` task) never crashes the runner.
-      const spec = mode === "harness" ? task.harness : task.noHarness;
-
-    const results = [];
-
-    for (let i = 0; i < count; i++) {
-      const start = performance.now();
-      let resp, answer, score;
-      try {
-        if (mode === "harness") {
-          resp = await client.runWithTools(spec.prompt, spec.tools, spec.system ?? "");
-          answer = await extractAnswer("structured", resp);
-         } else {
-          resp = await client.chat([
-            ...(spec.system ? [{ role: "system", content: spec.system }] : []),
-            { role: "user", content: spec.prompt },
-           ]);
-          answer = await extractAnswer("text", resp);
-         }
-
-        const ground = await task.eval.ground();
-        const scorer = mode === "harness" ? task.eval.scoreHarness : task.eval.scoreNoHarness;
-
-        console.log(`DEBUG answer.value (structured):`, JSON.stringify(answer.value));
-        score = await scorer(answer.value, ground);
-
-        results.push({
-          index: i + 1,
-          mode,
-          task: task.name,
-          provider: client.name,
-          model: client.model,
-          latencyMs: Math.round(performance.now() - start),
-          toolCalls: resp.toolCalls ?? [],
-          finishReason: resp.finishReason,
-          schemaValid: answer.schemaValid,
-          answerText: String(answer.value),
-          correct: score.correct,
-          reason: score.reason,
-          usage: resp.usage,
-          error: null,
-        });
-      } catch (err) {
-        console.error(`[bench] ${err.stack || err.message}`);
-        results.push({
-          index: i + 1,
-          mode,
-          task: task.name,
-          provider: client.name,
-          model: client.model,
-          latencyMs: 0,
-          answerText: null,
-          reason: "exception",
-          error: err.message,
-          correct: false,
-        });
-      }
-    }
-    return results;
+export function resolveModes(spec) {
+  if (!spec) return [...MODES];
+  const modes = (Array.isArray(spec) ? spec : String(spec).split(","))
+    .map((s) => String(s).trim())
+    .filter(Boolean);
+  if (!modes.length) return [...MODES];
+  for (const m of modes) {
+    if (!MODES.includes(m)) throw new Error(`--mode must be one of ${MODES.join(", ")}, got "${m}"`);
+  }
+  return modes;
 }
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const taskName = args.task ?? "all";
 
-       // --mode / --modes accepts a comma-separated list ("noHarness,harness"); normalize to an array.
-    let modeList;
-    if (args.mode === undefined) {
-      modeList = ["noHarness", "harness"];
-     } else if (Array.isArray(args.mode)) {
-      modeList = args.mode;
-     } else {
-      modeList = String(args.mode).split(",").map((s) => s.trim()).filter(Boolean);
-     }
+  let taskList, modeList;
+  try {
+    taskList = resolveTasks(args.task);
+    modeList = resolveModes(args.mode);
+  } catch (err) {
+    fail(err.message);
+  }
 
-       // If no mode was specified at all, use both modes for comparison; otherwise use what was requested
-    const mode = modeList.length > 0 ? modeList : ["noHarness", "harness"];
+  const count = args.count ?? 1;
 
-    const count = args.count ?? 1;
+  // --clients takes precedence over --provider/--model.
+  const clients = args.clients
+    ? resolveClients(args.clients)
+    : resolveClients([{ provider: args.provider ?? "openai", model: args.model ?? "gpt-4o-mini" }]);
+  if (!clients.length) {
+    fail(`no client resolved — check the model name and that ${(args.provider ?? "the provider").toUpperCase()}_API_KEY is set in .env`);
+  }
 
-       // --clients takes precedence over --provider/--model.
-      let provider = args.provider ?? "openai";
-      let model = args.model ?? "gpt-4o-mini";
-      if (args.clients) {
-        const clients = resolveClients(args.clients);
-        if (!clients.length) fail(`no client for --clients=${args.clients}`);
-        const [c] = clients;
-        provider = c.provider ?? provider;
-        model = c.model ?? model;
-      }
+  const quiet = !!args.json;
+  const { rows, summary } = await runMatrix({
+    tasks: taskList,
+    modes: modeList,
+    clients,
+    count,
+    onEvent: quiet ? undefined : (ev) => {
+      if (ev.type !== "trial") return;
+      const r = ev.result;
+      const mark = r.correct ? "PASS" : "FAIL";
+      console.log(
+        `${mark}  ${r.task.padEnd(8)} ${r.mode.padEnd(9)} ${r.model.padEnd(22)} #${r.index}  ${String(r.latencyMs).padStart(6)}ms  ${r.reason}`,
+      );
+      if (r.error) console.log(`      error: ${r.error}`);
+      else if (!r.correct) console.log(`      answer: ${preview(r.mode === "harness" ? r.structured ?? r.answerText : r.answerText)}`);
+    },
+  });
 
-      // Validate modes are only "noHarness" or "harness"
-    if (Array.isArray(mode)) {
-      for (const m of mode) {
-        if (!["noHarness", "harness"].includes(m)) {
-          fail(`--mode must be "noHarness" or "harness", got ${m}`);
-         }
-       }
-     } else if (!["noHarness", "harness"].includes(mode)) {
-      fail(`--mode must be "noHarness" or "harness", got ${mode}`);
-     }
+  const run = {
+    id: newRunId(),
+    createdAt: rows[0]?.startedAt ?? new Date().toISOString(),
+    finishedAt: new Date().toISOString(),
+    status: "done",
+    source: "cli",
+    config: {
+      tasks: taskList.map((t) => t.name),
+      modes: modeList,
+      clients: clients.map((c) => c.name),
+      count,
+    },
+    progress: { completed: rows.length, total: rows.length },
+    summary,
+    rows,
+  };
 
-    const client = resolveClients([provider, model])[0];
-    if (!client) fail(`no client for provider=${provider} model=${model}`);
+  if (!args.noSave) saveRun(run);
 
-    const taskList = taskName === "all" ? tasks : [getTask(taskName)];
+  if (args.json) {
+    console.log(JSON.stringify(run, null, 2));
+    return;
+  }
 
-    for (const m of mode) {
-      const all = [];
-      if (args.json) {
-        for (const t of taskList) {
-          const r = await runBenchTask({ task: t, mode: m, client, count });
-          all.push(...r);
-         }
-        console.log(JSON.stringify(all, null, 2));
-      } else {
-        for (const t of taskList) {
-          console.log(`\n=== ${t.name} [${m}] ${client.name} ===`);
-          const r = await runBenchTask({ task: t, mode: m, client, count });
-          all.push(...r);
-          for (const res of r) {
-            const mark = res.correct ? "PASS" : "FAIL";
-            console.log(`${mark} ${t.name} #${res.index}      ${res.model.padEnd(18)}  ${res.latencyMs}ms    ${res.reason}`);
-            if (!res.correct) console.log(`     answer: ${res.answerText}`);
-            if (res.error) console.log(`     error: ${res.error}`);
-           }
+  console.log("");
+  for (const mode of summary.modes) {
+    const s = summary.byMode[mode];
+    console.log(`[${mode}] ${s.correct}/${s.runs} correct (${s.correctPct.toFixed(1)}%)  schema ${s.schemaValidPct.toFixed(0)}%  tools ${s.toolUsePct.toFixed(0)}%  ${s.avgLatencyMs}ms avg`);
+  }
+  const d = summary.delta.overall;
+  if (d) console.log(`\nharness delta: ${d.noHarnessPct.toFixed(1)}% -> ${d.harnessPct.toFixed(1)}% (${d.deltaPp >= 0 ? "+" : ""}${d.deltaPp.toFixed(1)}pp)`);
+  if (!args.noSave) console.log(`\nsaved: results/runs/${run.id}.json`);
+}
 
-          const total = all.length;
-          const passed = all.filter((r) => r.correct).length;
-          console.log(`\n[total] ${m}: ${total} runs, ${passed}/${total} correct`);
-         }
-       }
-     }
-   }
+function preview(value, max = 200) {
+  const s = typeof value === "string" ? value : JSON.stringify(value);
+  if (!s) return "(empty)";
+  return s.length > max ? `${s.slice(0, max)}…` : s;
+}
 
-main().catch((err) => fail(err.message));
+// Only run the CLI when invoked directly, not when imported by aggregate.js or the web server.
+if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
+  main().catch((err) => fail(err.message));
+}
 
-// Export resolveClients for use by aggregate.js and other modules
 export { resolveClients };

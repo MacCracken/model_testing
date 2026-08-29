@@ -1,110 +1,140 @@
-// Task: call GET /api/hello?name=... to get a greeting.
+// Task: call GET /api/hello?name=... to get a greeting for each of three people.
 //
-// - noHarness: model answers free text, no tools.
-// - withHarness: model uses a `hello` tool + schema to fetch a greeting JSON.
-// Eval: exact-match / regex on the greeting string, comparing to the real endpoint.
+// - noHarness: model writes the greetings from memory of the documented format, no tools.
+// - harness:   model uses the `hello` tool + an output schema to fetch the real greetings.
+//
+// Eval: compare the greetings the model reports against the ones the real endpoint returns.
 
 import { labelModel } from "../providers/index.js";
 
-const WEBROOT = process.env.WEBROOT ?? "./webserver";
 const PORT = process.env.PORT ?? 3000;
 const BASE = `http://localhost:${PORT}`;
 
 const NAMES = ["alice", "bob", "carol"];
 
-// The tool accepts a single name string or an array of names, fetches all greetings at once,
-// and returns them as an array. This allows the model to make one request and get results for all names.
+// One name per call — the endpoint takes a single `name` query param. Passing several names
+// at once just greets the literal comma-joined string, which is not what the task asks for.
+async function greet(name) {
+  const res = await fetch(`${BASE}/api/hello?name=${encodeURIComponent(name)}`);
+  if (!res.ok) throw new Error(`hello endpoint: ${res.status}`);
+  const data = await res.json();
+  return { name, message: data.message, id: data.id };
+}
+
 const tool = {
   name: "hello",
-  description: "Get a greeting for a person's name. Can handle one or multiple names. Returns { messages (array of {name, message}), id }.",
+  description:
+    "Get greetings from the webserver. Accepts one name or several comma-separated names. " +
+    "Returns { greetings: [{ name, message, id }] } — one entry per name.",
   parameters: {
     type: "object",
     properties: {
       name: {
         type: "string",
-        description: "The name(s) to greet. Can be a single string or comma-separated names.",
-        },
+        description: "The name(s) to greet. A single name, or several separated by commas.",
       },
+    },
     required: ["name"],
-     },
+  },
   impl: async (args) => {
-    const names = Array.isArray(args.name) ? args.name : args.name.split(/[,\s]+/).map((n) => n.trim()).filter(Boolean);
-    const body = {};
-    for (const n of names) body[`name=${encodeURIComponent(n)}`] = "";
-    const res = await fetch(`${BASE}/api/hello?${new URLSearchParams(body)}`, { method: "GET" });
-    if (!res.ok) throw new Error(`hello endpoint: ${res.status}`);
-    const data = await res.json();
-    return { greeting: data.message, id: data.id };
-     },
+    const raw = args?.name ?? "";
+    const names = (Array.isArray(raw) ? raw : String(raw).split(","))
+      .map((n) => String(n).trim())
+      .filter(Boolean);
+    if (!names.length) throw new Error("hello tool: no name given");
+    const greetings = await Promise.all(names.map(greet));
+    return { greetings };
+  },
 };
+
+const schema = {
+  type: "array",
+  minItems: NAMES.length,
+  items: {
+    type: "object",
+    properties: {
+      name: { type: "string" },
+      message: { type: "string", description: 'The greeting exactly as the server returned it.' },
+    },
+    required: ["name", "message"],
+  },
+};
+
+// The model may reasonably answer with a bare array or wrap it in an object. Accept either.
+function greetingsFrom(out) {
+  if (Array.isArray(out)) return out;
+  if (out && typeof out === "object") {
+    for (const key of ["greetings", "messages", "results", "data"]) {
+      if (Array.isArray(out[key])) return out[key];
+    }
+    if (out.message || out.greeting) return [out];
+  }
+  return [];
+}
+
+function messageOf(entry) {
+  if (typeof entry === "string") return entry;
+  return String(entry?.message ?? entry?.greeting ?? "");
+}
 
 export const task = {
   name: "hello",
   category: "api-call",
+  description: "Fetch the real greeting for three names and report them verbatim.",
   model: labelModel,
 
-    // ---- no-harness mode ----
+  // ---- no-harness mode ----
   noHarness: {
     prompt:
-        "The webserver exposes GET /api/hello?name=<name> which returns a greeting like " +
-        '"Hello, <name>!" plus an id. WITHOUT any tools, write the greeting you would send to ' +
-        "Alice, Bob, and Carol — one line each, in the exact same format the endpoint uses " +
-        '(i.e. "Hello, <Name>!").',
+      "The webserver exposes GET /api/hello?name=<name> which returns a greeting like " +
+      '"Hello, <name>!" plus an id. WITHOUT any tools, write the greeting the endpoint would ' +
+      `return for each of these names: ${NAMES.join(", ")} — one line each, in the exact ` +
+      "format the endpoint uses.",
     extract: "text",
-     },
+  },
 
-    // ---- with-harness mode ----
+  // ---- with-harness mode ----
   harness: {
     system:
-        "You are a precise API client. Use the provided tools and return exactly the requested structured data.",
-    prompt: `Call the hello tool for these names: ${NAMES.join(", ")}. Return one greeting object per name as an array.`,
+      "You are a precise API client. Use the provided tools and return exactly the requested structured data.",
+    prompt:
+      `Call the hello tool for these names: ${NAMES.join(", ")}. ` +
+      "Return a JSON array with one object per name, each carrying the greeting the tool returned verbatim.",
     tools: [tool],
+    schema,
     extract: "structured",
-     },
+  },
 
-    // ---- evaluation ----
+  // ---- evaluation ----
   eval: {
-    ground: async () => {
-      const res = await fetch(`${BASE}/api/hello?name=${encodeURIComponent(NAMES.join(","))}`);
-      if (!res.ok) throw new Error(`ground hello: ${res.status}`);
-      const data = await res.json();
-      return data.message;
-       },
-    // Harness: accept either single object with combined greeting or array format, both valid
-    scoreHarness: async (out, ground) => {
-          // Handle null/undefined output gracefully
-      if (!out || typeof out !== "object") return { correct: false, reason: "no structured output" };
+    // Truth: the greetings the real endpoint actually produces, one per name.
+    ground: async () => Promise.all(NAMES.map(greet)),
 
-         // Handle both array and single object responses from the tool
-      let arr = Array.isArray(out) ? out : [out];
+    // Harness: every ground greeting must appear in the structured answer.
+    scoreHarness: (out, ground) => {
+      if (out === null || out === undefined) return { correct: false, reason: "no structured output" };
+      const got = greetingsFrom(out).map((g) => messageOf(g).trim().toLowerCase()).filter(Boolean);
+      if (!got.length) return { correct: false, reason: "structured output contained no greetings" };
+      const missing = ground.filter((g) => !got.includes(g.message.trim().toLowerCase()));
+      if (missing.length) {
+        return {
+          correct: false,
+          reason: `${ground.length - missing.length}/${ground.length} greetings match; missing ${missing.map((m) => m.name).join(", ")}`,
+        };
+      }
+      return { correct: true, reason: `all ${ground.length} greetings match the endpoint` };
+    },
 
-        // Accept either format: array OR single object with combined greeting
-      if (!Array.isArray(out) && typeof out === 'object' && String(out.greeting) === ground) {
-        return { correct: true, reason: "single greeting matches expected combined greeting" };
-          }
-
-      const msgs = arr.map((o) => String(o?.message ?? o?.greeting ?? "")).join(" ");
-      const expected = NAMES.map((n) => `Hello, ${n}!`).join(" ");
-      if (msgs === expected || ground.includes("alice,bob,carol")) {
-        return { correct: true, reason: "greetings match endpoint" };
-          }
-      return { correct: false, reason: "greetings differ from endpoint output" };
-     },
-
-    // No-harness: check free text contains all three correct greetings.
-    scoreNoHarness: async (out, ground) => {
-      const text = String(out ?? "").replace(/"/g, "").toLowerCase();
-      const expected = NAMES.map((n) => `hello, ${n}!`).join(" ");
-      if (text.includes(expected)) return { correct: true, reason: "all three greetings present" };
-       // Partial credit for any greetings present.
-      const present = NAMES.filter((n) => text.includes(`hello, ${n}!`)).length;
+    // No-harness: the same greetings, looked for in free text.
+    scoreNoHarness: (out, ground) => {
+      const text = String(out ?? "").replace(/["*`]/g, "").toLowerCase();
+      const present = ground.filter((g) => text.includes(g.message.trim().toLowerCase()));
       return {
-        correct: present === NAMES.length,
-        reason: `${present}/${NAMES.length} greetings present`,
-       };
-     },
+        correct: present.length === ground.length,
+        reason: `${present.length}/${ground.length} greetings present`,
+      };
+    },
   },
 };
 
-export { BASE };
-export { tool };
+export { BASE, tool, schema, NAMES };
