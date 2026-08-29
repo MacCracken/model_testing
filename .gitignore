@@ -1,0 +1,13 @@
+node_modules/
+*.log
+.DS_Store
+
+# bench output
+results/
+.env
+.env.*
+
+# editor
+.vscode/
+.idea/
+*.swp
