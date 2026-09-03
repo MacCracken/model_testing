@@ -22,3 +22,29 @@ export function unwrapList(out, keys = [], isEntry = () => false) {
   }
   return [];
 }
+
+// Judge a tool that takes one name (or several, comma-separated) per call: every expected name must
+// have been passed to `toolName`, and nothing else. Other tools are ignored here — a decoy check
+// belongs to the task that defines the decoy.
+export function judgeNameCalls(toolCalls, toolName, expected) {
+  const calls = toolCalls.filter((c) => c.name === toolName);
+  if (!calls.length) return { ok: false, reason: `the ${toolName} tool was never called` };
+  const passed = new Set();
+  for (const c of calls) {
+    const raw = c.arguments?.name ?? "";
+    for (const n of Array.isArray(raw) ? raw : String(raw).split(",")) {
+      const t = String(n).trim().toLowerCase();
+      if (t) passed.add(t);
+    }
+  }
+  const missing = expected.filter((n) => !passed.has(n));
+  const extra = [...passed].filter((n) => !expected.includes(n));
+  if (!missing.length && !extra.length) return { ok: true, reason: `${toolName} called for ${expected.join(", ")}` };
+  return {
+    ok: false,
+    reason: [
+      missing.length ? `never passed ${missing.join(", ")}` : "",
+      extra.length ? `passed unexpected name(s) ${extra.join(", ")}` : "",
+    ].filter(Boolean).join("; "),
+  };
+}

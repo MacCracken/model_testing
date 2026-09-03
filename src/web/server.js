@@ -18,6 +18,9 @@ import { describeProviders, resolveClients } from "../providers/index.js";
 import { runMatrix, MODE_NAMES, DEFAULT_MODES } from "../runner.js";
 import { describeSkipped } from "../bench.js";
 import { newRunId, saveRun, loadRun, listRuns, deleteRun, runHeader } from "../results.js";
+import { benchVersions } from "../version.js";
+import { rowsToCsv, cellsToCsv } from "../export.js";
+import { summarize } from "../runner.js";
 
 const PUBLIC_DIR = join(dirname(fileURLToPath(import.meta.url)), "public");
 const SRC_DIR = resolve(PUBLIC_DIR, "..", "..");
@@ -51,9 +54,9 @@ function broadcast(id, event) {
   }
 }
 
-function startRun({ tasks, modes, clients, count }) {
+function startRun({ tasks, modes, clients, count, modelParams = {} }) {
   const taskObjs = tasks.map(getTask);
-  const clientObjs = resolveClients(clients);
+  const clientObjs = resolveClients(clients, { modelParams });
   if (!clientObjs.length) throw new Error("no usable clients — check the model names and that the provider's API key is set in .env");
 
   const missing = clients.filter((c) => !clientObjs.some((r) => r.name === c));
@@ -65,7 +68,8 @@ function startRun({ tasks, modes, clients, count }) {
     finishedAt: null,
     status: "running",
     source: "web",
-    config: { tasks, modes, clients: clientObjs.map((c) => c.name), count },
+    config: { tasks, modes, clients: clientObjs.map((c) => c.name), count, modelParams },
+    versions: benchVersions(),
     warnings: missing.length ? [`skipped (no API key or unknown provider): ${missing.join(", ")}`] : [],
     // The real total arrives with the runner's "start" event, once undeclared (task, mode) pairs
     // are dropped from the plan.
@@ -181,7 +185,14 @@ function validateLaunch(body) {
   if (!tasks.some((t) => modes.some((m) => !!getTask(t)[m]))) {
     throw new Error("none of the selected tasks declares any of the selected modes");
   }
-  return { tasks, modes, clients, count };
+  const modelParams = {};
+  for (const key of ["temperature", "seed"]) {
+    if (body[key] === undefined || body[key] === null || body[key] === "") continue;
+    const n = Number(body[key]);
+    if (!Number.isFinite(n)) throw new Error(`${key} must be a number`);
+    modelParams[key] = n;
+  }
+  return { tasks, modes, clients, count, modelParams };
 }
 
 async function handle(req, res) {
@@ -218,6 +229,18 @@ async function handle(req, res) {
     if (!run) return sendJSON(res, 404, { error: `unknown run: ${id}` });
 
     if (req.method === "GET" && !sub) return sendJSON(res, 200, { run });
+
+    // CSV export: the trial rows by default, the task × model × mode cells with ?cells=1.
+    if (req.method === "GET" && sub === "/csv") {
+      const cells = url.searchParams.get("cells") === "1";
+      const body = cells ? cellsToCsv(run.id, summarize(run.rows)) : rowsToCsv(run);
+      res.writeHead(200, {
+        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Disposition": `attachment; filename="${run.id}${cells ? "-cells" : ""}.csv"`,
+        "Cache-Control": "no-store",
+      });
+      return res.end(body);
+    }
 
     if (req.method === "DELETE" && !sub) {
       if (live) return sendJSON(res, 409, { error: "run is still in progress — cancel it first" });

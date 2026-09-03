@@ -97,6 +97,11 @@ export const task = {
     "model must select the right tool and pass typed args.",
   model: labelModel,
 
+  goal:
+    `Decide for each of these strings whether it matches the regular expression ${TARGET}: ` +
+    `${STRINGS.join(", ")}. Use a real regex engine (e.g. a one-line script) rather than judging by eye, ` +
+    "and report, for each string in order, the string and whether it matched.",
+
   // ---- no-harness mode ----
   noHarness: {
     prompt:
@@ -149,6 +154,37 @@ export const task = {
 
   // ---- evaluation ----
   eval: {
+    // Tool use: never the decoy; regex_match on every listed string and nothing else; and every
+    // pattern must agree with the target on the listed strings (so an unanchored or otherwise
+    // different regex that happens to work is still judged by what it computes, not its spelling).
+    toolUse: ({ toolCalls }) => {
+      if (toolCalls.some((c) => c.name === "word_count")) return { ok: false, reason: "called the word_count decoy" };
+      const calls = toolCalls.filter((c) => c.name === "regex_match");
+      if (!calls.length) return { ok: false, reason: "regex_match was never called" };
+      const target = new RegExp(TARGET);
+      const tested = new Set();
+      for (const c of calls) {
+        const pattern = c.arguments?.pattern;
+        tested.add(String(c.arguments?.string ?? ""));
+        let re;
+        try { re = new RegExp(String(pattern ?? "")); } catch { return { ok: false, reason: `invalid pattern ${JSON.stringify(pattern)}` }; }
+        const differs = STRINGS.find((s) => re.test(s) !== target.test(s));
+        if (differs !== undefined) return { ok: false, reason: `pattern ${JSON.stringify(pattern)} disagrees with the target on "${differs}"` };
+      }
+      const missing = STRINGS.filter((s) => !tested.has(s));
+      const extra = [...tested].filter((s) => !STRINGS.includes(s));
+      if (missing.length || extra.length) {
+        return {
+          ok: false,
+          reason: [
+            missing.length ? `never tested ${missing.join(", ")}` : "",
+            extra.length ? `tested strings not in the list: ${extra.join(", ")}` : "",
+          ].filter(Boolean).join("; "),
+        };
+      }
+      return { ok: true, reason: `regex_match called with the target pattern for all ${STRINGS.length} strings` };
+    },
+
     // Ground: which strings actually match the target regex — the same truth the harness
     // `regex_match` tool computes.
     ground: () => STRINGS.map((s) => ({ string: s, matched: new RegExp(TARGET).test(s) })),

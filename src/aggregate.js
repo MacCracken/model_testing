@@ -9,7 +9,8 @@
 
 import "./env.js";
 import { resolveClients } from "./providers/index.js";
-import { resolveTasks, resolveModes, describeSkipped } from "./bench.js";
+import { resolveTasks, resolveModes, describeSkipped, modelParamsFrom } from "./bench.js";
+import { benchVersions } from "./version.js";
 import { runMatrix, planMatrix } from "./runner.js";
 import { printSummary } from "./report.js";
 import { newRunId, saveRun } from "./results.js";
@@ -22,7 +23,8 @@ export async function main() {
   const modeList = resolveModes(args.mode);
   const count = args.count ?? 1;
 
-  const clients = resolveClients(args.clients);
+  const modelParams = modelParamsFrom(args);
+  const clients = resolveClients(args.clients, { modelParams });
   if (!clients.length) {
     console.error("no clients configured — set *_API_KEY in .env or pass --clients");
     process.exit(1);
@@ -60,7 +62,8 @@ export async function main() {
     finishedAt: new Date().toISOString(),
     status: "done",
     source: "aggregate",
-    config: { tasks: taskList.map((t) => t.name), modes: modeList, clients: clients.map((c) => c.name), count },
+    config: { tasks: taskList.map((t) => t.name), modes: modeList, clients: clients.map((c) => c.name), count, modelParams },
+    versions: benchVersions(),
     warnings: describeSkipped(skipped),
     progress: { completed: rows.length, total: rows.length },
     summary,

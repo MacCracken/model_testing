@@ -78,6 +78,8 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
     schemaErrors: [],
     correct: false,
     reason: "",
+    toolUseOk: null,
+    toolUseReason: "",
     usage: null,
     ground: null,
     error: null,
@@ -102,11 +104,14 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
     if (structured || hasTools) {
       // Tools run (if any) and the final message is parsed as JSON. What gets scored is the
       // model's final message written after it saw real tool output — never the tool args.
-      resp = await client.runWithTools(spec.prompt, spec.tools ?? [], system, { maxRounds, signal });
+      resp = await client.runWithTools(spec.prompt, spec.tools ?? [], system, { maxRounds, signal, task, mode });
       record.toolCalls = resp.toolCalls ?? [];
       record.toolResults = resp.toolResults ?? [];
       record.rounds = resp.rounds ?? 0;
       record.structured = resp.structured ?? null;
+      // A real-harness arm reports the model it actually routed to; record that, not the label.
+      if (resp.harness?.model) record.model = resp.harness.model;
+      if (resp.harness) record.harness = resp.harness.kind ?? "unknown";
 
       // Schema validation belongs to the structured path. With no schema to check against
       // (toolOnly), schemaValid stays null rather than posing as a verdict.
@@ -146,6 +151,16 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
 
     record.correct = !!score.correct;
     record.reason = score.reason ?? "";
+
+    // Was the tool used correctly — right tool, right arguments, right calls? A separate signal
+    // from "final answer correct": a model can reach the right answer by hand after firing the
+    // wrong tool, or fire the right tool and still misreport. Judged only when the spec carried
+    // tools and the task defines a judge; null otherwise.
+    if (hasTools && typeof task.eval.toolUse === "function") {
+      const use = await task.eval.toolUse({ mode, toolCalls: record.toolCalls, toolResults: record.toolResults });
+      record.toolUseOk = !!use.ok;
+      record.toolUseReason = use.reason ?? "";
+    }
   } catch (err) {
     record.correct = false;
     const cancelled = signal?.aborted;
@@ -308,15 +323,31 @@ export function mean(xs) {
 // Exported so the significance helpers can be unit-tested and reused (e.g. per-cell significance).
 export { normalCDF, twoPropZTest, wilsonInterval, fisherExact, deltaFor };
 
+// Nearest-rank percentile (p in 0..100) of a list of numbers; 0 for an empty list.
+export function percentile(xs, p) {
+  if (!xs.length) return 0;
+  const sorted = [...xs].sort((a, b) => a - b);
+  const rank = Math.min(sorted.length, Math.max(1, Math.ceil((p / 100) * sorted.length)));
+  return sorted[rank - 1];
+}
+
 function statsFor(rows) {
+  const judged = rows.filter((r) => r.toolUseOk === true || r.toolUseOk === false);
+  const latencies = rows.map((r) => r.latencyMs ?? 0);
   return {
     runs: rows.length,
     correct: rows.filter((r) => r.correct).length,
     correctPct: pct(rows, (r) => r.correct),
     toolUsePct: pct(rows, (r) => (r.toolCalls?.length ?? 0) > 0),
+    // Tool-use hygiene: of the rows a task judged, how many used the tool correctly.
+    toolArgsJudged: judged.length,
+    toolArgsOkPct: pct(judged, (r) => r.toolUseOk === true),
     schemaValidPct: pct(rows, (r) => r.schemaValid === true),
     errorPct: pct(rows, (r) => !!r.error),
-    avgLatencyMs: Math.round(mean(rows.map((r) => r.latencyMs))),
+    avgLatencyMs: Math.round(mean(latencies)),
+    latencyP50Ms: Math.round(percentile(latencies, 50)),
+    latencyP95Ms: Math.round(percentile(latencies, 95)),
+    latencyMaxMs: latencies.length ? Math.max(...latencies) : 0,
     totalTokens: rows.reduce((a, r) => a + (r.usage?.total_tokens ?? 0), 0),
   };
 }
@@ -391,6 +422,15 @@ export function summarize(rows) {
   const byClient = {};
   for (const c of clientNames) byClient[c] = deltaFor(rows.filter((r) => r.client === c));
 
+  // Per (task, client) — the finest grain a delta makes sense at; keyed "task|client".
+  const byTaskClient = {};
+  for (const t of taskNames) {
+    for (const c of clientNames) {
+      const sub = rows.filter((r) => r.task === t && r.client === c);
+      if (sub.length) byTaskClient[`${t}|${c}`] = deltaFor(sub);
+    }
+  }
+
   return {
     runs: rows.length,
     tasks: taskNames,
@@ -398,6 +438,6 @@ export function summarize(rows) {
     clients: clientNames,
     byMode,
     cells,
-    delta: { overall: deltaFor(rows), byTask, byClient },
+    delta: { overall: deltaFor(rows), byTask, byClient, byTaskClient },
   };
 }

@@ -32,6 +32,7 @@ after it has seen that output, so harness mode measures the model, not the endpo
 | `reason` | pure-reasoning | Three arithmetic/logic questions, no tools in either mode. The control: any "delta" here is the schema instruction alone. |
 | `lookup` | api-call | Three server-minted random ids. **Tool-essential**: there is nothing to memorize, so free text floors at 0 and truth is whatever the tool returned during the trial. |
 | `regex` | tool-reasoning | Which of six strings match an anchored regex, with a correct `regex_match` tool and a `word_count` decoy. Tests tool *selection* and typed arguments, not just firing. |
+| `chain` | multi-step | Greet alice, then greet the id that came back, and report the second greeting. The second call depends on the first; the id is random, so nothing but the chain produces the answer. |
 
 ## Setup
 
@@ -54,8 +55,8 @@ Then open <http://127.0.0.1:4000>. The page is a recipe on the left and the resu
 - pick **tasks**, **modes** and **models** as chips (a mode greys out when no selected task declares
   it; providers without a key, or an offline Ollama, are greyed out) and set trials per cell — the
   recipe sentence shows exactly how many trials will run and which pairs are skipped;
-- the headline is the **harness delta** with its significance line, the per-mode rates, and the
-  harness hygiene numbers (tool use, schema validity, tokens);
+- the headline is the **harness delta** with its significance line, the per-mode rates with p50/p95
+  latency, and the harness hygiene numbers (tool use, **tool args ok**, schema validity, tokens);
 - a **live cell grid** fills in trial by trial in execution order, so you can see what is running,
   what passed and what is queued; a run can be cancelled mid-flight;
 - the task × model matrix is a **dumbbell chart**: no-harness and harness rates on one track per
@@ -65,7 +66,8 @@ Then open <http://127.0.0.1:4000>. The page is a recipe on the left and the resu
   the final message, the scorer's verdict — plus the answer and the ground truth side by side, and
   any schema errors. ← / → step between trials, esc closes;
 - reopen any past run from the header dropdown, including runs launched from the CLI;
-- **light / dark / system** theme switch in the header, remembered per browser.
+- **light / dark / system** theme switch in the header, remembered per browser;
+- optional **temperature** and **seed** in the recipe, and an **export csv** link on every finished run.
 
 Useful flags: `--port 4000`, `--host 127.0.0.1`, `--open`.
 
@@ -91,7 +93,12 @@ writing it.
 node src/cli.js list                    # tasks (with the modes each declares) and providers, with key status
 node src/cli.js show                    # recent saved runs
 node src/cli.js show <run-id> --table   # one saved run: per-mode stats, deltas with significance, a task × mode table
+node src/cli.js export <run-id>         # every trial as CSV (--cells for the task × model × mode cells, --out file.csv)
 ```
+
+`--temperature T` and `--seed S` are sent as-is with every request and recorded in the run's config
+(the determinism knobs; some models reject a non-default temperature, which then shows as an error
+row). Every run also records the bench version, git commit and node version under `versions`.
 
 ## Providers
 
@@ -106,6 +113,26 @@ To add one, add an entry to `PROVIDERS` in `src/providers/index.js` and a label 
 `MODEL_LABELS`. Values in `.env` (`*_API_KEY`, `OLLAMA_BASE_URL`, `SUT_PORT`, `RESULTS_DIR`) are loaded
 at startup; real environment variables win.
 
+## A real harness as the arm: Thoth (experimental)
+
+The synthetic harness is not the only harness the bench can run. `thoth:default` is a client that
+hands the task's plain-language **goal** to [Thoth](https://github.com/MacCracken) one-shot
+(`thoth --events`), lets Thoth bring its own tools and model, and scores its final message exactly
+like a synthetic harness trial. It runs structured modes only; the free-form baseline for the same
+model comes from the synthetic client.
+
+```bash
+# Thoth on another host: reverse-tunnel the webserver (and Ollama, if Thoth's gateway routes to it)
+ssh -N -R 3000:localhost:3000 -R 11434:localhost:11434 arch &
+THOTH_CMD="ssh -n arch cd ~/Repos/thoth && thoth" node src/bench.js --task reason,health --modes harness --clients thoth:default --count 4
+```
+
+Every row records the model Thoth actually routed to and `harness: "thoth"`. Caveats, all
+documented in `plan.md`: Thoth's `tool_result` events carry names and byte counts, not contents, so
+tasks whose truth is read from tool results (`lookup`, `chain`) cannot be scored from this arm yet;
+its gateway caches identical prompts; and reaching a localhost webserver needs either its shell tool
+(`[shell].enabled`, off by default) or a `web_fetch` policy that allows private addresses.
+
 ## Evaluation
 
 Tasks carry an `eval` block with:
@@ -115,8 +142,12 @@ Tasks carry an `eval` block with:
   really returned" when the endpoint is random. Tasks with fixed truth use a constant.
 - `scoreHarness(structured, ground)` — validate the structured answer against it.
 - `scoreNoHarness(text, ground)` — judge the free text.
+- `toolUse(trial)` (optional) — was the tool used *correctly*: right tool, right arguments, right
+  calls? Recorded per trial as `toolUseOk` with a reason, and aggregated as "tool args ok". It is a
+  separate signal from correctness: a model can reach the right answer by hand after firing the
+  wrong tool, or fire the right tool and misreport.
 
-All five tasks use automated ground-truth scoring. Scorers judge content, not wrappers: a list
+All six tasks use automated ground-truth scoring. Scorers judge content, not wrappers: a list
 returned under `results`, `data` or the schema's own `items` key scores the same as a bare array,
 while `schemaValid` still records whether the shape matched exactly.
 

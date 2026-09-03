@@ -20,6 +20,10 @@ export function parseArgs(argv) {
       case "--json": args.json = true; break;
       case "--no-save": args.noSave = true; break;
       case "--table": args.table = true; break;
+      case "--temperature": args.temperature = Number(next()); break;
+      case "--seed": args.seed = Number(next()); break;
+      case "--cells": args.cells = true; break;
+      case "--out": args.out = next(); break;
       default: args._.push(a);
     }
   }

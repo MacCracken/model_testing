@@ -168,9 +168,13 @@ pre { margin: 0; font: inherit; }
 .field-head { display: flex; justify-content: space-between; align-items: baseline; }
 .field.row { flex-direction: row; justify-content: space-between; align-items: center; font-size: 11px; color: var(--ink-2); }
 .field.row input {
-  width: 64px; text-align: center; background: var(--surface); color: var(--ink);
+  width: 84px; text-align: center; background: var(--surface); color: var(--ink);
   border: 1px solid var(--line); border-radius: 5px; padding: 3px 6px;
 }
+.field.row input::placeholder { color: var(--ink-3); }
+.mark { margin-left: 4px; }
+.mark.ok { color: var(--pass); }
+.mark.bad { color: var(--fail); }
 
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chips.modes { display: grid; grid-template-columns: 1fr 1fr; }

@@ -6,7 +6,7 @@
 // Eval: compare the greetings the model reports against the ones the real endpoint returns.
 
 import { labelModel } from "../providers/index.js";
-import { BASE, unwrapList } from "./util.js";
+import { BASE, unwrapList, judgeNameCalls } from "./util.js";
 
 const NAMES = ["alice", "bob", "carol"];
 
@@ -74,6 +74,11 @@ export const task = {
   description: "Fetch the real greeting for three names and report them verbatim.",
   model: labelModel,
 
+  goal:
+    `A webserver runs at ${BASE}. GET /api/hello?name=<name> returns JSON { message, id }. Fetch the ` +
+    `greeting for each of these names: ${NAMES.join(", ")}, and report each name with the message ` +
+    "the server returned, verbatim.",
+
   // ---- no-harness mode ----
   noHarness: {
     prompt:
@@ -121,6 +126,9 @@ export const task = {
 
   // ---- evaluation ----
   eval: {
+    // Tool use: every name passed to the hello tool, and no others.
+    toolUse: ({ toolCalls }) => judgeNameCalls(toolCalls, tool.name, NAMES),
+
     // Truth: the greetings the real endpoint actually produces, one per name.
     ground: async () => Promise.all(NAMES.map(greet)),
 

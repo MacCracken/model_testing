@@ -139,3 +139,38 @@ test("summarize: identical rates are non-significant (p = 1)", () => {
   assert.equal(s.delta.overall.significant, false);
   assert.ok(s.delta.overall.harnessWilson.low <= 1 && s.delta.overall.harnessWilson.high >= 1);
 });
+
+// --- percentiles and per task × client deltas --------------------------------------------------
+
+test("percentile is nearest-rank and bounded", async () => {
+  const { percentile } = await import("../src/runner.js");
+  assert.equal(percentile([], 50), 0);
+  assert.equal(percentile([5], 95), 5);
+  assert.equal(percentile([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 50), 5);
+  assert.equal(percentile([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 95), 10);
+  assert.equal(percentile([10, 1, 5], 50), 5);
+});
+
+test("summarize carries latency percentiles, tool-args hygiene and per task × client deltas", () => {
+  const mk = (task, client, mode, correct, latencyMs, toolUseOk = null) => ({ task, client, mode, correct, latencyMs, toolUseOk, toolCalls: toolUseOk === null ? [] : [{}] });
+  const rows = [];
+  for (let i = 0; i < 10; i++) {
+    rows.push(mk("a", "c1", "noHarness", i < 2, 100 + i * 10));
+    rows.push(mk("a", "c1", "harness", i < 9, 200 + i * 10, i < 8));
+    rows.push(mk("b", "c1", "noHarness", true, 50));
+    rows.push(mk("b", "c1", "harness", true, 60, true));
+  }
+  const s = summarize(rows);
+  assert.equal(s.byMode.harness.latencyP50Ms, 60);
+  // 20 harness latencies: ten at 60 and 200..290; nearest-rank p95 is the 19th value, 280.
+  assert.equal(s.byMode.harness.latencyP95Ms, 280);
+  assert.equal(s.byMode.harness.latencyMaxMs, 290);
+  assert.equal(s.byMode.harness.toolArgsJudged, 20);
+  assert.equal(s.byMode.harness.toolArgsOkPct, 90);
+  assert.equal(s.byMode.noHarness.toolArgsJudged, 0);
+  assert.equal(s.byMode.noHarness.toolArgsOkPct, 0);
+  const a = s.delta.byTaskClient["a|c1"];
+  assert.ok(a && a.significant, "2/10 → 9/10 should be significant");
+  const b = s.delta.byTaskClient["b|c1"];
+  assert.equal(b.deltaPp, 0);
+});

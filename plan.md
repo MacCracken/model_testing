@@ -163,6 +163,58 @@ How to read it:
   not bitten anyone yet; its signal today is argument construction and the schema echo, not tool
   choice. A less obviously irrelevant decoy would make it a real test.
 
+### Calibration at 10 trials per cell (2026-09-03, six tasks incl. `chain`, new schema wording)
+
+**gpt-4o-mini** — 30/60 → 60/60, **+50pp, p < 0.001**; tools-only 50/50, schema-only 30/60:
+
+| task | noHarness | harness | schemaOnly | toolOnly |
+|---|---|---|---|---|
+| health | 10/10 | 10/10 | 0/10 | 10/10 |
+| hello | 10/10 | 10/10 | 10/10 | 10/10 |
+| reason | 0/10 | 10/10 | 10/10 | — |
+| lookup | 0/10 | 10/10 | 0/10 | 10/10 |
+| regex | 10/10 | 10/10 | 10/10 | 10/10 |
+| chain | 0/10 | 10/10 | 0/10 | 10/10 |
+
+**claude-haiku-4-5** — 32/60 → 60/60, **+46.7pp, p < 0.001**; tools-only 50/50, schema-only 30/60:
+
+| task | noHarness | harness | schemaOnly | toolOnly |
+|---|---|---|---|---|
+| health | 5/10 | 10/10 | 0/10 | 10/10 |
+| hello | 7/10 | 10/10 | 10/10 | 10/10 |
+| reason | 10/10 | 10/10 | 10/10 | — |
+| lookup | 0/10 | 10/10 | 0/10 | 10/10 |
+| regex | 10/10 | 10/10 | 10/10 | 10/10 |
+| chain | 0/10 | 10/10 | 0/10 | 10/10 |
+
+**local ornith-1.5:9b** — 30/60 → 58/60, **+46.7pp, p < 0.001**; tools-only 48/50, schema-only 25/60;
+tool args ok 99/100 judged; harness p50 6.2 s, p95 15.5 s:
+
+| task | noHarness | harness | schemaOnly | toolOnly |
+|---|---|---|---|---|
+| health | 0/10 | 10/10 | 0/10 | 9/10 |
+| hello | 10/10 | 10/10 | 8/10 | 10/10 |
+| reason | 10/10 | 9/10 | 9/10 | — |
+| lookup | 0/10 | 10/10 | 0/10 | 9/10 |
+| regex | 10/10 | 9/10 | 8/10 | 10/10 |
+| chain | 0/10 | 10/10 | 0/10 | 10/10 |
+
+The small model's free-form `health` is 0/10 because it refuses to guess and says so (scored as a
+hedge, which the report now names). With the instance-not-schema wording its harness is 58/60,
+where the 4-per-cell run with the old wording had it at 80%. The one tool-use miss in 100 judged
+calls is a name split as "car ol".
+
+Per-task deltas now reach significance on their own where the floor is real (`lookup`, `chain`,
+`health` on haiku and ornith, `reason` on gpt-4o-mini).
+
+**qwen3.5:9b-mlx** was started as the second local model and stopped after three trials: its
+free-form `health` answers ran 104 s and twice past the 120 s request timeout (a thinking-heavy
+model writing at length). `BENCH_TIMEOUT_MS` now raises the per-request timeout; the run should be
+repeated with it set to 300000 and, ideally, with thinking disabled through the model params. The new `chain` task behaves as designed: 0/10
+without a tool in both free-form and schema-only, 10/10 with one. gpt-4o-mini's free-form `reason`
+is 0/10 — it writes 10 for the marbles question every single time in prose and 8 every time in
+JSON. The local runs at this size are recorded below when they finish.
+
 ### What is genuinely done
 
 - Baseline benchmark (tasks × modes × clients), CLI + web, per-mode / per-cell breakdowns, saved runs.
@@ -186,10 +238,11 @@ How to read it:
   `lookup` free-form 0% with a full harness lift, `regex` free-form 100%, and the 2×2 attributes the
   lift to tools. Still open: raise to 10 per cell and add a second local model so per-task deltas can
   reach significance on their own.
-- **[2] Tool-argument correctness as a hygiene metric.** The saved `regex` run shows the model calling
-  `regex_match` on strings that were not in the list ("123-457", "123-450"). "Called the right tool with
-  the right args" is a distinct signal from "final answer correct"; record it per trial
-  (`argsCorrect`) and surface it beside tool-use and schema-valid.
+- **[2] Tool-argument correctness as a hygiene metric.** **DONE.** Every tool task defines
+  `eval.toolUse` (right tool, right arguments, right calls — `regex` judges the pattern by what it
+  computes on the listed strings, not by spelling, and flags the decoy); the runner records
+  `toolUseOk` + reason per trial; CLI, `show`, CSV and the UI surface "tool args ok" beside tool-use
+  and schema-valid, and the trial drawer shows the verdict as a timeline step.
 - **[3] Decide the 2×2.** **Specs DONE:** `health`, `hello`, `lookup` and `regex` carry hand-written
   `schemaOnly` / `toolOnly` specs (not derived: a free-form prompt says "without any tools" and a
   harness prompt says "call the X tool and return JSON", so a derived spec would contradict itself).
@@ -198,26 +251,35 @@ How to read it:
 
 ### Tier 2 — Methodology / task diversity
 
-- **[4] Multi-step tasks** where later tool calls depend on earlier results, and an
-  extract-and-transform task (fetch, then reshape).
+- **[4] Multi-step tasks.** **DONE** for the dependent-call case: `chain` greets alice, then must
+  greet the random id that came back and report the second greeting; ground truth and the tool-use
+  verdict both come from the trial's own tool results, so firing both calls up front cannot pass.
+  Still open: an extract-and-transform task (fetch, then reshape).
 - **[5] LLM-as-judge** for open-ended tasks (`eval.judge`), still pluggable and still unbuilt.
-- **[6] Determinism knobs.** `Client.modelParams` exists and nothing sets it; wire `temperature` (and
-  `seed` where supported) into the run config and record it.
+- **[6] Determinism knobs.** **DONE.** `--temperature` / `--seed` on the CLI and two fields in the
+  recipe flow into every request as-is and are recorded in `run.config.modelParams` (shown in the
+  headline). Models that reject a non-default temperature (the gpt-5 family) surface as error rows.
 
 ### Tier 3 — Data / output
 
-- **[7] CSV export** of rows and cells from the CLI and the UI.
-- **[8] TTFT and latency distribution** (needs the streaming client); p50/p95 instead of a mean.
-- **[9] Per-cell significance in the CLI** (the UI already shows it on hover).
+- **[7] CSV export.** **DONE.** `node src/cli.js export <id> [--cells]`, `GET /api/runs/<id>/csv`
+  (`?cells=1`), and an "export csv" link on every finished run.
+- **[8] Latency distribution.** p50 / p95 / max **DONE** (per mode and per cell, in the report, the
+  CSV and the headline). **TTFT still open** — it needs the streaming client, and assembling
+  streamed tool-call deltas differs per provider.
+- **[9] Per-cell significance in the CLI.** **DONE.** `summary.delta.byTaskClient`, printed by the
+  report when there is more than one cell.
 
 ### Tier 4 — Architecture
 
 - **[10] Provider breadth.** Cerebras / DeepSeek / Together drop in via `PROVIDERS`.
-- **[11] `schema.js` coverage**: `additionalProperties`, `const`, `format`, nested `required`.
-- **[12] Harness version pinning** in the run record (model and client build) so results stay
-  comparable over time.
+- **[11] `schema.js` coverage.** **DONE.** `additionalProperties` (false or a schema), `const`,
+  string bounds / `pattern` / `format` (date-time, date, uuid, email, uri), numeric bounds and
+  `multipleOf`, `maxItems` / `uniqueItems`, type unions. Unknown formats stay annotations.
+- **[12] Version pinning.** **DONE.** Every run records `versions` (bench version, git commit, node,
+  harness kind) next to its config.
 
-### Tier 5 — Real harnesses as the harness arm (proposed, see below)
+### Tier 5 — Real harnesses as the harness arm (STARTED — Thoth arm plumbed, see below)
 
 ---
 
@@ -248,24 +310,72 @@ difference lives.
 
 No public coding-agent harness called Thoth exists (the only candidates are an unrelated LangGraph
 desktop assistant since renamed Row-Bot, and a Claude Code plugin). Thoth here is **your own harness**,
-per the "thoth Open Gaps" review: a terminal agent with an MCP client (bote via daimon), Ollama
-support, mid-session model switching, per-turn token/cost accounting, tool-definition pinning and a
-hash-linked audit chain. From that review, the one thing it lacks to be a benchmark arm is a
-**non-interactive one-shot mode**: `--events` (0.42.0) is a one-way stream, which is the right
-transport, but the arm needs a way to send one prompt, receive a marked final message with usage,
-and exit. `/audit export` could double as the transcript source. That is a Thoth roadmap item, not a
-bench one, and the bench can be built around Pi first while it lands.
+and — checked on `arch` on 2026-09-03, **thoth 0.44.3** — it is already drivable as a benchmark arm:
+
+- `thoth <task>` runs one task and prints only the answer (diagnostics on stderr, non-zero exit on
+  failure); `thoth -p` takes the whole task from stdin.
+- `thoth --json <task>` emits `{response, model, turns, tokens?, cost?, elapsed_ms}`; `--events`
+  streams NDJSON (`turn_start` → `tool_call` / `tool_result` → `response` / `error` → `turn_end`),
+  which is exactly the transcript the runner needs for `toolCalls` / `toolResults`, and `--logs`
+  writes a crash-proof session log with every tool call's arguments and verdict.
+- One-shot mode **denies** any action needing authorization unless `[tron].policy` allows it; the
+  arch checkout already points `[tron].policy` at `/var/tmp/tron-deleg.toml` with `agent = "thoth"`.
+- Its model comes from the hoosh gateway (`[hoosh].url = 127.0.0.1:8088`), and the arch config sets
+  `model = "ornith-1.5:9b"` — the same model this bench's local arm runs. A same-model
+  synthetic-vs-Thoth comparison is therefore possible without any new model plumbing, as soon as
+  hoosh (and daimon for MCP tools) are running there.
+
+**Built (experimental, 2026-09-03):** `thoth:default` is a client (`src/harness/thoth.js`) that runs
+a task's `goal` through `thoth --events`, folds the NDJSON into the synthetic result shape, and is
+scored by the unchanged runner; `THOTH_CMD` says how to invoke it (e.g. over ssh). Learned the hard
+way while wiring it, each now handled or documented:
+
+- **stdin must be closed** (`ssh -n`, `</dev/null`): one-shot mode appends piped stdin to the task and
+  blocks until EOF, which looks like a hang before `turn_start`.
+- **hoosh withdraws a route after three failed probes** and only restores it on a later success; a
+  tunnel that comes and goes between ssh sessions leaves the Ollama route withdrawn and every turn
+  hanging. Keep the tunnel persistent (`ssh -N -R …`) or restart the stack after it is up.
+- **hoosh caches identical prompts** (`[cache] ttl_secs = 300`): repeated trials of the same task
+  would be served from cache. Disable the cache for benchmark runs or salt the goal with a nonce.
+- **`tool_result` events carry `name`, `ok` and `bytes`, not the content**, so ground truth that is
+  read from tool results (`lookup`, `chain`) is unavailable from this arm. Two ways forward: the
+  webserver keeps a small ring of recent responses (`GET /api/recent?since=…`) and the arm rebuilds
+  tool results from what the server actually served during the trial window; or Thoth's events grow
+  an optional result payload.
+- **Reaching a localhost webserver:** daimon's `web_fetch` refuses private addresses by policy, and
+  Thoth's model shell tool is off by default (`[shell].enabled`, ADR-0014) even though the t-ron
+  policy on arch already allows `thoth_shell`. Enabling the shell tool for the bench is an
+  authority decision for the operator, not something the bench should flip.
+
+**Live result (2026-09-03, hosted route via hoosh, model reported as claude-opus-4-8):** run through
+the bench with `THOTH_CMD="ssh -n arch cd ~/.agnos-stack && ~/.local/bin/thoth"`:
+
+| task | verdict | what Thoth did |
+|---|---|---|
+| reason / harness | **pass**, 3/3, 4,061 tokens, 2.3 s | answered the goal directly; JSON valid |
+| health / harness | fail: no structured output | tried `web_fetch` on localhost and 127.0.0.1, then `web_search`; all denied by policy; declined to fabricate |
+
+So the arm is plumbed: spawn over ssh, events folded into calls/results, routed model and tokens
+recorded, scored by the unchanged runner. What it still cannot do is reach the webserver, which is
+the operator decision above (shell tool or a `web_fetch` allowance for the bench's address).
+
+Practical shape of a Thoth arm from this machine: `ssh -R 3000:localhost:3000 arch thoth --events
+'<goal>'`, so Thoth's tools reach the webserver under test through the reverse tunnel; parse the
+NDJSON, take `response` as the final message (it can arrive after `turn_end` — do not stop reading
+at `turn_end`), fold `tool_call` / `tool_result` into the trial, and read tokens/cost from the
+`--json` envelope or the events. Pi remains the cheapest hosted-model arm; Thoth is now the cheapest
+*local-model* arm.
 
 ### How each harness can be driven (verified against current docs, Sept 2026)
 
 | | Pi | Claude Code | Codex CLI | Thoth |
 |---|---|---|---|---|
-| Headless | `pi --mode json "<prompt>"` (JSONL events; `message_end` is the final message) | `claude -p "<prompt>" --output-format json` (`stream-json` for tool calls) | `codex exec --json "<prompt>"` (JSONL items) | `--events` stream only (one-way); one-shot mode needed |
-| Usage / cost | `usage{…,cost}` from per-model rates in `models.json` | `usage`, `total_cost_usd`, `num_turns` | `turn.completed.usage` tokens only | per-turn accounting exists |
+| Headless | `pi --mode json "<prompt>"` (JSONL events; `message_end` is the final message) | `claude -p "<prompt>" --output-format json` (`stream-json` for tool calls) | `codex exec --json "<prompt>"` (JSONL items) | `thoth --json "<task>"` (one envelope) or `--events` (NDJSON per tool call, `response` last) |
+| Usage / cost | `usage{…,cost}` from per-model rates in `models.json` | `usage`, `total_cost_usd`, `num_turns` | `turn.completed.usage` tokens only | `tokens` / `cost` in the `--json` envelope once the gateway reports them |
 | Structured output | none — parse the final message (`parseJSONLoose`) | `--json-schema` → `structured_output` | `--output-schema <file>` | — |
 | Model / local | `--provider`/`--model`; any endpoint via `models.json` (`openai-completions`, `anthropic-messages`, …); Ollama documented | Anthropic Messages format only: Anthropic models, or Ollama via `ANTHROPIC_BASE_URL` (Ollama serves that API); chat-completions-only servers need a proxy | Responses API only (`wire_api = "responses"`); Ollama serves it (`--oss` / `model_provider = ollama`); OpenAI models natively | Ollama and hosted via hoosh |
 | Tool set control | `--tools`, `--exclude-tools`, `--no-builtin-tools`; custom tools = TypeScript extensions; **no MCP** | `--tools "Bash,Read"`, `--disallowedTools`; MCP via `--mcp-config` + `--strict-mcp-config` | shell + `apply_patch` always on; MCP via `codex mcp add` / `[mcp_servers.*]`; `enabled_tools` | MCP client; t-ron allow/deny per tool |
-| No prompts | none by design ("run in a container") | `--permission-mode bypassPermissions` / `--dangerously-skip-permissions` (refused as root unless sandboxed; `--restricted` exists for eval hosts) | `-a never -s workspace-write`, or `--yolo` in a container | fail-closed confirm; session-scoped grants |
+| No prompts | none by design ("run in a container") | `--permission-mode bypassPermissions` / `--dangerously-skip-permissions` (refused as root unless sandboxed; `--restricted` exists for eval hosts) | `-a never -s workspace-write`, or `--yolo` in a container | one-shot denies unless `[tron].policy` allows the tool (fail-closed) |
 | Isolate the prompt | `--system-prompt`, `-nc` (no AGENTS.md/CLAUDE.md), `--no-session` | `--bare` (skips hooks, skills, MCP, CLAUDE.md, memory), `--system-prompt`, `--no-session-persistence` | `model_instructions_file`, `--ignore-user-config`, `--ignore-rules`, `--ephemeral` | AGENTS.md is wrapped as reference, not obeyed; CLAUDE.md not injected |
 | Temperature | `samplingParams` per model | not configurable | not configurable (`model_reasoning_effort` only) | — |
 
@@ -312,8 +422,8 @@ HarnessClient.run({ prompt, system, schema, signal })
 - `codex` — spawn `codex exec --json --ephemeral --ignore-user-config -a never -s workspace-write
   [--output-schema …]`, fold `command_execution` / `mcp_tool_call` items, take the last
   `agent_message`.
-- `thoth` — once a one-shot mode exists: spawn with `--events`, fold tool events, take the final
-  message.
+- `thoth` — spawn `thoth --events '<goal>'` (over `ssh -R 3000:localhost:3000 arch` while it lives
+  there), fold `tool_call` / `tool_result`, take `response`, read tokens/cost from the envelope.
 
 The matrix gains a dimension: **tasks × arms × models**, where arms = `noHarness` (raw model, the
 baseline for every arm) + `synthetic` + one per real harness. `runTrial` needs no change beyond the
@@ -321,8 +431,9 @@ client abstraction; `summarize` needs the delta computed per arm against the sha
 needs one more column group. Everything else — scoring, ground truth, significance, persistence — is
 already arm-agnostic.
 
-Suggested order: Pi first (cheapest to drive, no sandbox, temperature control, documented Ollama
-path), then Claude Code and Codex in a container recipe, then Thoth when it can be driven one-shot.
+Suggested order: Thoth first for the local-model comparison (it already runs the same
+`ornith-1.5:9b`, and the arm is one ssh command), Pi first for hosted models (cheapest to drive, no
+sandbox, temperature control), then Claude Code and Codex in a container recipe.
 Before any of it: Tier 1 [1], because a multi-harness comparison is only as trustworthy as the scorers
 underneath it, and those were wrong until today.
 
@@ -331,7 +442,9 @@ underneath it, and those were wrong until today.
 1. Same tools for every arm (local MCP server + Pi extension) or bring-your-own — or both, labelled?
 2. Model set: Ollama-only for the cross-harness matrix, with hosted models only where the arm supports
    them natively?
-3. Does Thoth get a one-shot mode, and what marks its final message?
+3. For the Thoth arm: which tools does `/var/tmp/tron-deleg.toml` allow non-interactively, and should
+   the webserver be reached through a reverse tunnel from this machine or by running the bench on
+   arch next to hoosh?
 
 ### Sources
 

@@ -68,6 +68,10 @@ export const task = {
   description: "Answer a few unambiguous logic/arithmetic questions. Control task with no tools.",
   model: labelModel,
 
+  goal:
+    "Answer the following questions and report the exact question text and its answer for each:\n" +
+    PROBLEMS.map((p) => `- ${p.question}`).join("\n"),
+
   // ---- no-harness mode ----
   noHarness: {
     prompt:

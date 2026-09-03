@@ -43,6 +43,11 @@ export const task = {
   description: "Report the live status and uptime of the webserver.",
   model: labelModel,
 
+  // The job as a real harness with its own tools hears it.
+  goal:
+    `A webserver runs at ${BASE}. GET /health returns JSON with its status, uptimeSec and timestamp. ` +
+    "Fetch it and report the current status and uptime in seconds exactly as returned.",
+
   // ---- no-harness mode ----
   noHarness: {
     prompt:
@@ -89,6 +94,11 @@ export const task = {
 
   // ---- evaluation ----
   eval: {
+    // Tool use: the health tool must have been called (it takes no arguments).
+    toolUse: ({ toolCalls }) => (toolCalls.some((c) => c.name === tool.name)
+      ? { ok: true, reason: "called the health tool" }
+      : { ok: false, reason: "the health tool was never called" }),
+
     // Truth: call the real endpoint ourselves.
     ground: async () => {
       const res = await fetch(`${BASE}/health`);

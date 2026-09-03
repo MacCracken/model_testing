@@ -1,5 +1,6 @@
 import "../env.js";
 import { Client } from "./client.js";
+import { ThothClient } from "../harness/thoth.js";
 import { envValue } from "../util.js";
 
 // Provider registry: maps a stable provider name -> a list of models to try, plus the URL and
@@ -25,6 +26,15 @@ const PROVIDERS = {
     baseUrl: "https://api.groq.com/openai/v1/chat/completions",
     auth: (key) => `Bearer ${key}`,
     models: ["llama-3.3-70b-versatile", "gemma2-9b-it"],
+  },
+  // A real agent harness as the harness arm (see harness/thoth.js). Needs no key; THOTH_CMD says
+  // how to invoke it (e.g. `ssh -n arch cd ~/Repos/thoth && thoth`). Structured modes only.
+  thoth: {
+    baseUrl: envValue("THOTH_CMD", "thoth"),
+    auth: () => "",
+    needsKey: false,
+    harness: true,
+    models: ["default"],
   },
   local: {
     baseUrl: envValue("OLLAMA_BASE_URL", "http://localhost:11434/v1/chat/completions"),
@@ -52,6 +62,7 @@ const MODEL_LABELS = {
   "nemotron-3.5-lightning:30b-mlx": "Nemotron 3.5 Lightning 30B",
   "gemma4:31b-mlx": "Gemma 4 31B",
   "qwen3.8:27b-mlx": "Qwen 3.8 27B",
+  default: "Thoth (its own routed model)",
 };
 
 export function labelModel(model) {
@@ -69,10 +80,13 @@ export function hasCredentials(provider) {
 }
 
 // Build a Client for a single { provider, model } pair, or null if the credentials are missing.
-export function buildClient({ provider, model }) {
+// `modelParams` (e.g. { temperature, seed }) are sent as-is with every request — the determinism
+// knobs, recorded in the run so results stay comparable.
+export function buildClient({ provider, model, modelParams = {} }) {
   const cfg = PROVIDERS[provider];
   if (!cfg) throw new Error(`unknown provider: ${provider}`);
   if (!hasCredentials(provider)) return null;
+  if (cfg.harness) return new ThothClient({ name: `${provider}:${model}`, model, command: cfg.baseUrl });
   const key = apiKeyFor(provider) || "local";
   return new Client({
     name: `${provider}:${model}`,
@@ -81,6 +95,9 @@ export function buildClient({ provider, model }) {
     apiKey: key,
     url: cfg.baseUrl,
     headers: { Authorization: cfg.auth(key) },
+    modelParams,
+    // Per-request timeout. Thinking-heavy local models can take minutes on a free-form answer.
+    timeoutMs: Number(envValue("BENCH_TIMEOUT_MS", "120000")) || 120_000,
   });
 }
 
@@ -103,14 +120,14 @@ export function normalizeClientSpecs(spec) {
 
 // Resolve the full list of clients to run. With no spec, every configured provider/model that
 // has credentials. Bare provider names expand to that provider's default models.
-export function resolveClients(spec) {
+export function resolveClients(spec, { modelParams = {} } = {}) {
   const clients = [];
   const seen = new Set();
   const push = (provider, model) => {
     const key = `${provider}:${model}`;
     if (seen.has(key)) return;
     seen.add(key);
-    const c = buildClient({ provider, model });
+    const c = buildClient({ provider, model, modelParams });
     if (c) clients.push(c);
   };
 
@@ -156,6 +173,7 @@ export async function describeProviders({ probe = true } = {}) {
   return Object.entries(PROVIDERS).map(([name, cfg]) => ({
     name,
     baseUrl: cfg.baseUrl,
+    kind: cfg.harness ? "harness" : "model",
     needsKey: cfg.needsKey !== false,
     hasKey: hasCredentials(name),
     live: name === "local" ? live !== null : null,

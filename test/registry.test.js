@@ -8,7 +8,7 @@ import { isStructuredMode, MODE_NAMES } from "../src/runner.js";
 
 test("listTasks advertises exactly the modes each task declares", () => {
   const modes = Object.fromEntries(listTasks().map((t) => [t.name, t.modes]));
-  for (const name of ["health", "hello", "lookup", "regex"]) {
+  for (const name of ["health", "hello", "lookup", "regex", "chain"]) {
     assert.deepEqual(modes[name], MODE_NAMES, `${name} should declare all four modes`);
   }
   assert.deepEqual(modes.reason, ["noHarness", "harness", "schemaOnly"], "reason has no tools, so no toolOnly");

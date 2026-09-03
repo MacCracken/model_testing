@@ -18,6 +18,8 @@ import { parseArgs } from "./args.js";
 import { listRuns, loadRun } from "./results.js";
 import { summarize } from "./runner.js";
 import { printSummary, summaryTable } from "./report.js";
+import { rowsToCsv, cellsToCsv } from "./export.js";
+import { writeFileSync } from "node:fs";
 
 const SRC = dirname(fileURLToPath(import.meta.url));
 
@@ -34,9 +36,12 @@ async function main() {
       console.log("\nProviders:");
       for (const [name, cfg] of Object.entries(PROVIDERS)) {
         const models = name === "local" && live ? live : cfg.models;
-        const status = cfg.needsKey === false
-          ? (live ? `live, ${live.length} model(s)` : "offline — showing the fallback list")
-          : (hasCredentials(name) ? "key set" : `${name.toUpperCase()}_API_KEY missing`);
+        if (cfg.harness && name !== "local") { /* the arm's model is whatever it routes to */ }
+        const status = cfg.harness
+          ? `harness arm · ${cfg.baseUrl}`
+          : cfg.needsKey === false
+            ? (live ? `live, ${live.length} model(s)` : "offline — showing the fallback list")
+            : (hasCredentials(name) ? "key set" : `${name.toUpperCase()}_API_KEY missing`);
         console.log(`  ${name.padEnd(10)} [${status}]`);
         for (const m of models) console.log(`    ${name}:${m.padEnd(30)} ${labelModel(m)}`);
       }
@@ -66,6 +71,19 @@ async function main() {
       break;
     }
 
+    // CSV export of a saved run: trial rows by default, --cells for the task × model × mode cells.
+    case "export": {
+      const args = parseArgs(rest);
+      const id = args._[0];
+      if (!id) { console.error("usage: node src/cli.js export <run-id> [--cells] [--out file.csv]"); process.exit(1); }
+      const run = loadRun(id);
+      if (!run) { console.error(`unknown run: ${id}`); process.exit(1); }
+      const body = args.cells ? cellsToCsv(run.id, summarize(run.rows)) : rowsToCsv(run);
+      if (args.out) { writeFileSync(args.out, body); console.log(`wrote ${args.out}`); }
+      else process.stdout.write(body);
+      break;
+    }
+
     case "serve":
     case "web": {
       const args = parseArgs(rest);
@@ -90,8 +108,9 @@ async function main() {
       console.log("Usage:");
       console.log("  node src/cli.js list");
       console.log("  node src/cli.js show [<run-id>] [--table]");
+      console.log("  node src/cli.js export <run-id> [--cells] [--out file.csv]");
       console.log("  node src/cli.js serve [--port 4000] [--host 127.0.0.1] [--open]");
-      console.log("  node src/cli.js bench --task <name|all> --modes noHarness,harness,schemaOnly,toolOnly --clients <p:model,...> [--count N] [--json]");
+      console.log("  node src/cli.js bench --task <name|all> --modes noHarness,harness,schemaOnly,toolOnly --clients <p:model,...> [--count N] [--temperature T] [--seed S] [--json]");
       console.log("  node src/cli.js aggregate [--tasks <name,...>] [--modes ...] [--clients ...] [--count N]");
       process.exit(cmd ? 1 : 0);
   }

@@ -27,3 +27,12 @@ test("newRunId sorts by time and is filesystem-safe", () => {
   assert.ok(a < b);
   assert.match(a, /^20260101T000000-[0-9a-f]{4}$/);
 });
+
+test("benchVersions reports the node version and never throws", async () => {
+  const { benchVersions } = await import("../src/version.js");
+  const v = benchVersions();
+  assert.equal(v.node, process.version);
+  assert.equal(v.harness, "synthetic");
+  assert.ok(v.bench === null || typeof v.bench === "string");
+  assert.ok(v.git === null || /^[0-9a-f]{7,}$/.test(v.git));
+});

@@ -14,6 +14,7 @@ import { resolveClients } from "./providers/index.js";
 import { runMatrix, planMatrix, isStructuredMode, describeSignificance, MODE_NAMES, DEFAULT_MODES } from "./runner.js";
 import { newRunId, saveRun } from "./results.js";
 import { parseArgs } from "./args.js";
+import { benchVersions } from "./version.js";
 
 function fail(msg) {
   console.error(JSON.stringify({ ok: false, error: msg }));
@@ -41,6 +42,14 @@ export function resolveModes(spec) {
   return modes;
 }
 
+// The determinism knobs from the CLI, keeping only the ones actually given.
+export function modelParamsFrom({ temperature, seed } = {}) {
+  const params = {};
+  if (Number.isFinite(temperature)) params.temperature = temperature;
+  if (Number.isFinite(seed)) params.seed = seed;
+  return params;
+}
+
 // Human-readable note for each (task, mode) pair a run skips because the task has no such spec.
 export function describeSkipped(skipped) {
   return skipped.map((s) => `${s.task}/${s.mode} skipped: the task declares no ${s.mode} spec`);
@@ -60,9 +69,10 @@ async function main() {
   const count = args.count ?? 1;
 
   // --clients takes precedence over --provider/--model.
+  const modelParams = modelParamsFrom(args);
   const clients = args.clients
-    ? resolveClients(args.clients)
-    : resolveClients([{ provider: args.provider ?? "openai", model: args.model ?? "gpt-4o-mini" }]);
+    ? resolveClients(args.clients, { modelParams })
+    : resolveClients([{ provider: args.provider ?? "openai", model: args.model ?? "gpt-4o-mini" }], { modelParams });
   if (!clients.length) {
     fail(`no client resolved — check the model name and that ${(args.provider ?? "the provider").toUpperCase()}_API_KEY is set in .env`);
   }
@@ -102,7 +112,9 @@ async function main() {
       modes: modeList,
       clients: clients.map((c) => c.name),
       count,
+      modelParams,
     },
+    versions: benchVersions(),
     warnings: describeSkipped(skipped),
     progress: { completed: rows.length, total: rows.length },
     summary,
@@ -119,7 +131,8 @@ async function main() {
   console.log("");
   for (const mode of summary.modes) {
     const s = summary.byMode[mode];
-    console.log(`[${mode}] ${s.correct}/${s.runs} correct (${s.correctPct.toFixed(1)}%)  schema ${s.schemaValidPct.toFixed(0)}%  tools ${s.toolUsePct.toFixed(0)}%  ${s.avgLatencyMs}ms avg`);
+    const args = s.toolArgsJudged ? `  args ok ${s.toolArgsOkPct.toFixed(0)}%` : "";
+    console.log(`[${mode}] ${s.correct}/${s.runs} correct (${s.correctPct.toFixed(1)}%)  schema ${s.schemaValidPct.toFixed(0)}%  tools ${s.toolUsePct.toFixed(0)}%${args}  ${s.avgLatencyMs}ms avg · p95 ${s.latencyP95Ms}ms`);
   }
   const d = summary.delta.overall;
   if (d) {

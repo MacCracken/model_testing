@@ -12,7 +12,7 @@
 // match, which is exactly what makes the task tool-essential.
 
 import { labelModel } from "../providers/index.js";
-import { BASE, unwrapList } from "./util.js";
+import { BASE, unwrapList, judgeNameCalls } from "./util.js";
 
 const NAMES = ["alice", "bob", "carol"];
 
@@ -79,6 +79,11 @@ export const task = {
     "Fetch the live server id for three names. The ids are random and only the tool can produce them.",
   model: labelModel,
 
+  goal:
+    `A webserver runs at ${BASE}. GET /api/hello?name=<name> returns JSON { message, id }, where id is ` +
+    `freshly generated on every call. Fetch it once for each of these names: ${NAMES.join(", ")}, and ` +
+    "report each name with the id the server returned, verbatim.",
+
   // ---- no-harness mode ----
   noHarness: {
     prompt:
@@ -127,6 +132,9 @@ export const task = {
 
   // ---- evaluation ----
   eval: {
+    // Tool use: every name passed to the lookup tool, and no others.
+    toolUse: ({ toolCalls }) => judgeNameCalls(toolCalls, tool.name, NAMES),
+
     // Truth: every id the tool returned for each name during this trial. A name the model looked
     // up twice has two valid ids; a name it never looked up has none.
     ground: ({ toolResults = [] } = {}) => {

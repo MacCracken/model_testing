@@ -34,8 +34,15 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
 - `src/bench.js` — CLI over `runMatrix`; `--json` for machine-readable output.
 - `src/aggregate.js` — the same matrix with a comparative report.
 - `src/report.js` — the one text report over a summary, used by `aggregate` and `cli show`.
+- `src/export.js` — CSV views of a run (trial rows, or task × model × mode cells).
+- `src/version.js` — bench version / git commit / node, recorded on every run as `versions`.
+- `src/harness/` — real agent harnesses as the harness arm. `thoth.js` spawns `thoth --events`
+  (stdin closed, task quoted for ssh), folds its NDJSON into the synthetic result shape, and reports
+  the routed model. Tasks expose a `goal` (plain job statement, endpoint described, no bench tool
+  names) for such arms; `runTrial` passes `task` and `mode` to `runWithTools` so an arm can build
+  its own prompt.
 - `src/web/` — the control plane: `server.js` (node:http, zero deps) + `public/` (the UI).
-- `src/cli.js` — entry point (`list` / `show` / `serve` / `bench` / `aggregate`).
+- `src/cli.js` — entry point (`list` / `show` / `export` / `serve` / `bench` / `aggregate`).
 - `test/` — `npm test` (node:test, no deps). Scorers are tested with synthetic ground values, the
   runner with a fake client; nothing in the suite needs a model or the webserver.
 
@@ -47,6 +54,7 @@ export const task = {
   category: "api-call",
   description: "…",       // shown in the UI and `cli list`
   model: labelModel,
+  goal: "…",               // the job in plain words, for real-harness arms that bring their own tools
   noHarness: { prompt, extract: "text" },
   harness:   { system, prompt, tools: [...], schema, extract: "structured" },
   // optional: schemaOnly / toolOnly specs for the decomposition axes
@@ -54,6 +62,7 @@ export const task = {
     ground,         // truth: a function of the trial, or a constant (see below)
     scoreHarness,   // (structuredOutput, ground) => { correct, reason }
     scoreNoHarness, // (freeText, ground)         => { correct, reason }
+    toolUse,        // optional: ({ toolCalls, toolResults }) => { ok, reason } — right tool, right args
   },
 };
 ```
@@ -96,6 +105,8 @@ npm test                                    # unit tests, no model needed
 node src/cli.js serve                       # web UI on http://127.0.0.1:4000
 node src/cli.js list                        # tasks/providers, with key status
 node src/cli.js show <run-id> --table       # review a saved run without the UI
+node src/cli.js export <run-id> --cells     # CSV of the cells (or of every trial without --cells)
+node src/bench.js --task chain --modes harness --clients local:ornith-1.5:9b --count 4 --temperature 0 --seed 7
 node src/bench.js --task all --modes harness --clients openai:gpt-4o-mini
 node src/aggregate.js --tasks health,hello --modes noHarness,harness --clients local
 ```

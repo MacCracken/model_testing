@@ -234,9 +234,11 @@ function renderClients() {
   box.replaceChildren();
   for (const p of state.meta.providers) {
     const usable = p.hasKey && p.live !== false;
-    const tag = !p.needsKey
-      ? (p.live ? `live · ${p.models.length}` : "offline")
-      : (p.hasKey ? "key set" : `${p.name.toUpperCase()}_API_KEY missing`);
+    const tag = p.kind === "harness"
+      ? "harness arm"
+      : !p.needsKey
+        ? (p.live ? `live · ${p.models.length}` : "offline")
+        : (p.hasKey ? "key set" : `${p.name.toUpperCase()}_API_KEY missing`);
     const group = el("div", { className: `provider${usable ? "" : " unusable"}`, dataset: { provider: p.name } },
       el("div", { className: "provider-head" }, el("span", {}, p.name), el("span", { className: `tag ${usable ? "ok" : "no"}` }, tag)));
     for (const m of p.models) {
@@ -314,6 +316,10 @@ async function launch() {
     clients: [...state.clients],
     count: plan().count,
   };
+  for (const key of ["temperature", "seed"]) {
+    const raw = $(`#${key}`).value;
+    if (raw !== "") body[key] = Number(raw);
+  }
   try {
     const { run } = await postJSON("/api/runs", body);
     setBusy(true);
@@ -400,6 +406,10 @@ function renderReport() {
   $("#empty").hidden = true;
   $("#report").hidden = false;
   $("#delete-run").hidden = run.status === "running";
+  const csv = $("#export-csv");
+  csv.hidden = run.status === "running";
+  csv.href = `/api/runs/${run.id}/csv`;
+  csv.title = "Download every trial as CSV (add ?cells=1 for the task × model × mode cells)";
 
   const warn = $("#warnings");
   warn.hidden = !run.warnings?.length;
@@ -419,7 +429,8 @@ function renderHeadline(s) {
 
   const done = run.rows.length;
   const total = run.progress?.total ?? done;
-  const progress = run.status === "running" ? `${done} of ${total} trials · running` : `${plural(done, "trial")} · ${run.status}`;
+  const knobs = Object.entries(run.config?.modelParams ?? {}).map(([k, v]) => `${k} ${v}`).join(" · ");
+  const progress = (run.status === "running" ? `${done} of ${total} trials · running` : `${plural(done, "trial")} · ${run.status}`) + (knobs ? ` · ${knobs}` : "");
 
   const d = s.delta.overall;
   const col = el("div", { className: "hcol" }, el("div", { className: "eyebrow" }, "Harness delta"));
@@ -445,7 +456,7 @@ function renderHeadline(s) {
     box.append(el("div", { className: "hcol" },
       el("div", { className: "eyebrow" }, MODE_LABEL[m]),
       el("div", { className: "num" }, fmtPct(st.correctPct)),
-      el("div", { className: "sub" }, `${st.correct}/${st.runs} · ${fmtMs(st.avgLatencyMs)} avg`),
+      el("div", { className: "sub", title: `avg ${fmtMs(st.avgLatencyMs)} · max ${fmtMs(st.latencyMaxMs)}` }, `${st.correct}/${st.runs} · p50 ${fmtMs(st.latencyP50Ms)} · p95 ${fmtMs(st.latencyP95Ms)}`),
       el("div", { className: "bar" }, el("i", { className: m === "noHarness" ? "grey" : "", style: { width: `${st.correctPct}%` } })),
     ));
   }
@@ -459,6 +470,7 @@ function renderHeadline(s) {
     el("div", { className: "eyebrow" }, "Harness hygiene"),
     kv("tool use", h ? fmtPct(h.toolUsePct) : "—"),
     kv("schema valid", h ? fmtPct(h.schemaValidPct) : "—"),
+    kv("tool args ok", h?.toolArgsJudged ? fmtPct(h.toolArgsOkPct) : "—"),
     kv("errors", h ? fmtPct(h.errorPct) : "—"),
     kv("tokens", fmtInt(harnessTokens + freeTokens)),
     kv("harness / free", `${fmtInt(harnessTokens)} / ${fmtInt(freeTokens)}`),
@@ -592,7 +604,8 @@ function renderTrials() {
       el("span", { className: "muted" }, MODE_LABEL[r.mode] ?? r.mode),
       el("span", { className: "muted ellipsis", title: r.client }, r.model),
       el("span", { className: "faint" }, `#${r.index}`),
-      el("span", { className: "faint" }, tools),
+      el("span", { className: "faint", title: r.toolUseReason || "" }, tools,
+        r.toolUseOk === true ? el("i", { className: "mark ok" }, "✓") : r.toolUseOk === false ? el("i", { className: "mark bad" }, "✗") : null),
       el("span", { className: schema === "—" ? "faint" : r.schemaValid ? "ok" : "bad" }, schema),
       el("span", { className: "faint right" }, fmtMs(r.latencyMs)),
       el("span", { className: `reason${r.error ? " bad" : ""}`, title: r.error ?? r.reason }, r.error ? `error · ${r.error}` : r.reason),
@@ -683,6 +696,7 @@ function renderDetail() {
     );
   });
   if (TOOL_MODES.has(r.mode) && !(r.toolCalls ?? []).length) step("tool calls", "", "The model never called a tool.", "bad");
+  if (r.toolUseOk === true || r.toolUseOk === false) step("tool use", r.toolUseOk ? "correct" : "wrong", r.toolUseReason || "—", r.toolUseOk ? "ok" : "bad");
   step("final message", r.finishReason ? `finish: ${r.finishReason}` : "", r.answerText || "(empty)", r.correct ? "ok" : "bad");
   step(
     `scorer · ${isStructuredMode(r.mode) ? "scoreHarness" : "scoreNoHarness"}`,

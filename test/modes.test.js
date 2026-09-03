@@ -170,3 +170,18 @@ test("an aborted signal stops the matrix without inventing exception rows", asyn
   assert.equal(rows.length, 0);
   assert.equal(events.at(-1).cancelled, true);
 });
+
+test("toolUseOk is judged only when the spec carries tools and the task defines a judge", async () => {
+  const judge = { toolUse: ({ toolCalls }) => ({ ok: toolCalls.length === 1, reason: toolCalls.length === 1 ? "one call" : "wrong count" }) };
+  const task = probeTask({ eval: { ...probeTask().eval, ...judge } });
+  const withCall = fakeClient({ text: '{"ok":"ok"}', structured: { ok: "ok" }, toolCalls: [{ id: "c", name: "noop", arguments: {} }], toolResults: [{ id: "c", name: "noop", ok: true, content: "ok" }] });
+  const good = await runTrial({ task, mode: "harness", client: withCall });
+  assert.equal(good.toolUseOk, true);
+  assert.equal(good.toolUseReason, "one call");
+  const bad = await runTrial({ task, mode: "harness", client: fakeClient({ text: '{"ok":"ok"}', structured: { ok: "ok" } }) });
+  assert.equal(bad.toolUseOk, false);
+  const free = await runTrial({ task, mode: "noHarness", client: fakeClient({ text: "ok" }) });
+  assert.equal(free.toolUseOk, null, "no tools in the spec → no verdict");
+  const noJudge = await runTrial({ task: probeTask(), mode: "harness", client: withCall });
+  assert.equal(noJudge.toolUseOk, null, "no judge on the task → no verdict");
+});

@@ -14,8 +14,9 @@ export function printSummary(summary, { log = console.log } = {}) {
     log(`   correct:      ${s.correct}/${s.runs} (${s.correctPct.toFixed(1)}%)`);
     log(`   schemaValid:  ${s.schemaValidPct.toFixed(1)}%`);
     log(`   toolCalls:    ${s.toolUsePct.toFixed(1)}%`);
+    log(`   toolArgsOk:   ${s.toolArgsJudged ? `${s.toolArgsOkPct.toFixed(1)}% of ${s.toolArgsJudged} judged` : "n/a"}`);
     log(`   errors:       ${s.errorPct.toFixed(1)}%`);
-    log(`   avgLatency:   ${s.avgLatencyMs}ms`);
+    log(`   latency:      avg ${s.avgLatencyMs}ms · p50 ${s.latencyP50Ms}ms · p95 ${s.latencyP95Ms}ms · max ${s.latencyMaxMs}ms`);
   }
 
   log("\n-- per task x mode x client");
@@ -27,6 +28,15 @@ export function printSummary(summary, { log = console.log } = {}) {
   log(`   overall:      ${fmtDelta(summary.delta.overall)}`);
   for (const [task, d] of Object.entries(summary.delta.byTask)) log(`   ${task.padEnd(13)} ${fmtDelta(d)}`);
   for (const [client, d] of Object.entries(summary.delta.byClient)) log(`   ${client.padEnd(13)} ${fmtDelta(d)}`);
+
+  const cells = Object.entries(summary.delta.byTaskClient ?? {});
+  if (cells.length > 1) {
+    log("\n-- harness delta per task x client");
+    for (const [key, d] of cells) {
+      const [task, client] = key.split("|");
+      log(`   ${task.padEnd(8)} ${client.padEnd(28)} ${fmtDelta(d)}`);
+    }
+  }
 }
 
 // A compact task × mode table (counts), handy for pasting into notes.

@@ -16,8 +16,9 @@ import { task as helloTask } from "./hello.js";
 import { task as reasonTask } from "./reason.js";
 import { task as lookupTask } from "./lookup.js";
 import { task as regexTask } from "./regex.js";
+import { task as chainTask } from "./chain.js";
 
-export const tasks = [healthTask, helloTask, reasonTask, lookupTask, regexTask];
+export const tasks = [healthTask, helloTask, reasonTask, lookupTask, regexTask, chainTask];
 
 export function getTask(name) {
   const t = tasks.find((x) => x.name === name);
