@@ -10,6 +10,9 @@ modes** and scored the same way, so the delta is attributable to the harness:
   schema. The model's answer is free text we parse/ad-hoc.
 - **With-harness** — the same task wrapped with **tools + output schema + structured prompts**.
   The model must call the tool(s) and return structured output.
+- **schemaOnly** — schema + structured prompt, **no tools** (isolates the "ask for JSON" axis).
+- **toolOnly** — the tools, **no schema**, free-form answer (isolates the "give it tools" axis).
+  The model must call the tool(s) and return structured output.
 
 Evaluation is a **mix**: automated/ground-truth checks where the task has a definite answer,
 plus LLM-as-judge for open-ended tasks.

@@ -13,8 +13,9 @@
 
 import { task as healthTask } from "./health.js";
 import { task as helloTask } from "./hello.js";
+import { task as reasonTask } from "./reason.js";
 
-export const tasks = [healthTask, helloTask];
+export const tasks = [healthTask, helloTask, reasonTask];
 
 export function getTask(name) {
   const t = tasks.find((x) => x.name === name);
@@ -22,12 +23,17 @@ export function getTask(name) {
   return t;
 }
 
+// The modes a task advertises. A task lists the axes it supports (noHarness, harness, and any of
+// the decompositions it defines — e.g. schemaOnly or toolOnly); the registry reports only the ones
+// actually present, so a task that never declares toolOnly does not advertise it.
+export const MODE_NAMES = ["noHarness", "harness", "schemaOnly", "toolOnly"];
+
 export function listTasks() {
   return tasks.map((t) => ({
     name: t.name,
     category: t.category,
     description: t.description ?? "",
-    modes: ["noHarness", "harness"].filter((m) => !!t[m]),
+    modes: MODE_NAMES.filter((m) => !!t[m]),
     tools: (t.harness?.tools ?? []).map((tool) => tool.name),
   }));
 }

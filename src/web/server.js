@@ -170,7 +170,7 @@ async function handle(req, res) {
 
   if (req.method === "GET" && path === "/api/meta") {
     const [providers, sut] = await Promise.all([describeProviders(), probeSUT()]);
-    return sendJSON(res, 200, { tasks: listTasks(), modes: MODES, providers, sut });
+    return sendJSON(res, 200, { tasks: listTasks(), modes: ["noHarness", "harness", "schemaOnly", "toolOnly"], providers, sut });
   }
 
   if (req.method === "GET" && path === "/api/sut") {

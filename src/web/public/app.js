@@ -11,7 +11,12 @@ const el = (tag, attrs = {}, ...kids) => {
 };
 const pct = (n) => `${n.toFixed(n % 1 === 0 ? 0 : 1)}%`;
 
-const MODE_LABEL = { noHarness: "no harness", harness: "harness" };
+const MODE_LABEL = {
+  noHarness: "no harness",
+  harness: "harness",
+  schemaOnly: "schema only",
+  toolOnly: "tools only",
+};
 
 const state = {
   meta: null,
@@ -301,16 +306,20 @@ function renderCards() {
   const box = $("#cards");
   box.replaceChildren();
 
-  if (s.delta) {
-    const pp = s.delta.b - s.delta.a;
+  // Headline delta compares the structured bundle ("harness") against the bare baseline
+  // ("noHarness"). If the user only ran structured modes, fall back to the two structured modes.
+  const baseline = "noHarness";
+  const structured = "harness";
+  if (s.byMode[baseline] && s.byMode[structured]) {
+    const pp = s.byMode[structured].correctPct - s.byMode[baseline].correctPct;
     box.append(el("div", { className: "card headline" },
       el("div", { className: "k" }, "Harness delta"),
       el("div", { className: `v ${pp > 0 ? "up" : pp < 0 ? "down" : ""}` }, `${pp >= 0 ? "+" : ""}${pp.toFixed(1)}pp`),
-      el("div", { className: "s" }, `${pct(s.delta.a)} → ${pct(s.delta.b)} correct`),
+      el("div", { className: "s" }, `${pct(s.byMode[baseline].correctPct)} → ${pct(s.byMode[structured].correctPct)} correct`),
     ));
   }
 
-  for (const mode of ["noHarness", "harness"]) {
+  for (const mode of ["noHarness", "harness", "schemaOnly", "toolOnly"]) {
     const m = s.byMode[mode];
     if (!m) continue;
     box.append(el("div", { className: "card" },
@@ -320,7 +329,9 @@ function renderCards() {
     ));
   }
 
-  const h = s.byMode.harness;
+  // Tool-use and schema-validity cards track the structured bundle ("harness"). If it wasn't run,
+  // show whichever structured mode was, so the metric is still visible.
+  const h = s.byMode.harness || s.byMode.schemaOnly;
   if (h) {
     box.append(el("div", { className: "card" },
       el("div", { className: "k" }, "Tool use"),
@@ -329,13 +340,13 @@ function renderCards() {
     ));
   }
 
-  const tokens = s.byMode.harness?.tokens ?? 0;
+  const tokens = (s.byMode.harness?.tokens ?? 0) + (s.byMode.schemaOnly?.tokens ?? 0);
   const noHTokens = s.byMode.noHarness?.tokens ?? 0;
   if (tokens || noHTokens) {
     box.append(el("div", { className: "card" },
       el("div", { className: "k" }, "Tokens"),
       el("div", { className: "v" }, (tokens + noHTokens).toLocaleString()),
-      el("div", { className: "s" }, `harness ${tokens.toLocaleString()} · free-form ${noHTokens.toLocaleString()}`),
+      el("div", { className: "s" }, `structured ${tokens.toLocaleString()} · free-form ${noHTokens.toLocaleString()}`),
     ));
   }
 }
@@ -346,11 +357,11 @@ function renderMatrix() {
   const table = $("#matrix");
   table.replaceChildren();
 
-  const modes = ["noHarness", "harness"].filter((m) => s.modes.includes(m));
+  const modes = ["noHarness", "harness", "schemaOnly", "toolOnly"].filter((m) => s.modes.includes(m));
   table.append(el("thead", {}, el("tr", {},
     el("th", {}, "Task"), el("th", {}, "Model"),
     ...modes.map((m) => el("th", {}, MODE_LABEL[m])),
-    ...(modes.length === 2 ? [el("th", {}, "delta")] : []),
+    ...(["noHarness", "harness"].every((m) => s.modes.includes(m)) ? [el("th", {}, "delta")] : []),
   )));
 
   const body = el("tbody");
@@ -360,7 +371,7 @@ function renderMatrix() {
       if (!cells.some((c) => c.runs)) continue;
       const tr = el("tr", {}, el("td", {}, task), el("td", {}, el("code", {}, client)));
       for (const c of cells) tr.append(el("td", { className: "num" }, rateCell(c)));
-      if (modes.length === 2) {
+      if (["noHarness", "harness"].every((m) => s.modes.includes(m))) {
         const [a, b] = cells;
         const pp = a.runs && b.runs ? b.correctPct - a.correctPct : null;
         tr.append(el("td", { className: "num" }, pp === null ? "—" : `${pp >= 0 ? "+" : ""}${pp.toFixed(0)}pp`));

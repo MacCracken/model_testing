@@ -44,7 +44,8 @@ export function resolveModes(spec) {
     .filter(Boolean);
   if (!modes.length) return [...MODES];
   for (const m of modes) {
-    if (!MODES.includes(m)) throw new Error(`--mode must be one of ${MODES.join(", ")}, got "${m}"`);
+    if (!["noHarness", "harness", "schemaOnly", "toolOnly"].includes(m))
+      throw new Error(`--mode must be one of noHarness, harness, schemaOnly, toolOnly, got "${m}"`);
   }
   return modes;
 }

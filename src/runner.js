@@ -8,11 +8,20 @@ import { validateSchema, schemaHint } from "./schema.js";
 
 export const MODES = ["noHarness", "harness"];
 
-// The harness is defined as "tools + output schema + structured prompts". The schema therefore
-// belongs in the prompt the model sees, not only in the scorer.
+// A mode is one of two shapes, by *behavior* rather than by name:
+//   - structured  -> inject the output schema, run tools, and score the parsed JSON.
+//   - free-form   -> no tools, score the raw text.
+// The classic "harness" bundle is the structured mode; the free-form mode is the bare baseline.
+// Adding an axis means adding a mode name that is structured or free-form — no runner changes.
+export function isStructuredMode(mode) {
+  return mode === "harness" || mode === "schemaOnly";
+}
+
+// The schema therefore belongs in the prompt the model sees, not only in the scorer — whenever a
+// mode is structured, not just the classic harness.
 export function buildSystemPrompt(spec, mode) {
   const base = spec.system ?? "";
-  if (mode !== "harness" || !spec.schema) return base;
+  if (!isStructuredMode(mode) || !spec.schema) return base;
   return [
     base,
     "Return your final answer as JSON matching this schema exactly:",
@@ -23,7 +32,10 @@ export function buildSystemPrompt(spec, mode) {
 
 /** Run a single (task, mode, client) trial once and score it. Never throws. */
 export async function runTrial({ task, mode, client, index = 1, signal, maxRounds = 4 }) {
-  const spec = mode === "harness" ? task.harness : task.noHarness;
+  // A task carries a spec per mode (task[mode]). Only the modes it declares are run; the registry
+  // filters modes to those present so an unused axis never produces an "unsupported mode" row.
+  const spec = task[mode];
+  const structured = isStructuredMode(mode);
   const started = Date.now();
   const t0 = performance.now();
 
@@ -63,15 +75,24 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
     const system = buildSystemPrompt(spec, mode);
     record.system = system || null;
 
+    // A mode that is structured (schema-aware) scores the parsed JSON. A mode that carries tools
+    // runs them regardless — `toolOnly` is exactly free-form output *with* tools run, so tool
+    // execution is gated on tools being present, not on structured scoring.
+    const hasTools = (spec.tools ?? []).length > 0;
+
     let resp;
-    if (mode === "harness") {
+    if (structured || hasTools) {
+      // Tools run (if any) and the final message is parsed as JSON. What gets scored is the
+      // model's final message written after it saw real tool output — never the tool args.
       resp = await client.runWithTools(spec.prompt, spec.tools ?? [], system, { maxRounds, signal });
       record.toolCalls = resp.toolCalls ?? [];
       record.toolResults = resp.toolResults ?? [];
       record.rounds = resp.rounds ?? 0;
       record.structured = resp.structured ?? null;
 
-      if (spec.schema) {
+      // Schema validation is part of the structured (schema-aware) path. Running tools without a
+      // schema (toolOnly) validates nothing, so schemaValid stays null.
+      if (structured && spec.schema) {
         const { valid, errors } = validateSchema(resp.structured, spec.schema);
         record.schemaValid = resp.structured !== null && valid;
         record.schemaErrors = resp.structured === null ? ["final message was not JSON"] : errors;
@@ -90,11 +111,15 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
     record.finishReason = resp.finishReason ?? null;
     record.usage = resp.usage ?? null;
 
+    // Truth: the task's ground is fetched after the model's reply, so the answer and the ground
+    // are taken at the same wall-clock point (the model never sees it). Fetch once for both modes.
     const ground = await task.eval.ground();
     record.ground = ground;
 
-    const scorer = mode === "harness" ? task.eval.scoreHarness : task.eval.scoreNoHarness;
-    const answer = mode === "harness" ? record.structured : record.answerText;
+    // Structured modes score the parsed JSON; free-form scores the raw text.
+    const scorer = structured ? task.eval.scoreHarness : task.eval.scoreNoHarness;
+    const answer = structured ? record.structured : record.answerText;
+    console.error("DEBUG structured=", record.structured, "answer=", answer, "ground=", ground);
     const score = await scorer(answer, ground);
 
     record.correct = !!score.correct;

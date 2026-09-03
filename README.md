@@ -9,7 +9,13 @@ attributable to the harness:
 | Mode | What the model gets |
 |------|---------------------|
 | **no-harness** | A raw, free-form prompt. No tools, no output schema — the model just answers in natural language. |
-| **with-harness** | The same goal wrapped in **tools + output schema + structured prompts**. The model must call the tool(s) and return structured data. |
+| **harness** | The full bundle: **tools + output schema + structured prompt**. The model must call the tool(s) and return structured data. |
+| **schemaOnly** | The schema + structured prompt, **no tools**. Isolates the "ask for JSON" axis. |
+| **toolOnly** | The tools, **no schema**, free-form answer. Isolates the "give it tools" axis. |
+
+`no-harness` is the bare baseline. `harness` is the full bundle. `schemaOnly` and `toolOnly` are the
+two axes the bundle is made of — running all four lets you see whether the harness's lift comes from
+the tools, the output schema, or both (and whether the structured-prompt instruction alone moves the needle).
 
 The `webserver` (`./webserver`) is the **system under test**. Its real endpoints (`/health`,
 `/api/hello`) are what the harness tools actually hit — the runner executes each tool and feeds

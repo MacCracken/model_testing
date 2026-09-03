@@ -4,6 +4,12 @@ This repo benchmarks **LLM capability with vs. without a harness**. Keep that fr
 every task defines the *same goal* and is run in `noHarness` (free-form) and `harness`
 (tools + schema + structured prompts) modes, scored identically so the delta is the harness.
 
+A mode is defined by **behavior**, not just by name: it is either *structured* (inject the output
+schema, run any tools, and score the parsed JSON) or *free-form* (no tools, score the raw text).
+`harness` is structured; `noHarness` is free-form. `schemaOnly` and `toolOnly` reuse the same two
+behaviors to isolate the harness's axes — see `isStructuredMode` in `runner.js`. Adding a mode means
+adding a name that is one or the other; `runTrial` needs no per-mode special-casing.
+
 ## Layout
 
 - `src/providers/` — OpenAI-compatible client + provider registry (`index.js`). No SDKs.

@@ -30,17 +30,24 @@ function tryParse(s) {
   try { return JSON.parse(s); } catch { return undefined; }
 }
 
-// Scan for the first balanced {...} or [...] block, ignoring brackets inside strings.
+// Scan for the first balanced {...} or [...] block, respecting string state across the whole
+// string. A naive scan that only hunts for the first "{" can land inside a quoted string (e.g.
+// the model writes `sure — try {"a":1}` first, then the real answer later) and slice the wrong
+// block. So we find the first candidate brace anywhere, but bracket-tracking must account for
+// quotes from position 0 onward.
 function firstJSONSlice(s) {
-  let start = -1;
+  let start = -1, inStr = false, esc = false;
   for (let i = 0; i < s.length; i++) {
-    if (s[i] === "{" || s[i] === "[") { start = i; break; }
+    const ch = s[i];
+    if (ch === '"') { inStr = !inStr; continue; }
+    if (inStr) continue;
+    if (ch === "{" || ch === "[") { start = i; break; }
   }
   if (start === -1) return null;
 
   const open = s[start];
   const close = open === "{" ? "}" : "]";
-  let depth = 0, inStr = false, esc = false;
+  let depth = 0;
 
   for (let i = start; i < s.length; i++) {
     const ch = s[i];
