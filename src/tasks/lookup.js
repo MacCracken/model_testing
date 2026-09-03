@@ -1,23 +1,22 @@
 // Task: a tool-essential lookup.
 //
-//   - noHarness: the model must write the server ids from memory. The endpoint assigns a
-//     brand-new random UUID to each name on every call, so there is nothing to memorize — a
-//     free-form model has no way to produce the real ids and will hallucinate or refuse.
+//   - noHarness: the model is asked for server-assigned ids it has no way to know. The endpoint
+//     mints a brand-new random UUID on every call, so there is nothing to memorize — a free-form
+//     model can only refuse or hallucinate, and scores 0. That floor is the calibration.
 //   - harness:   the model is given a `lookup` tool that returns the real id for a name, plus an
-//     output schema. It must call the tool and report the ids it received.
+//     output schema. It must call the tool and report the ids it received, verbatim.
 //
-// This is a calibration task: it isolates "the tool is required" from "the schema is required"
-// (see registry). A model that answers from memory without tools should score near zero; a model
-// that calls the tool should score near 100%.
+// Ground truth is the ids the server handed to THIS trial's tool calls, read back out of the tool
+// results. Fetching "the" ids afterwards would compare the model's (correct) report against a
+// different random number — no answer could ever score. With no tool calls there is no truth to
+// match, which is exactly what makes the task tool-essential.
 
 import { labelModel } from "../providers/index.js";
+import { BASE, unwrapList } from "./util.js";
 
-const PORT = process.env.PORT ?? 3000;
-const BASE = `http://localhost:${PORT}`;
 const NAMES = ["alice", "bob", "carol"];
 
-// Fetch the id the endpoint assigns to a name. The endpoint returns a fresh random UUID every
-// call, so this must run at eval time — the model never sees it in its prompt.
+// Fetch the id the endpoint assigns to a name. A fresh random UUID every call.
 async function lookup(name) {
   const res = await fetch(`${BASE}/api/hello?name=${encodeURIComponent(name)}`);
   if (!res.ok) throw new Error(`lookup endpoint: ${res.status}`);
@@ -65,14 +64,12 @@ const schema = {
 
 // Pull the reported ids, tolerating a bare array or an object wrapper.
 function idsFrom(out) {
-  if (Array.isArray(out)) return out;
-  if (out && typeof out === "object") {
-    for (const key of ["results", "ids", "data", "entries"]) {
-      if (Array.isArray(out[key])) return out[key];
-    }
-    if (out.id) return [out];
-  }
-  return [];
+  return unwrapList(out, ["results", "ids", "data", "entries"], (o) => o.id !== undefined);
+}
+
+// Which names actually received an id during the trial.
+function fetched(ground) {
+  return ground.filter((g) => g.ids.length);
 }
 
 export const task = {
@@ -106,30 +103,53 @@ export const task = {
 
   // ---- evaluation ----
   eval: {
-    // Truth: the ids the real endpoint actually assigns to these names.
-    ground: async () => Promise.all(NAMES.map(lookup)),
-
-    // Harness: every ground id must appear in the structured answer. Because the ids are random,
-    // a model that never called the tool cannot match them; only a model that fetched them does.
-    scoreHarness: (out, ground) => {
-      if (out === null || out === undefined) return { correct: false, reason: "no structured output" };
-      const got = idsFrom(out).map((g) => String(g?.id ?? "").trim().toLowerCase()).filter(Boolean);
-      if (!got.length) return { correct: false, reason: "structured output contained no ids" };
-      const missing = ground.filter((g) => !got.includes(String(g.id).trim().toLowerCase()));
-      if (missing.length) {
-        return {
-          correct: false,
-          reason: `${ground.length - missing.length}/${ground.length} ids match; missing ${missing.map((m) => m.name).join(", ")}`,
-        };
+    // Truth: every id the tool returned for each name during this trial. A name the model looked
+    // up twice has two valid ids; a name it never looked up has none.
+    ground: ({ toolResults = [] } = {}) => {
+      const byName = new Map(NAMES.map((n) => [n, []]));
+      for (const r of toolResults) {
+        if (r.name !== tool.name || r.ok === false) continue;
+        let parsed;
+        try { parsed = JSON.parse(r.content); } catch { continue; }
+        for (const entry of parsed?.results ?? []) {
+          const name = String(entry?.name ?? "").trim().toLowerCase();
+          if (byName.has(name) && entry?.id) byName.get(name).push(String(entry.id).trim().toLowerCase());
+        }
       }
-      return { correct: true, reason: `all ${ground.length} ids match the endpoint` };
+      return NAMES.map((name) => ({ name, ids: byName.get(name) }));
     },
 
-    // No-harness: the same ids, looked for in free text. There is nothing to memorize, so a
-    // model that did not hit the endpoint scores near zero here — that is the point.
+    // Harness: for every name, one of the ids the tool actually returned must appear in the
+    // structured answer. A model that never called the tool has nothing real to report.
+    scoreHarness: (out, ground) => {
+      if (out === null || out === undefined) return { correct: false, reason: "no structured output" };
+      if (!fetched(ground).length) {
+        return { correct: false, reason: "the lookup tool was never called, so there are no real ids to report" };
+      }
+      const got = idsFrom(out).map((g) => String(g?.id ?? "").trim().toLowerCase()).filter(Boolean);
+      if (!got.length) return { correct: false, reason: "structured output contained no ids" };
+      const missing = ground.filter((g) => !g.ids.some((id) => got.includes(id)));
+      if (missing.length) {
+        const unfetched = missing.filter((g) => !g.ids.length).map((g) => g.name);
+        const wrong = missing.filter((g) => g.ids.length).map((g) => g.name);
+        const why = [
+          unfetched.length ? `never looked up ${unfetched.join(", ")}` : "",
+          wrong.length ? `reported an id the tool did not return for ${wrong.join(", ")}` : "",
+        ].filter(Boolean).join("; ");
+        return { correct: false, reason: `${ground.length - missing.length}/${ground.length} ids match; ${why}` };
+      }
+      return { correct: true, reason: `all ${ground.length} ids match what the tool returned` };
+    },
+
+    // Free-form: the same ids, looked for in the text. Without a tool call (noHarness) the real
+    // ids were never fetched, so nothing can match — that floor is the point of the task. In
+    // toolOnly mode the tool ran, so the text is checked against what it returned.
     scoreNoHarness: (out, ground) => {
+      if (!fetched(ground).length) {
+        return { correct: false, reason: "no tool was called, so the real ids were never fetched — nothing in free text can match" };
+      }
       const text = String(out ?? "").replace(/["*`]/g, "").toLowerCase();
-      const present = ground.filter((g) => text.includes(String(g.id).trim().toLowerCase()));
+      const present = ground.filter((g) => g.ids.some((id) => text.includes(id)));
       return {
         correct: present.length === ground.length,
         reason: `${present.length}/${ground.length} ids present`,

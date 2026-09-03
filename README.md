@@ -14,19 +14,32 @@ attributable to the harness:
 | **toolOnly** | The tools, **no schema**, free-form answer. Isolates the "give it tools" axis. |
 
 `no-harness` is the bare baseline. `harness` is the full bundle. `schemaOnly` and `toolOnly` are the
-two axes the bundle is made of — running all four lets you see whether the harness's lift comes from
-the tools, the output schema, or both (and whether the structured-prompt instruction alone moves the needle).
+two axes the bundle is made of. A task takes part in a mode by declaring a spec for it; pairs a task
+does not declare are skipped and reported, not scored. Today every task declares the headline pair,
+`reason` also declares `schemaOnly` (it has no tools, so its harness *is* schema-only), and no task
+declares `toolOnly` yet — see `plan.md`.
 
 The `webserver` (`./webserver`) is the **system under test**. Its real endpoints (`/health`,
 `/api/hello`) are what the harness tools actually hit — the runner executes each tool and feeds
 its real response back to the model. What gets scored is the model's *final message*, written
 after it has seen that output, so harness mode measures the model, not the endpoint.
 
+## Tasks
+
+| Task | Category | What it measures |
+|------|----------|------------------|
+| `health` | api-call | Report live status **and uptime**. Free text can only guess the status. |
+| `hello` | api-call | Three greetings verbatim. Tool-optional: the format is documented, so a careful model can pass without tools. |
+| `reason` | pure-reasoning | Three arithmetic/logic questions, no tools in either mode. The control: any "delta" here is the schema instruction alone. |
+| `lookup` | api-call | Three server-minted random ids. **Tool-essential**: there is nothing to memorize, so free text floors at 0 and truth is whatever the tool returned during the trial. |
+| `regex` | tool-reasoning | Which of six strings match an anchored regex, with a correct `regex_match` tool and a `word_count` decoy. Tests tool *selection* and typed arguments, not just firing. |
+
 ## Setup
 
 ```bash
-cp .env.example .env      # fill in keys
+cp .env.example .env      # fill in keys; local Ollama needs none
 cd webserver && npm start # the system under test, on http://localhost:3000
+npm test                  # unit tests — no model or server needed
 ```
 
 ## Web UI
@@ -37,17 +50,23 @@ The fastest way to launch runs and read the results:
 node src/cli.js serve
 ```
 
-Then open <http://127.0.0.1:4000>. The page lets you:
+Then open <http://127.0.0.1:4000>. The page is a recipe on the left and the results on the right:
 
-- pick **tasks**, **modes**, and **models** (providers without an API key are greyed out; local
-  Ollama models are listed live from the running daemon) and set trials per cell;
-- watch a run **stream in trial by trial**, and cancel it mid-flight;
-- read the headline **harness delta**, per-mode correctness, tool-use and schema-validity rates,
-  and a task × model matrix;
-- click any trial for the full story: the system and user prompts, **every tool call with the
-  real response the endpoint returned**, the model's final message, the parsed structured
-  answer with schema errors, and the ground truth it was scored against;
-- reopen any past run from the history dropdown — including ones launched from the CLI.
+- pick **tasks**, **modes** and **models** as chips (a mode greys out when no selected task declares
+  it; providers without a key, or an offline Ollama, are greyed out) and set trials per cell — the
+  recipe sentence shows exactly how many trials will run and which pairs are skipped;
+- the headline is the **harness delta** with its significance line, the per-mode rates, and the
+  harness hygiene numbers (tool use, schema validity, tokens);
+- a **live cell grid** fills in trial by trial in execution order, so you can see what is running,
+  what passed and what is queued; a run can be cancelled mid-flight;
+- the task × model matrix is a **dumbbell chart**: no-harness and harness rates on one track per
+  row, the delta beside it, and the row's own p-value on hover;
+- the **trial log** filters to failures or harness-only rows; click a row (or a grid cell) for the
+  full story as a timeline — system and user prompts, every tool call with the real response,
+  the final message, the scorer's verdict — plus the answer and the ground truth side by side, and
+  any schema errors. ← / → step between trials, esc closes;
+- reopen any past run from the header dropdown, including runs launched from the CLI;
+- **light / dark / system** theme switch in the header, remembered per browser.
 
 Useful flags: `--port 4000`, `--host 127.0.0.1`, `--open`.
 
@@ -70,7 +89,7 @@ shows up in the web UI's history. `--json` prints the whole run record; `--no-sa
 writing it.
 
 ```bash
-node src/cli.js list    # tasks and providers, with API-key status
+node src/cli.js list    # tasks (with the modes each declares) and providers, with key status
 ```
 
 ## Providers
@@ -80,21 +99,25 @@ Multiple providers behind a single OpenAI-compatible client (no SDKs):
 - **OpenAI** — `gpt-4o-mini`, `gpt-4o`, `gpt-4.1-mini`
 - **Anthropic** — via Anthropic's OpenAI-compatible route
 - **Groq** — `llama-3.3-70b-versatile`, `gemma2-9b-it`
-- **Local (Ollama)** — whatever the daemon reports from `/v1/models`
+- **Local (Ollama)** — no key needed; whatever the daemon reports from `/v1/models`
 
 To add one, add an entry to `PROVIDERS` in `src/providers/index.js` and a label to
-`MODEL_LABELS`.
+`MODEL_LABELS`. Values in `.env` (`*_API_KEY`, `OLLAMA_BASE_URL`, `SUT_PORT`, `RESULTS_DIR`) are loaded
+at startup; real environment variables win.
 
 ## Evaluation
 
 Tasks carry an `eval` block with:
 
-- `ground()` — call the real endpoint to get ground truth.
+- `ground(trial)` — the truth, fetched **after** the model answers. It receives what the trial did
+  (`toolCalls`, `toolResults`, the parsed answer) so a task can define truth as "what my tool
+  really returned" when the endpoint is random. Tasks with fixed truth use a constant.
 - `scoreHarness(structured, ground)` — validate the structured answer against it.
 - `scoreNoHarness(text, ground)` — judge the free text.
 
-Both starting tasks use automated ground-truth scoring. LLM-as-judge can be plugged in per task
-by adding an `eval.judge` block.
+All five tasks use automated ground-truth scoring. Scorers judge content, not wrappers: a list
+returned under `results`, `data` or the schema's own `items` key scores the same as a bare array,
+while `schemaValid` still records whether the shape matched exactly.
 
 Note that the two scorers are **not equally strict by construction**, and shouldn't be read as
 if they were: `health` checks status *and* the real uptime in harness mode, but only the status
@@ -104,6 +127,12 @@ the capability being measured — it is worth re-reading whenever you add a task
 ## How to read the results
 
 The headline question is: **does the harness help?** Expect with-harness to show higher
-correctness and to expose whether the model can call tools against real code. Small local
-models vary a lot run to run, so use `--count` (or "trials per cell") before drawing a
-conclusion from a single trial.
+correctness and to expose whether the model can call tools against real code.
+
+Every delta carries a two-sided **Fisher exact** p-value, which is valid at the tiny sample sizes
+a local run produces — and that is exactly where intuition fails. With three trials per side no
+outcome can reach p < 0.05, not even 0/3 → 3/3 (p = 0.10); four per side is the floor for a
+perfect split, and a realistic 40% → 70% gap needs on the order of twenty per side. The UI and CLI
+say **inconclusive** when the sample could not have been significant, **not significant** when it
+could have been but wasn't, and **significant** otherwise. Small local models also vary a lot run
+to run, so raise `--count` (or "trials per cell") before drawing a conclusion.

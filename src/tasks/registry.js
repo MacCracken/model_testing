@@ -2,15 +2,15 @@
 //
 // Each task provides:
 //   - name / category / description
-//   - model: (modelId) => label
-//   - noHarness: { prompt, extract }                          // raw free-form call
-//   - harness:   { system, prompt, tools, schema, extract }   // structured call
+//   - noHarness: { prompt }                                  // raw free-form call
+//   - harness:   { system, prompt, tools, schema }           // structured call
+//   - optionally schemaOnly / toolOnly specs for the two decomposition axes
 //   - eval: { ground, scoreHarness, scoreNoHarness }
 //
-// `extract` is one of:
-//   - "text"        -> the raw model text is the answer
-//   - "structured"  -> the final assistant message is parsed as JSON (harness mode)
+// `ground` is a function of the trial ({ mode, toolCalls, toolResults, structured, answerText }),
+// called after the model answers, or a constant for tasks with fixed truth.
 
+import { MODE_NAMES } from "../runner.js";
 import { task as healthTask } from "./health.js";
 import { task as helloTask } from "./hello.js";
 import { task as reasonTask } from "./reason.js";
@@ -25,11 +25,8 @@ export function getTask(name) {
   return t;
 }
 
-// The modes a task advertises. A task lists the axes it supports (noHarness, harness, and any of
-// the decompositions it defines — e.g. schemaOnly or toolOnly); the registry reports only the ones
-// actually present, so a task that never declares toolOnly does not advertise it.
-export const MODE_NAMES = ["noHarness", "harness", "schemaOnly", "toolOnly"];
-
+// What the UI and `cli list` show. `modes` is the subset of MODE_NAMES the task actually declares
+// a spec for — the runner skips any other (task, mode) pair rather than scoring it as an error.
 export function listTasks() {
   return tasks.map((t) => ({
     name: t.name,
@@ -39,5 +36,3 @@ export function listTasks() {
     tools: (t.harness?.tools ?? []).map((tool) => tool.name),
   }));
 }
-
-export { healthTask, helloTask };

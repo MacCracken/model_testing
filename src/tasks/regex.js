@@ -1,7 +1,8 @@
 // Task: which strings match a target regex?
 //
 //   - noHarness: the model determines matches by hand from free text. Regex matching is doable
-//     but error-prone, so this floors out somewhat.
+//     but error-prone on the near-misses, so this is where a careful model separates from a
+//     sloppy one.
 //   - harness:   the model is given two tools and must *reason* about them:
 //       * `regex_match` — the correct tool. It requires typed args: the regex `pattern` and the
 //         `string` to test. The model must construct a valid regex and pass it per-string.
@@ -10,12 +11,15 @@
 //
 // This exercises *tool complexity*, not just firing: it tests whether the model picks the right
 // tool and builds the right arguments, not whether it calls a tool at all (see lookup.js, which
-// isolated "can't call tools at all").
+// isolates "the tool is required").
 
 import { labelModel } from "../providers/index.js";
+import { unwrapList } from "./util.js";
 
-const STRINGS = ["123-45", "12345", "abc", "123-456", "12-34", "123-45"];
-// Three digits, a dash, two digits — anchored so "12345" and "123-456" are near-misses.
+// Two well-formed strings and four near-misses: "12345" (no dash), "123-456" (three trailing
+// digits), "12-34" (two leading digits) all look like "123-45" but fail the anchored pattern.
+const STRINGS = ["123-45", "12345", "abc", "123-456", "12-34", "999-88"];
+// Three digits, a dash, two digits — anchored so the near-misses do not match.
 const TARGET = "^\\d{3}-\\d{2}$";
 
 // Real regex matching — the truth the `regex_match` tool computes.
@@ -75,17 +79,15 @@ const schema = {
 
 // Extract the { string, matched } list, tolerating an array or an object wrapper.
 function resultsFrom(out) {
-  if (!out) return [];
-  if (Array.isArray(out)) return out;
-  if (out && typeof out === "object") {
-    for (const key of ["results", "matches", "data", "entries"]) {
-      if (Array.isArray(out[key])) return out[key];
-    }
-    if (Array.isArray(out.matches)) return out.matches;
-    if (Array.isArray(out.data)) return out.data;
-  }
-  return [];
+  return unwrapList(out, ["results", "matches", "data", "entries"], (o) => o.matched !== undefined && o.string !== undefined);
 }
+
+// Free-text parsing helpers for the no-harness scorer.
+const YES_NO = /\b(yes|no)\b/;
+// Strip a short list marker ("1.", "2)", "-", "*", "•") followed by whitespace, so "1. 123-45: yes"
+// reads as "123-45: yes". Limited to two digits so a string like "12345: no" is never eaten.
+const stripMarker = (line) => line.replace(/^\s*(?:[-*•]|\(?\d{1,2}[.)])\s+/, "").trim();
+const verdictIn = (s) => s.match(YES_NO)?.[1] ?? null;
 
 export const task = {
   name: "regex",
@@ -99,7 +101,8 @@ export const task = {
   noHarness: {
     prompt:
       `Which of these strings match the regular expression ${TARGET}? Strings: ${STRINGS.join(", ")}. ` +
-      "Reply with one line per string, in order, 'yes' if it matches and 'no' if it does not.",
+      "Reply with one line per string, in order, in the form `<string>: yes` if it matches or " +
+      "`<string>: no` if it does not.",
     extract: "text",
   },
 
@@ -120,26 +123,22 @@ export const task = {
 
   // ---- evaluation ----
   eval: {
-    // Ground: which strings actually match the target regex. Computed at eval time so it is the
-    // same truth the harness `regex_match` tool uses.
-    ground: async () => STRINGS.map((s) => ({ string: s, matched: new RegExp(TARGET).test(s) })),
+    // Ground: which strings actually match the target regex — the same truth the harness
+    // `regex_match` tool computes.
+    ground: () => STRINGS.map((s) => ({ string: s, matched: new RegExp(TARGET).test(s) })),
 
-    // Harness: every ground {string, matched} must appear in the structured answer. Because the
-    // regex is the thing under test, a model that never called regex_match (or called word_count)
-    // can still get it by hand — the interesting signal here is *how* it calls the tool, which the
-    // CLI/UI surface separately (tool-use rate, arg correctness) via toolCalls/toolResults.
+    // Harness: every ground {string, matched} must appear in the structured answer. A model that
+    // never called regex_match (or called word_count) can still get it right by hand — the tool
+    // signal (which tool, what args) is surfaced separately via toolCalls/toolResults.
     scoreHarness: (out, ground) => {
       if (!out) return { correct: false, reason: "no structured output" };
       const got = resultsFrom(out);
       if (!got.length) return { correct: false, reason: "structured output contained no results" };
-      // A map of reported string -> whether it was marked matched, so a string reported twice
-      // (with the same value) is scored per occurrence, and a string not reported at all is a miss.
       const reported = {};
       for (const g of got) reported[String(g?.string ?? "").trim()] = g?.matched === true;
       let correct = 0;
       for (const g of ground) {
-        const key = String(g.string).trim();
-        if (reported[key] === g.matched) correct++;
+        if (reported[String(g.string).trim()] === g.matched) correct++;
       }
       return {
         correct: correct === ground.length,
@@ -147,28 +146,30 @@ export const task = {
       };
     },
 
-    // No-harness: "yes"/"no" per string in free text. Split into lines and match each ground string
-    // against the line that starts with it (a duplicate string is scored per occurrence).
+    // No-harness: a yes/no per string. Preferred form is a labelled line ("123-45: yes", any
+    // order, list markers tolerated). If no line names a string, fall back to reading bare yes/no
+    // lines positionally — one per string in order — which is the literal reading of the prompt.
     scoreNoHarness: (out, ground) => {
-      const text = String(out ?? "").toLowerCase();
-      const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-      let correct = 0;
-      for (const g of ground) {
-        const key = String(g.string).trim().toLowerCase();
-        const expected = g.matched ? "yes" : "no";
-        // Find a line beginning with this string; if found, it must carry the expected yes/no.
-        const line = lines.find((l) => l.startsWith(key));
-        if (line === undefined) {
-          correct += 0; // not reported at all is a miss
-        } else if (line.split(":")[1]?.trim() === expected) {
-          correct += 1;
-        } else {
-          correct += 0; // reported, but with the wrong value
-        }
+      const lines = String(out ?? "").toLowerCase().split(/\r?\n/).map(stripMarker).filter(Boolean);
+      const labelled = ground.map((g) => {
+        const key = String(g.string).toLowerCase();
+        // The character after the string must not extend it, so the line for "123-456" is never
+        // read as the line for "123-45".
+        const line = lines.find((l) => l.startsWith(key) && !/[\w-]/.test(l.charAt(key.length)));
+        return line ? verdictIn(line.slice(key.length)) : null;
+      });
+      let verdicts = labelled;
+      let how = "";
+      if (!labelled.some((v) => v !== null)) {
+        const bare = lines.map(verdictIn).filter(Boolean);
+        verdicts = ground.map((_, i) => bare[i] ?? null);
+        how = " (read positionally)";
       }
+      let correct = 0;
+      ground.forEach((g, i) => { if (verdicts[i] === (g.matched ? "yes" : "no")) correct++; });
       return {
         correct: correct === ground.length,
-        reason: `${correct}/${ground.length} matches correct`,
+        reason: `${correct}/${ground.length} matches correct${how}`,
       };
     },
   },

@@ -3,110 +3,137 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>LLM Harness Bench</title>
+  <title>Harness Bench</title>
+  <script>
+    // Apply the saved theme before first paint so a dark choice never flashes light.
+    (function () {
+      try {
+        var t = localStorage.getItem("hb-theme");
+        if (t === "light" || t === "dark") { document.documentElement.dataset.theme = t; document.documentElement.style.colorScheme = t; }
+      } catch (e) { /* storage unavailable: follow the system */ }
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" />
   <link rel="stylesheet" href="/styles.css" />
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>&#129514;</text></svg>" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' rx='3' fill='%237c3aed'/><text x='8' y='12' font-size='10' text-anchor='middle' fill='white' font-family='Georgia,serif' font-weight='600'>H</text></svg>" />
 </head>
 <body>
   <header class="topbar">
     <div class="brand">
-      <span class="brand-mark">&#129514;</span>
-      <div>
-        <h1>LLM Harness Bench</h1>
-        <p class="brand-sub">Does a harness &mdash; tools, output schema, structured prompts &mdash; make the model better?</p>
-      </div>
+      <h1>Harness Bench</h1>
+      <p class="tagline">Does a harness &mdash; tools, output schema, structured prompts &mdash; make the model better?</p>
     </div>
-    <div id="sut" class="sut" title="The system under test that harness tools call">
-      <span class="dot" aria-hidden="true"></span>
-      <span class="sut-text">checking&hellip;</span>
+    <div class="topbar-right">
+      <span id="sut" class="status" title="The system under test that harness tools call"><i class="dot"></i><span class="status-text">webserver &middot; checking&hellip;</span></span>
+      <span id="local" class="status" title="Local Ollama daemon"><i class="dot"></i><span class="status-text">ollama &middot; checking&hellip;</span></span>
+      <select id="history" aria-label="Past runs"><option value="">past runs&hellip;</option></select>
+      <div class="theme-switch" role="group" aria-label="Theme">
+        <button type="button" data-theme-choice="light" title="Light theme">light</button>
+        <button type="button" data-theme-choice="dark" title="Dark theme">dark</button>
+        <button type="button" data-theme-choice="system" title="Follow the system setting">system</button>
+      </div>
     </div>
   </header>
 
-  <main class="layout">
-    <!-- ============ launch ============ -->
-    <section class="panel launch" aria-labelledby="launch-h">
-      <h2 id="launch-h">Launch a run</h2>
+  <div class="layout">
+    <!-- ============ recipe ============ -->
+    <aside class="recipe" aria-labelledby="recipe-h">
+      <h2 id="recipe-h" class="serif-title">Recipe</h2>
 
-      <div class="field">
-        <div class="field-head"><label>Tasks</label><button class="link" data-all="tasks">all</button></div>
-        <div id="tasks" class="options"></div>
-      </div>
+      <section class="field">
+        <div class="field-head"><span class="eyebrow">Tasks</span><button type="button" class="link" data-all="tasks">all</button></div>
+        <div id="tasks" class="chips"></div>
+      </section>
 
-      <div class="field">
-        <div class="field-head"><label>Modes</label></div>
-        <div id="modes" class="options"></div>
-        <p class="hint">Both modes are needed to compute a harness delta.</p>
-      </div>
+      <section class="field">
+        <div class="field-head"><span class="eyebrow">Modes</span></div>
+        <div id="modes" class="chips modes"></div>
+        <p id="mode-hint" class="hint">no harness + harness &rarr; delta</p>
+      </section>
 
-      <div class="field">
-        <div class="field-head"><label>Models</label><button class="link" data-all="clients">all available</button></div>
-        <div id="clients" class="options providers"></div>
-      </div>
+      <section class="field">
+        <div class="field-head"><span class="eyebrow">Models</span><button type="button" class="link" data-all="clients">all available</button></div>
+        <div id="clients" class="providers"></div>
+      </section>
 
       <div class="field row">
-        <label for="count">Trials per cell</label>
+        <label for="count">trials / cell</label>
         <input id="count" type="number" min="1" max="20" value="1" />
       </div>
 
-      <div id="plan" class="plan">Select tasks, modes and models.</div>
-
-      <div class="actions">
-        <button id="run" class="primary" disabled>Run benchmark</button>
-        <button id="cancel" class="ghost" hidden>Cancel</button>
+      <div class="launch">
+        <p id="plan" class="plan"></p>
+        <button id="run" type="button" class="primary" disabled>Run benchmark</button>
+        <button id="cancel" type="button" class="danger" hidden>Cancel run</button>
+        <p id="launch-error" class="error" hidden></p>
       </div>
-      <p id="launch-error" class="error" hidden></p>
-    </section>
+    </aside>
 
     <!-- ============ results ============ -->
-    <section class="panel results" aria-labelledby="results-h">
-      <div class="results-head">
-        <h2 id="results-h">Results</h2>
-        <div class="results-meta">
-          <select id="history" aria-label="Past runs"><option value="">Past runs&hellip;</option></select>
-          <button id="delete-run" class="ghost small" hidden>Delete</button>
-        </div>
-      </div>
-
+    <main class="results">
       <div id="empty" class="empty">
-        <p>No run selected.</p>
-        <p class="hint">Launch one on the left, or pick a past run from the dropdown.</p>
+        <p class="serif">No run selected.</p>
+        <p class="hint">Launch one from the recipe, or pick a past run from the header.</p>
       </div>
 
       <div id="report" hidden>
-        <div id="progress" class="progress" hidden>
-          <div class="bar"><div class="bar-fill"></div></div>
-          <span class="progress-text"></span>
-        </div>
+        <div id="warnings" class="warn" hidden></div>
 
-        <p id="warnings" class="warn" hidden></p>
+        <section id="headline" class="headline" aria-label="Headline numbers"></section>
 
-        <div id="cards" class="cards"></div>
+        <section class="block">
+          <div class="block-head">
+            <h3 id="live-title" class="serif-title">Trials</h3>
+            <div class="legend">
+              <span><i class="key pass"></i>pass</span><span><i class="key fail"></i>fail</span>
+              <span><i class="key running"></i>running</span><span><i class="key queued"></i>queued</span>
+            </div>
+          </div>
+          <div id="live" class="live"></div>
+        </section>
 
-        <h3>Correctness by task &times; model</h3>
-        <div class="table-wrap"><table id="matrix"></table></div>
+        <section class="block">
+          <div class="block-head">
+            <h3 class="serif-title">Correctness by task &times; model</h3>
+            <div id="matrix-legend" class="legend"></div>
+          </div>
+          <div id="matrix" class="matrix"></div>
+        </section>
 
-        <div class="trials-head">
-          <h3>Trials</h3>
-          <label class="check inline"><input type="checkbox" id="only-failed" /> failures only</label>
-        </div>
-        <div class="table-wrap"><table id="trials"></table></div>
+        <section class="block">
+          <div class="block-head">
+            <h3 class="serif-title">Trial log</h3>
+            <div class="block-tools">
+              <div id="filters" class="pills"></div>
+              <button id="delete-run" type="button" class="link link-danger" hidden>delete run</button>
+            </div>
+          </div>
+          <div id="trials" class="trials"></div>
+        </section>
       </div>
-    </section>
-  </main>
+    </main>
+  </div>
 
   <!-- ============ trial detail ============ -->
   <aside id="detail" class="detail" hidden aria-label="Trial detail">
     <div class="detail-head">
-      <div>
-        <h2 id="detail-title">Trial</h2>
+      <div class="detail-title-wrap">
+        <div id="detail-crumbs" class="crumbs"></div>
+        <h2 id="detail-title" class="detail-title"></h2>
         <p id="detail-sub" class="hint"></p>
       </div>
-      <button id="detail-close" class="ghost small" aria-label="Close">&times;</button>
+      <div class="detail-nav">
+        <button id="detail-prev" type="button" class="ghost" title="Previous trial (&larr;)">&larr;</button>
+        <button id="detail-next" type="button" class="ghost" title="Next trial (&rarr;)">&rarr;</button>
+        <button id="detail-close" type="button" class="ghost" title="Close (esc)">esc</button>
+      </div>
     </div>
     <div id="detail-body" class="detail-body"></div>
   </aside>
   <div id="scrim" class="scrim" hidden></div>
 
-  <script src="/app.js"></script>
+  <script type="module" src="/app.js"></script>
 </body>
 </html>

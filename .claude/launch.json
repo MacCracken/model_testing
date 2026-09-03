@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "bench-ui",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["src/cli.js", "serve", "--port", "4000"],
+      "port": 4000
+    }
+  ]
+}

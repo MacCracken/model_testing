@@ -7,6 +7,7 @@
 //
 // Dependency-free (node:http), consistent with the rest of the project.
 
+import "../env.js";
 import { createServer } from "node:http";
 import { readFile, stat } from "node:fs/promises";
 import { extname, join, normalize, dirname, resolve } from "node:path";
@@ -14,12 +15,18 @@ import { fileURLToPath } from "node:url";
 
 import { listTasks, getTask } from "../tasks/registry.js";
 import { describeProviders, resolveClients } from "../providers/index.js";
-import { runMatrix, MODES } from "../runner.js";
+import { runMatrix, MODE_NAMES, DEFAULT_MODES } from "../runner.js";
+import { describeSkipped } from "../bench.js";
 import { newRunId, saveRun, loadRun, listRuns, deleteRun, runHeader } from "../results.js";
 
 const PUBLIC_DIR = join(dirname(fileURLToPath(import.meta.url)), "public");
-const SUT_PORT = process.env.PORT ?? 3000;
+const SRC_DIR = resolve(PUBLIC_DIR, "..", "..");
+const SUT_PORT = process.env.SUT_PORT ?? process.env.PORT ?? 3000;
 const SUT_BASE = `http://localhost:${SUT_PORT}`;
+
+// Source modules the browser may import, so the UI summarizes runs with the runner's own code
+// (see runner.js). Served under /lib/ and nowhere else.
+const BROWSER_LIB = new Set(["runner.js", "schema.js"]);
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -60,6 +67,8 @@ function startRun({ tasks, modes, clients, count }) {
     source: "web",
     config: { tasks, modes, clients: clientObjs.map((c) => c.name), count },
     warnings: missing.length ? [`skipped (no API key or unknown provider): ${missing.join(", ")}`] : [],
+    // The real total arrives with the runner's "start" event, once undeclared (task, mode) pairs
+    // are dropped from the plan.
     progress: { completed: 0, total: taskObjs.length * modes.length * clientObjs.length * count },
     summary: null,
     rows: [],
@@ -77,7 +86,11 @@ function startRun({ tasks, modes, clients, count }) {
         count,
         signal: controller.signal,
         onEvent: (ev) => {
-          if (ev.type === "trial") {
+          if (ev.type === "start") {
+            run.progress = { completed: 0, total: ev.total };
+            run.warnings.push(...describeSkipped(ev.skipped));
+            saveRun(run);
+          } else if (ev.type === "trial") {
             run.rows.push(ev.result);
             run.progress = { completed: ev.completed, total: ev.total };
             saveRun(run);
@@ -125,10 +138,7 @@ async function readBody(req, limit = 1_000_000) {
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }
 
-async function serveStatic(res, urlPath) {
-  const rel = normalize(urlPath === "/" ? "/index.html" : urlPath).replace(/^(\.\.[/\\])+/, "");
-  const file = join(PUBLIC_DIR, rel);
-  if (!resolve(file).startsWith(resolve(PUBLIC_DIR))) return sendJSON(res, 403, { error: "forbidden" });
+async function sendFile(res, file) {
   try {
     const info = await stat(file);
     if (!info.isFile()) throw new Error("not a file");
@@ -139,6 +149,13 @@ async function serveStatic(res, urlPath) {
     res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
     res.end("not found");
   }
+}
+
+async function serveStatic(res, urlPath) {
+  const rel = normalize(urlPath === "/" ? "/index.html" : urlPath).replace(/^(\.\.[/\\])+/, "");
+  const file = join(PUBLIC_DIR, rel);
+  if (!resolve(file).startsWith(resolve(PUBLIC_DIR))) return sendJSON(res, 403, { error: "forbidden" });
+  return sendFile(res, file);
 }
 
 async function probeSUT() {
@@ -153,7 +170,7 @@ async function probeSUT() {
 
 function validateLaunch(body) {
   const tasks = Array.isArray(body.tasks) ? body.tasks.filter(Boolean) : [];
-  const modes = Array.isArray(body.modes) ? body.modes.filter((m) => MODES.includes(m)) : [];
+  const modes = Array.isArray(body.modes) ? body.modes.filter((m) => MODE_NAMES.includes(m)) : [];
   const clients = Array.isArray(body.clients) ? body.clients.filter(Boolean) : [];
   const count = Math.max(1, Math.min(20, Number(body.count) || 1));
 
@@ -161,6 +178,9 @@ function validateLaunch(body) {
   if (!modes.length) throw new Error("select at least one mode");
   if (!clients.length) throw new Error("select at least one model");
   for (const t of tasks) getTask(t); // throws on unknown task
+  if (!tasks.some((t) => modes.some((m) => !!getTask(t)[m]))) {
+    throw new Error("none of the selected tasks declares any of the selected modes");
+  }
   return { tasks, modes, clients, count };
 }
 
@@ -170,7 +190,7 @@ async function handle(req, res) {
 
   if (req.method === "GET" && path === "/api/meta") {
     const [providers, sut] = await Promise.all([describeProviders(), probeSUT()]);
-    return sendJSON(res, 200, { tasks: listTasks(), modes: ["noHarness", "harness", "schemaOnly", "toolOnly"], providers, sut });
+    return sendJSON(res, 200, { tasks: listTasks(), modes: MODE_NAMES, defaultModes: DEFAULT_MODES, providers, sut });
   }
 
   if (req.method === "GET" && path === "/api/sut") {
@@ -230,6 +250,12 @@ async function handle(req, res) {
       req.on("close", () => { clearInterval(keepAlive); live.subscribers.delete(res); });
       return undefined;
     }
+  }
+
+  if (req.method === "GET" && path.startsWith("/lib/")) {
+    const name = path.slice("/lib/".length);
+    if (!BROWSER_LIB.has(name)) return sendJSON(res, 404, { error: "not found" });
+    return sendFile(res, join(SRC_DIR, name));
   }
 
   if (req.method === "GET") return serveStatic(res, path);

@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><meta name="design_doc_mode" content="canvas"><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet"><style>body{margin:0;background:#ecebe8;font-family:system-ui,sans-serif}*{box-sizing:border-box}a{color:#7c3aed}a:hover{color:#5b21b6}.dv-turn{padding:40px 44px 32px;border-bottom:1px solid rgba(0,0,0,.08);scroll-margin-top:16px}.dv-thd{display:flex;align-items:baseline;gap:10px;margin:0 0 20px}.dv-tid{font:600 10px ui-monospace,Menlo,monospace;padding:3px 7px;background:#1a1a1a;color:#fff;border-radius:4px;text-decoration:none}.dv-tname{font:600 13px/1.2 system-ui,sans-serif;color:#1a1a1a}.dv-opts{display:flex;flex-wrap:wrap;gap:28px;align-items:flex-start}.dv-opt{flex:none;display:flex;flex-direction:column;gap:9px;scroll-margin-top:16px}.dv-oid{font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px;text-decoration:none}.dv-olabel{display:flex;align-items:baseline;gap:8px;font:400 11px/1.3 system-ui,sans-serif;color:rgba(0,0,0,.55)}.dv-card{max-width:100%;background:#fff;border:1px solid rgba(0,0,0,.08);border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.06);overflow:hidden}.dv-opt:target .dv-oid{background:#7c3aed;color:#fff}.dv-next{margin:22px 0 0;font:12px/1.5 system-ui,sans-serif;color:rgba(0,0,0,.5)}.dv-note{max-width:1280px;font:13px/1.55 system-ui,sans-serif;color:rgba(0,0,0,.6);margin:0 0 24px}.dv-note b{color:#1a1a1a}</style></helmet>
+
+<section class="dv-turn" id="t1">
+<div class="dv-thd"><a class="dv-tid" href="#t1">1</a><span class="dv-tname">Reimagined bench UI — data-viz first, Newsreader + IBM Plex Mono, violet accent</span></div>
+<p class="dv-note"><b>Context.</b> Rebuilt from <code>src/web/public</code> (index.html, styles.css, app.js): same IA — launch recipe, headline delta, task × model matrix, trial list, trial detail. <b>Assumptions:</b> the matrix is best read as a before/after per row, so it becomes a dumbbell chart; a live run reads best as a cell grid that fills in; the launch panel shrinks so results own the page. States shown: run in progress (22/36) and trial detail open. Data is the same sample across all three so they compare fairly.</p>
+<div class="dv-opts">
+
+<!-- ============ 1a ============ -->
+<div class="dv-opt" id="1a"><div class="dv-olabel"><a class="dv-oid" href="#1a">1a</a>Ledger · light · run in progress · dumbbell matrix + live cell grid</div>
+<div class="dv-card" style="width:1280px;background:#f7f6f4;color:#16141a;font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:12px;line-height:1.5" data-screen-label="1a Ledger light">
+  <header style="display:flex;align-items:flex-end;justify-content:space-between;padding:26px 36px 18px;border-bottom:1px solid #e6e3e8">
+    <div style="display:flex;flex-direction:column;gap:4px">
+      <div style="font-family:Newsreader,Georgia,serif;font-size:30px;line-height:1;letter-spacing:-0.02em;font-weight:500">Harness Bench</div>
+      <div style="color:#948f9b;font-size:11px;letter-spacing:0.02em">Does a harness — tools, output schema, structured prompts — make the model better?</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:22px;font-size:11px;color:#5f5b66">
+      <div style="display:flex;align-items:center;gap:8px"><span style="width:7px;height:7px;border-radius:50%;background:#1f8a55"></span>webserver · localhost:3000</div>
+      <div style="display:flex;align-items:center;gap:8px"><span style="width:7px;height:7px;border-radius:50%;background:#1f8a55"></span>ollama · 4 models live</div>
+      <select style="font:inherit;font-size:11px;color:#16141a;background:#fff;border:1px solid #e6e3e8;border-radius:6px;padding:5px 8px"><option>run 0x3f2 · Sep 2 18:41 · running</option></select>
+    </div>
+  </header>
+
+  <div style="display:grid;grid-template-columns:272px minmax(0,1fr);gap:0">
+    <!-- recipe -->
+    <aside style="padding:24px 28px 32px 36px;border-right:1px solid #e6e3e8;display:flex;flex-direction:column;gap:22px">
+      <div style="font-family:Newsreader,Georgia,serif;font-size:19px;font-style:italic;color:#5f5b66">Recipe</div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div style="font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:#948f9b;display:flex;justify-content:space-between"><span>Tasks</span><span style="color:#7c3aed">all</span></div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">
+          <sc-for list="{{ recipeTasks }}" as="t" hint-placeholder-count="3"><span style="padding:4px 9px;border-radius:5px;border:1px solid;font-size:11px;border-color:{{ t.bc }};background:{{ t.bg }};color:{{ t.fg }}">{{ t.name }}</span></sc-for>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div style="font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:#948f9b">Modes</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+          <sc-for list="{{ recipeModes }}" as="m" hint-placeholder-count="4"><span style="padding:5px 9px;border-radius:5px;border:1px solid;font-size:11px;border-color:{{ m.bc }};background:{{ m.bg }};color:{{ m.fg }}">{{ m.label }}</span></sc-for>
+        </div>
+        <div style="font-size:10.5px;color:#948f9b">no harness + harness → delta</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div style="font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:#948f9b;display:flex;justify-content:space-between"><span>Models</span><span style="color:#7c3aed">all available</span></div>
+        <sc-for list="{{ providers }}" as="p" hint-placeholder-count="4">
+          <div style="display:flex;flex-direction:column;gap:3px;opacity:{{ p.opacity }}">
+            <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:#5f5b66"><span>{{ p.name }}</span><span style="font-size:9.5px;color:{{ p.tagFg }}">{{ p.tag }}</span></div>
+            <sc-for list="{{ p.models }}" as="m" hint-placeholder-count="2">
+              <div style="display:flex;align-items:center;gap:8px;padding:3px 0;font-size:11px"><span style="width:10px;height:10px;border-radius:3px;border:1px solid;flex:none;border-color:{{ m.bc }};background:{{ m.bg }}"></span><span style="color:{{ m.fg }}">{{ m.id }}</span></div>
+            </sc-for>
+          </div>
+        </sc-for>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px"><span style="color:#5f5b66">trials / cell</span><span style="border:1px solid #e6e3e8;background:#fff;border-radius:5px;padding:3px 10px">3</span></div>
+      <div style="border-top:1px solid #e6e3e8;padding-top:16px;display:flex;flex-direction:column;gap:10px">
+        <div style="font-family:Newsreader,Georgia,serif;font-size:15px;color:#5f5b66;line-height:1.4">3 tasks × 2 modes × 2 models × 3 = <span style="color:#16141a">36 trials</span></div>
+        <button style="font:inherit;font-size:12px;padding:9px 12px;border-radius:6px;border:1px solid #e6e3e8;background:#fff;color:#c8402f;cursor:pointer;text-align:left;display:flex;justify-content:space-between"><span>Cancel run</span><span>esc</span></button>
+      </div>
+    </aside>
+
+    <!-- results -->
+    <main style="padding:24px 36px 36px;display:flex;flex-direction:column;gap:28px;min-width:0">
+      <!-- headline -->
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:0;border-bottom:1px solid #e6e3e8;padding-bottom:22px">
+        <div style="display:flex;flex-direction:column;gap:4px;padding-right:24px;border-right:1px solid #e6e3e8">
+          <div style="font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:#948f9b">Harness delta</div>
+          <div style="font-family:Newsreader,Georgia,serif;font-size:64px;line-height:0.95;letter-spacing:-0.03em;color:#7c3aed;font-weight:500">+36<span style="font-size:28px;letter-spacing:0">pp</span></div>
+          <div style="font-size:11px;color:#5f5b66">45.5% → 81.8% correct · 22 of 36 trials</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:4px;padding:0 24px;border-right:1px solid #e6e3e8">
+          <div style="font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:#948f9b">No harness</div>
+          <div style="font-family:Newsreader,Georgia,serif;font-size:40px;line-height:1;letter-spacing:-0.02em">45.5%</div>
+          <div style="font-size:11px;color:#5f5b66">5/11 · 1.8s avg</div>
+          <div style="height:4px;background:#e6e3e8;border-radius:2px;margin-top:8px"><div style="height:100%;width:45.5%;background:#948f9b;border-radius:2px"></div></div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:4px;padding:0 24px;border-right:1px solid #e6e3e8">
+          <div style="font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:#948f9b">Harness</div>
+          <div style="font-family:Newsreader,Georgia,serif;font-size:40px;line-height:1;letter-spacing:-0.02em">81.8%</div>
+          <div style="font-size:11px;color:#5f5b66">9/11 · 3.3s avg</div>
+          <div style="height:4px;background:#e6e3e8;border-radius:2px;margin-top:8px"><div style="height:100%;width:81.8%;background:#7c3aed;border-radius:2px"></div></div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px;padding-left:24px;font-size:11px">
+          <div style="font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:#948f9b">Harness hygiene</div>
+          <div style="display:flex;justify-content:space-between"><span style="color:#5f5b66">tool use</span><span>90.9%</span></div>
+          <div style="display:flex;justify-content:space-between"><span style="color:#5f5b66">schema valid</span><span>81.8%</span></div>
+          <div style="display:flex;justify-content:space-between"><span style="color:#5f5b66">tokens</span><span>14,206</span></div>
+          <div style="display:flex;justify-content:space-between"><span style="color:#5f5b66">structured / free</span><span>9,884 / 4,322</span></div>
+        </div>
+      </div>
+
+      <!-- live grid -->
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline">
+          <div style="font-family:Newsreader,Georgia,serif;font-size:19px;font-style:italic;color:#5f5b66">Live · 22 / 36</div>
+          <div style="display:flex;gap:16px;font-size:10.5px;color:#948f9b"><span><span style="display:inline-block;width:8px;height:8px;background:#1f8a55;border-radius:2px;margin-right:6px"></span>pass</span><span><span style="display:inline-block;width:8px;height:8px;background:#c8402f;border-radius:2px;margin-right:6px"></span>fail</span><span><span style="display:inline-block;width:8px;height:8px;border:1.5px solid #7c3aed;border-radius:2px;margin-right:6px"></span>running</span><span><span style="display:inline-block;width:8px;height:8px;background:#e6e3e8;border-radius:2px;margin-right:6px"></span>queued</span></div>
+        </div>
+        <div style="display:grid;grid-template-columns:110px 1fr;gap:6px 14px;align-items:center">
+          <sc-for list="{{ gridRows }}" as="g" hint-placeholder-count="2">
+            <div style="font-size:11px;color:#5f5b66;text-align:right">{{ g.label }}</div>
+            <div style="display:grid;grid-template-columns:repeat(18,1fr);gap:4px">
+              <sc-for list="{{ g.cells }}" as="c" hint-placeholder-count="18"><span title="{{ c.title }}" style="height:22px;border-radius:3px;border:1.5px solid;background:{{ c.bg }};border-color:{{ c.bc }}"></span></sc-for>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+
+      <!-- dumbbell matrix -->
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline">
+          <div style="font-family:Newsreader,Georgia,serif;font-size:19px;font-style:italic;color:#5f5b66">Correctness by task × model</div>
+          <div style="display:flex;gap:16px;font-size:10.5px;color:#948f9b"><span><span style="display:inline-block;width:8px;height:8px;background:#948f9b;border-radius:50%;margin-right:6px"></span>no harness</span><span><span style="display:inline-block;width:8px;height:8px;background:#7c3aed;border-radius:50%;margin-right:6px"></span>harness</span></div>
+        </div>
+        <div style="display:grid;grid-template-columns:70px 170px 1fr 64px;gap:0 16px;font-size:11px">
+          <div style="color:#948f9b;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;padding-bottom:6px;border-bottom:1px solid #e6e3e8">task</div>
+          <div style="color:#948f9b;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;padding-bottom:6px;border-bottom:1px solid #e6e3e8">model</div>
+          <div style="color:#948f9b;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;padding-bottom:6px;border-bottom:1px solid #e6e3e8;display:flex;justify-content:space-between"><span>0%</span><span>50%</span><span>100%</span></div>
+          <div style="color:#948f9b;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;padding-bottom:6px;border-bottom:1px solid #e6e3e8;text-align:right">delta</div>
+          <sc-for list="{{ matrix }}" as="r" hint-placeholder-count="6">
+            <div style="padding:9px 0;border-bottom:1px solid #eeecef;color:#16141a">{{ r.task }}</div>
+            <div style="padding:9px 0;border-bottom:1px solid #eeecef;color:#5f5b66;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ r.client }}</div>
+            <div style="padding:9px 0;border-bottom:1px solid #eeecef;position:relative;height:36px">
+              <div style="position:absolute;left:0;right:0;top:50%;height:1px;background:#e6e3e8"></div>
+              <div style="position:absolute;top:50%;height:3px;margin-top:-1.5px;background:#c9b8f5;left:{{ r.lo }};width:{{ r.span }}"></div>
+              <span style="position:absolute;top:50%;width:11px;height:11px;margin:-5.5px 0 0 -5.5px;border-radius:50%;background:#948f9b;left:{{ r.aPct }}"></span>
+              <span style="position:absolute;top:50%;width:11px;height:11px;margin:-5.5px 0 0 -5.5px;border-radius:50%;background:#7c3aed;left:{{ r.bPct }}"></span>
+            </div>
+            <div style="padding:9px 0;border-bottom:1px solid #eeecef;text-align:right;color:{{ r.dColor }}">{{ r.delta }}</div>
+          </sc-for>
+        </div>
+      </div>
+
+      <!-- trials -->
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline">
+          <div style="font-family:Newsreader,Georgia,serif;font-size:19px;font-style:italic;color:#5f5b66">Trials</div>
+          <div style="display:flex;gap:6px;font-size:10.5px"><span style="padding:3px 9px;border-radius:999px;background:#16141a;color:#fff">all 22</span><span style="padding:3px 9px;border-radius:999px;border:1px solid #e6e3e8;color:#5f5b66">failures 6</span><span style="padding:3px 9px;border-radius:999px;border:1px solid #e6e3e8;color:#5f5b66">harness only</span></div>
+        </div>
+        <div style="display:grid;grid-template-columns:8px 60px 90px 150px 28px 56px 56px 64px 1fr;gap:0 14px;font-size:11px;align-items:center">
+          <sc-for list="{{ trials }}" as="r" hint-placeholder-count="8">
+            <span style="width:8px;height:8px;border-radius:2px;background:{{ r.vColor }}"></span>
+            <div style="padding:7px 0;border-bottom:1px solid #eeecef">{{ r.task }}</div>
+            <div style="padding:7px 0;border-bottom:1px solid #eeecef;color:#5f5b66">{{ r.mode }}</div>
+            <div style="padding:7px 0;border-bottom:1px solid #eeecef;color:#5f5b66;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ r.model }}</div>
+            <div style="padding:7px 0;border-bottom:1px solid #eeecef;color:#948f9b">{{ r.index }}</div>
+            <div style="padding:7px 0;border-bottom:1px solid #eeecef;color:#948f9b;white-space:nowrap">{{ r.toolsLbl }}</div>
+            <div style="padding:7px 0;border-bottom:1px solid #eeecef;color:{{ r.sColor }}">{{ r.schemaLbl }}</div>
+            <div style="padding:7px 0;border-bottom:1px solid #eeecef;color:#948f9b;text-align:right">{{ r.latency }}</div>
+            <div style="padding:7px 0;border-bottom:1px solid #eeecef;color:#5f5b66;font-family:Newsreader,Georgia,serif;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ r.reason }}</div>
+          </sc-for>
+        </div>
+      </div>
+    </main>
+  </div>
+</div></div>
+
+<!-- ============ 1b ============ -->
+<div class="dv-opt" id="1b"><div class="dv-olabel"><a class="dv-oid" href="#1b">1b</a>Console · dark · trial detail open as split pane · per-model latency sparklines</div>
+<div class="dv-card" style="width:1280px;background:#121016;color:#ece8f1;font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:12px;line-height:1.5;border-color:#2a2632" data-screen-label="1b Console dark">
+  <header style="display:flex;align-items:center;justify-content:space-between;padding:16px 28px;border-bottom:1px solid #2a2632">
+    <div style="display:flex;align-items:baseline;gap:18px">
+      <div style="font-family:Newsreader,Georgia,serif;font-size:22px;letter-spacing:-0.02em;font-weight:500">Harness Bench</div>
+      <div style="display:flex;gap:6px;font-size:10.5px">
+        <span style="padding:3px 9px;border-radius:4px;background:#a78bfa;color:#121016">run 0x3f2</span>
+        <span style="padding:3px 9px;border-radius:4px;border:1px solid #2a2632;color:#a49fad">Sep 2 · 18:41</span>
+        <span style="padding:3px 9px;border-radius:4px;border:1px solid #2a2632;color:#a49fad">health hello reason</span>
+        <span style="padding:3px 9px;border-radius:4px;border:1px solid #2a2632;color:#a49fad">gpt-4o-mini · qwen3.5:9b</span>
+        <span style="padding:3px 9px;border-radius:4px;border:1px solid #2a2632;color:#a49fad">×3</span>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:18px;font-size:11px;color:#a49fad">
+      <span style="display:flex;align-items:center;gap:7px"><span style="width:7px;height:7px;border-radius:50%;background:#5ad494"></span>webserver</span>
+      <span style="display:flex;align-items:center;gap:7px"><span style="width:7px;height:7px;border-radius:50%;background:#5ad494"></span>ollama</span>
+      <span style="color:#a78bfa">history ▾</span>
+      <span style="padding:5px 12px;border-radius:5px;border:1px solid #2a2632;color:#ece8f1">new run</span>
+    </div>
+  </header>
+
+  <div style="display:grid;grid-template-columns:minmax(0,1fr) 520px">
+    <!-- left: results -->
+    <main style="padding:24px 28px 32px;display:flex;flex-direction:column;gap:26px;border-right:1px solid #2a2632;min-width:0">
+      <!-- progress strip -->
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:#a49fad"><span>22 / 36 trials · running <span style="color:#a78bfa">health · harness · qwen3.5:9b · #3</span></span><span>eta ~48s</span></div>
+        <div style="display:grid;grid-template-columns:repeat(36,1fr);gap:3px">
+          <sc-for list="{{ stripCells }}" as="c" hint-placeholder-count="36"><span style="height:14px;border-radius:2px;border:1.5px solid;background:{{ c.bg }};border-color:{{ c.bc }}"></span></sc-for>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:auto 1fr;gap:28px;align-items:start">
+        <div style="display:flex;flex-direction:column;gap:2px">
+          <div style="font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:#6f6a78">Harness delta</div>
+          <div style="font-family:Newsreader,Georgia,serif;font-size:76px;line-height:0.9;letter-spacing:-0.03em;color:#a78bfa;font-weight:500">+36<span style="font-size:30px;letter-spacing:0">pp</span></div>
+          <div style="font-size:11px;color:#a49fad;margin-top:8px">45.5% → 81.8% correct</div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <sc-for list="{{ modelCards }}" as="mc" hint-placeholder-count="2">
+            <div style="border:1px solid #2a2632;border-radius:8px;padding:12px 14px;background:#1a1720;display:flex;flex-direction:column;gap:8px">
+              <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-size:11px">{{ mc.model }}</span><span style="font-size:10px;color:#6f6a78">{{ mc.provider }}</span></div>
+              <div style="display:flex;gap:14px;align-items:baseline">
+                <div><div style="font-size:9.5px;letter-spacing:0.1em;text-transform:uppercase;color:#6f6a78;white-space:nowrap">no harness</div><div style="font-family:Newsreader,Georgia,serif;font-size:24px;line-height:1.1">{{ mc.a }}</div></div>
+                <div style="color:#6f6a78">→</div>
+                <div><div style="font-size:9.5px;letter-spacing:0.1em;text-transform:uppercase;color:#6f6a78">harness</div><div style="font-family:Newsreader,Georgia,serif;font-size:24px;line-height:1.1;color:#a78bfa">{{ mc.b }}</div></div>
+                <div style="margin-left:auto;text-align:right;white-space:nowrap"><div style="font-size:9.5px;letter-spacing:0.1em;text-transform:uppercase;color:#6f6a78">latency</div><div style="font-size:11px;color:#a49fad">{{ mc.lat }}</div></div>
+              </div>
+              <svg viewBox="0 0 200 28" width="100%" height="28" preserveAspectRatio="none" style="display:block"><polyline fill="none" stroke="#a78bfa" stroke-width="1.5" points="{{ mc.spark }}"></polyline></svg>
+              <div style="display:flex;justify-content:space-between;font-size:10px;color:#6f6a78"><span>tool use {{ mc.tools }}</span><span>schema {{ mc.schema }}</span><span>{{ mc.tokens }} tok</span></div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+
+      <!-- dumbbell -->
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline"><div style="font-family:Newsreader,Georgia,serif;font-size:18px;font-style:italic;color:#a49fad">Correctness by task × model</div><div style="display:flex;gap:16px;font-size:10.5px;color:#6f6a78"><span><span style="display:inline-block;width:8px;height:8px;background:#6f6a78;border-radius:50%;margin-right:6px"></span>no harness</span><span><span style="display:inline-block;width:8px;height:8px;background:#a78bfa;border-radius:50%;margin-right:6px"></span>harness</span></div></div>
+        <div style="display:grid;grid-template-columns:64px 150px 1fr 56px;gap:0 14px;font-size:11px">
+          <sc-for list="{{ matrix }}" as="r" hint-placeholder-count="6">
+            <div style="padding:7px 0;border-bottom:1px solid #1f1c26">{{ r.task }}</div>
+            <div style="padding:7px 0;border-bottom:1px solid #1f1c26;color:#a49fad;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ r.client }}</div>
+            <div style="padding:7px 0;border-bottom:1px solid #1f1c26;position:relative;height:32px">
+              <div style="position:absolute;left:0;right:0;top:50%;height:1px;background:#2a2632"></div>
+              <div style="position:absolute;top:50%;height:3px;margin-top:-1.5px;background:#4c3a86;left:{{ r.lo }};width:{{ r.span }}"></div>
+              <span style="position:absolute;top:50%;width:10px;height:10px;margin:-5px 0 0 -5px;border-radius:50%;background:#6f6a78;left:{{ r.aPct }}"></span>
+              <span style="position:absolute;top:50%;width:10px;height:10px;margin:-5px 0 0 -5px;border-radius:50%;background:#a78bfa;left:{{ r.bPct }}"></span>
+            </div>
+            <div style="padding:7px 0;border-bottom:1px solid #1f1c26;text-align:right;color:{{ r.dColorDark }}">{{ r.delta }}</div>
+          </sc-for>
+        </div>
+      </div>
+
+      <!-- trials -->
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline"><div style="font-family:Newsreader,Georgia,serif;font-size:18px;font-style:italic;color:#a49fad">Trials</div><span style="font-size:10.5px;color:#6f6a78">click a row → detail</span></div>
+        <div style="display:grid;grid-template-columns:8px 56px 84px 130px 26px 60px 1fr;gap:0 12px;font-size:11px;align-items:center">
+          <sc-for list="{{ trials }}" as="r" hint-placeholder-count="8">
+            <span style="width:8px;height:8px;border-radius:2px;background:{{ r.vColorDark }}"></span>
+            <div style="padding:6px 0;border-bottom:1px solid #1f1c26;background:{{ r.rowBg }}">{{ r.task }}</div>
+            <div style="padding:6px 0;border-bottom:1px solid #1f1c26;color:#a49fad;background:{{ r.rowBg }}">{{ r.mode }}</div>
+            <div style="padding:6px 0;border-bottom:1px solid #1f1c26;color:#a49fad;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:{{ r.rowBg }}">{{ r.model }}</div>
+            <div style="padding:6px 0;border-bottom:1px solid #1f1c26;color:#6f6a78;background:{{ r.rowBg }}">{{ r.index }}</div>
+            <div style="padding:6px 0;border-bottom:1px solid #1f1c26;color:#6f6a78;text-align:right;background:{{ r.rowBg }}">{{ r.latency }}</div>
+            <div style="padding:6px 0;border-bottom:1px solid #1f1c26;color:#a49fad;font-family:Newsreader,Georgia,serif;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:{{ r.rowBg }}">{{ r.reason }}</div>
+          </sc-for>
+        </div>
+      </div>
+    </main>
+
+    <!-- right: detail -->
+    <aside style="padding:24px 28px 32px;display:flex;flex-direction:column;gap:18px;background:#15121b;min-width:0">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start">
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <div style="display:flex;gap:8px;align-items:center;font-size:10.5px"><span style="padding:2px 8px;border-radius:3px;background:#3a1b1d;color:#ff8b7e">fail</span><span style="color:#a49fad">health · harness · #2</span></div>
+          <div style="font-family:Newsreader,Georgia,serif;font-size:22px;line-height:1.2;letter-spacing:-0.01em">uptimeSec 4127 does not match live 4131 <span style="color:#6f6a78">(±2s)</span></div>
+          <div style="font-size:11px;color:#6f6a78">local:qwen3.5:9b-mlx · 2914ms · 612 tok (498 in / 114 out) · 1 tool round · stop</div>
+        </div>
+        <div style="display:flex;gap:6px;font-size:11px;color:#a49fad"><span style="padding:4px 8px;border:1px solid #2a2632;border-radius:4px">←</span><span style="padding:4px 8px;border:1px solid #2a2632;border-radius:4px">→</span><span style="padding:4px 8px;border:1px solid #2a2632;border-radius:4px">esc</span></div>
+      </div>
+
+      <!-- transcript timeline -->
+      <div style="display:flex;flex-direction:column;gap:0;border-left:1px solid #2a2632;margin-left:5px">
+        <sc-for list="{{ transcript }}" as="s" hint-placeholder-count="6">
+          <div style="display:grid;grid-template-columns:20px 1fr;gap:0 10px;padding:0 0 16px;margin-left:-6px">
+            <span style="width:11px;height:11px;border-radius:50%;border:2px solid #15121b;margin-top:3px;background:{{ s.dot }}"></span>
+            <div style="display:flex;flex-direction:column;gap:5px;min-width:0">
+              <div style="display:flex;justify-content:space-between;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:#6f6a78"><span style="color:{{ s.labelColor }}">{{ s.label }}</span><span>{{ s.meta }}</span></div>
+              <pre style="margin:0;padding:9px 11px;background:#1a1720;border:1px solid;border-radius:6px;font-family:inherit;font-size:11px;line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere;color:#ece8f1;border-color:{{ s.border }}">{{ s.body }}</pre>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+
+      <!-- diff -->
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <div style="font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:#6f6a78">Answer vs ground truth</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1px;background:#2a2632;border:1px solid #2a2632;border-radius:6px;overflow:hidden;font-size:11px">
+          <div style="background:#1a1720;padding:9px 11px;line-height:1.6"><div style="color:#6f6a78;font-size:10px;margin-bottom:4px">structured answer</div><div>status <span style="color:#5ad494">"ok"</span></div><div>uptimeSec <span style="color:#ff8b7e;background:#3a1b1d;padding:0 4px;border-radius:3px">4127</span></div><div style="color:#6f6a78">timestamp —</div></div>
+          <div style="background:#1a1720;padding:9px 11px;line-height:1.6"><div style="color:#6f6a78;font-size:10px;margin-bottom:4px">live endpoint</div><div>status <span style="color:#5ad494">"ok"</span></div><div>uptimeSec <span style="color:#5ad494;background:#14301f;padding:0 4px;border-radius:3px">4131</span></div><div style="color:#6f6a78">timestamp 23:42:19.104Z</div></div>
+        </div>
+      </div>
+    </aside>
+  </div>
+</div></div>
+
+<!-- ============ 1c ============ -->
+<div class="dv-opt" id="1c"><div class="dv-olabel"><a class="dv-oid" href="#1c">1c</a>Sentence · light · launch as a one-line recipe · small-multiple bars per task · run in progress</div>
+<div class="dv-card" style="width:1280px;background:#fbfaf8;color:#16141a;font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:12px;line-height:1.5" data-screen-label="1c Sentence light">
+  <header style="display:flex;align-items:center;justify-content:space-between;padding:18px 40px;border-bottom:1px solid #e6e3e8">
+    <div style="font-family:Newsreader,Georgia,serif;font-size:22px;letter-spacing:-0.02em;font-weight:500">Harness Bench</div>
+    <div style="display:flex;align-items:center;gap:18px;font-size:11px;color:#5f5b66">
+      <span style="display:flex;align-items:center;gap:7px"><span style="width:7px;height:7px;border-radius:50%;background:#1f8a55"></span>webserver · :3000</span>
+      <span style="display:flex;align-items:center;gap:7px"><span style="width:7px;height:7px;border-radius:50%;background:#1f8a55"></span>ollama · 4 live</span>
+      <span style="color:#7c3aed">past runs ▾</span>
+    </div>
+  </header>
+
+  <!-- recipe sentence -->
+  <div style="padding:36px 40px 28px;border-bottom:1px solid #e6e3e8;display:flex;flex-direction:column;gap:18px">
+    <div style="font-family:Newsreader,Georgia,serif;font-size:30px;line-height:1.6;letter-spacing:-0.01em;color:#5f5b66;text-wrap:pretty">
+      Run <span style="display:inline-flex;gap:6px;vertical-align:middle;margin:0 4px"><sc-for list="{{ recipeTasks }}" as="t" hint-placeholder-count="3"><span style="font-family:'IBM Plex Mono',monospace;font-size:13px;padding:4px 10px;border-radius:6px;border:1px solid;line-height:1.4;border-color:{{ t.bc }};background:{{ t.bg }};color:{{ t.fg }}">{{ t.name }}</span></sc-for></span>
+      with <span style="display:inline-flex;gap:6px;vertical-align:middle;margin:0 4px"><sc-for list="{{ recipeModes }}" as="m" hint-placeholder-count="4"><span style="font-family:'IBM Plex Mono',monospace;font-size:13px;padding:4px 10px;border-radius:6px;border:1px solid;line-height:1.4;border-color:{{ m.bc }};background:{{ m.bg }};color:{{ m.fg }}">{{ m.label }}</span></sc-for></span>
+      on <span style="display:inline-flex;gap:6px;vertical-align:middle;margin:0 4px"><span style="font-family:'IBM Plex Mono',monospace;font-size:13px;padding:4px 10px;border-radius:6px;border:1px solid #16141a;background:#16141a;color:#fff;line-height:1.4">gpt-4o-mini</span><span style="font-family:'IBM Plex Mono',monospace;font-size:13px;padding:4px 10px;border-radius:6px;border:1px solid #16141a;background:#16141a;color:#fff;line-height:1.4">qwen3.5:9b-mlx</span><span style="font-family:'IBM Plex Mono',monospace;font-size:13px;padding:4px 10px;border-radius:6px;border:1px dashed #c9c4cf;color:#948f9b;line-height:1.4">+ model</span></span>,
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:13px;padding:4px 10px;border-radius:6px;border:1px solid #e6e3e8;background:#fff;color:#16141a;vertical-align:middle;line-height:1.4">3</span> trials per cell.
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <div style="font-size:11px;color:#948f9b">= 36 trials · 22 done · <span style="color:#7c3aed">running health · harness · qwen3.5:9b · #3</span></div>
+      <div style="display:flex;gap:8px"><button style="font:inherit;font-size:12px;padding:9px 16px;border-radius:6px;border:1px solid #e6e3e8;background:#fff;color:#c8402f;cursor:pointer">Cancel</button><button disabled="{{ true }}" style="font:inherit;font-size:12px;padding:9px 16px;border-radius:6px;border:1px solid #7c3aed;background:#7c3aed;color:#fff;opacity:0.4">Run benchmark</button></div>
+    </div>
+    <div style="height:3px;background:#e6e3e8;border-radius:2px"><div style="height:100%;width:61%;background:#7c3aed;border-radius:2px"></div></div>
+  </div>
+
+  <!-- headline + small multiples -->
+  <div style="display:grid;grid-template-columns:360px 1fr;gap:40px;padding:32px 40px;border-bottom:1px solid #e6e3e8">
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <div style="font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:#948f9b">Harness delta</div>
+      <div style="font-family:Newsreader,Georgia,serif;font-size:112px;line-height:0.85;letter-spacing:-0.04em;color:#7c3aed;font-weight:500">+36<span style="font-size:36px;letter-spacing:0;color:#948f9b">pp</span></div>
+      <div style="font-family:Newsreader,Georgia,serif;font-size:17px;color:#5f5b66;line-height:1.45;text-wrap:pretty">Correctness moves from <span style="color:#16141a">45.5%</span> without a harness to <span style="color:#16141a">81.8%</span> with tools, schema and a structured prompt. 22 of 36 trials in; treat as provisional.</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-top:8px;font-size:11px">
+        <div><div style="color:#948f9b;font-size:10px;letter-spacing:0.1em;text-transform:uppercase">tool use</div><div style="font-family:Newsreader,Georgia,serif;font-size:22px">90.9%</div></div>
+        <div><div style="color:#948f9b;font-size:10px;letter-spacing:0.1em;text-transform:uppercase">schema ok</div><div style="font-family:Newsreader,Georgia,serif;font-size:22px">81.8%</div></div>
+        <div><div style="color:#948f9b;font-size:10px;letter-spacing:0.1em;text-transform:uppercase">tokens</div><div style="font-family:Newsreader,Georgia,serif;font-size:22px">14.2k</div></div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px">
+      <sc-for list="{{ multiples }}" as="t" hint-placeholder-count="3">
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;border-bottom:1px solid #e6e3e8;padding-bottom:8px"><span style="font-family:Newsreader,Georgia,serif;font-size:20px">{{ t.task }}</span><span style="font-size:10.5px;color:#948f9b">{{ t.category }}</span></div>
+          <div style="display:flex;flex-direction:column;gap:12px">
+            <sc-for list="{{ t.models }}" as="m" hint-placeholder-count="2">
+              <div style="display:flex;flex-direction:column;gap:5px;font-size:11px">
+                <div style="display:flex;justify-content:space-between"><span style="color:#5f5b66">{{ m.model }}</span><span style="color:{{ m.dColor }}">{{ m.delta }}</span></div>
+                <div style="display:grid;grid-template-columns:1fr;gap:3px">
+                  <div style="display:flex;align-items:center;gap:8px"><div style="flex:1;height:10px;background:#efedf0;border-radius:2px"><div style="height:100%;background:#948f9b;border-radius:2px;width:{{ m.aPct }}"></div></div><span style="width:34px;color:#948f9b;font-size:10.5px">{{ m.a }}</span></div>
+                  <div style="display:flex;align-items:center;gap:8px"><div style="flex:1;height:10px;background:#efedf0;border-radius:2px"><div style="height:100%;background:#7c3aed;border-radius:2px;width:{{ m.bPct }}"></div></div><span style="width:34px;color:#7c3aed;font-size:10.5px">{{ m.b }}</span></div>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+          <div style="font-size:10.5px;color:#948f9b;line-height:1.5">{{ t.note }}</div>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+
+  <!-- trials as a log -->
+  <div style="padding:28px 40px 36px;display:flex;flex-direction:column;gap:12px">
+    <div style="display:flex;justify-content:space-between;align-items:baseline">
+      <div style="font-family:Newsreader,Georgia,serif;font-size:19px;font-style:italic;color:#5f5b66">Trial log</div>
+      <div style="display:flex;gap:14px;font-size:10.5px;color:#948f9b"><span style="color:#16141a;border-bottom:1px solid #16141a">newest first</span><span>failures only</span><span>harness only</span></div>
+    </div>
+    <div style="display:flex;flex-direction:column">
+      <div style="display:grid;grid-template-columns:70px 8px 60px 90px 150px 60px 1fr;gap:0 14px;padding:8px 0;border-top:1px dashed #c9b8f5;border-bottom:1px solid #eeecef;font-size:11px;color:#7c3aed;align-items:center"><span>18:43:07</span><span style="width:8px;height:8px;border-radius:2px;border:1.5px solid #7c3aed"></span><span>health</span><span>harness</span><span>qwen3.5:9b-mlx #3</span><span></span><span style="font-family:Newsreader,Georgia,serif;font-size:13.5px;font-style:italic">running · 1 tool call so far</span></div>
+      <sc-for list="{{ trialsNewest }}" as="r" hint-placeholder-count="8">
+        <div style="display:grid;grid-template-columns:70px 8px 60px 90px 150px 60px 1fr;gap:0 14px;padding:8px 0;border-bottom:1px solid #eeecef;font-size:11px;align-items:center">
+          <span style="color:#948f9b">{{ r.time }}</span>
+          <span style="width:8px;height:8px;border-radius:2px;background:{{ r.vColor }}"></span>
+          <span>{{ r.task }}</span>
+          <span style="color:#5f5b66">{{ r.mode }}</span>
+          <span style="color:#5f5b66;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ r.modelIdx }}</span>
+          <span style="color:#948f9b;text-align:right">{{ r.latency }}</span>
+          <span style="color:#5f5b66;font-family:Newsreader,Georgia,serif;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ r.reason }}</span>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+</div></div>
+
+</div>
+<p class="dv-next">Try next: "take <a class="dv-oid" href="#1a">1a</a> but with the split-pane detail from <a class="dv-oid" href="#1b">1b</a>" · "dark version of <a class="dv-oid" href="#1c">1c</a>" · "show the empty and finished states for <a class="dv-oid" href="#1b">1b</a>"</p>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  renderVals() {
+    const L = { pass: "#1f8a55", fail: "#c8402f", acc: "#7c3aed", accSoft: "#efe9fd", line: "#e6e3e8", ink: "#16141a", ink2: "#5f5b66", ink3: "#948f9b" };
+    const D = { pass: "#5ad494", fail: "#ff8b7e", acc: "#a78bfa", line: "#2a2632", ink3: "#6f6a78" };
+    const chip = (name, on, key = "name") => ({ [key]: name, bc: on ? L.ink : L.line, bg: on ? L.ink : "#fff", fg: on ? "#fff" : L.ink2 });
+    const recipeTasks = [chip("health", true), chip("hello", true), chip("reason", true)];
+    const recipeModes = [chip("no harness", true, "label"), chip("harness", true, "label"), chip("schema only", false, "label"), chip("tools only", false, "label")];
+    const prov = (name, tag, ok, models) => ({ name, tag, tagFg: ok ? L.pass : L.fail, opacity: ok ? 1 : 0.45,
+      models: models.map(([id, on]) => ({ id, bc: on ? L.acc : L.line, bg: on ? L.acc : "transparent", fg: on ? L.ink : L.ink2 })) });
+    const providers = [
+      prov("openai", "key set", true, [["gpt-4o-mini", true], ["gpt-4o"], ["gpt-4.1-mini"]]),
+      prov("anthropic", "no key", false, [["claude-3-5-sonnet-latest"], ["claude-opus-4-20250514"]]),
+      prov("groq", "no key", false, [["llama-3.3-70b-versatile"], ["gemma2-9b-it"]]),
+      prov("local", "live", true, [["ornith-1.5:9b"], ["qwen3.5:9b-mlx", true], ["gemma4:31b-mlx"], ["qwen3.8:27b-mlx"]]),
+    ];
+    const pct = (c, n) => (n ? (c / n) * 100 : 0);
+    const mrow = (task, client, a, an, b, bn) => { const A = pct(a, an), B = pct(b, bn); const pp = an && bn ? B - A : null; const lo = Math.min(A, B), hi = Math.max(A, B);
+      return { task, client, a: `${a}/${an}`, b: `${b}/${bn}`, aPct: `${A}%`, bPct: `${bn ? B : A}%`, lo: `${lo}%`, span: `${hi - lo}%`,
+        delta: pp === null ? "—" : `${pp >= 0 ? "+" : ""}${pp.toFixed(0)}pp`, dColor: pp === null ? L.ink3 : pp > 0 ? L.pass : pp < 0 ? L.fail : L.ink2, dColorDark: pp === null ? D.ink3 : pp > 0 ? D.pass : pp < 0 ? D.fail : "#a49fad" }; };
+    const matrix = [
+      mrow("health", "openai:gpt-4o-mini", 1, 3, 3, 3), mrow("health", "local:qwen3.5:9b-mlx", 0, 3, 2, 3),
+      mrow("hello", "openai:gpt-4o-mini", 1, 3, 3, 3), mrow("hello", "local:qwen3.5:9b-mlx", 0, 2, 1, 2),
+      mrow("reason", "openai:gpt-4o-mini", 2, 2, 1, 1), mrow("reason", "local:qwen3.5:9b-mlx", 1, 1, 0, 0),
+    ];
+    const T = (ok, task, mode, model, index, tools, schema, latency, reason, time) => ({
+      ok, task, mode, model, index: `#${index}`, modelIdx: `${model} #${index}`, time, vColor: ok ? L.pass : L.fail, vColorDark: ok ? D.pass : D.fail,
+      toolsLbl: mode === "harness" ? `${tools} call${tools === 1 ? "" : "s"}` : "—", schemaLbl: schema === null ? "—" : schema ? "valid" : "invalid",
+      sColor: schema === null ? L.ink3 : schema ? L.pass : L.fail, latency: `${latency}ms`, reason, rowBg: reason.startsWith("uptimeSec") ? "#241b36" : "transparent" });
+    const trials = [
+      T(false, "health", "no harness", "gpt-4o-mini", 1, 0, null, 1204, "no status keyword found in free text", "18:41:12"),
+      T(true, "health", "harness", "gpt-4o-mini", 1, 1, true, 2871, "status ok, uptime within ±2s of live", "18:41:15"),
+      T(true, "health", "no harness", "gpt-4o-mini", 2, 0, null, 1188, "mentions status ok", "18:41:17"),
+      T(true, "health", "harness", "gpt-4o-mini", 2, 1, true, 2650, "status ok, uptime within ±2s of live", "18:41:20"),
+      T(false, "health", "no harness", "qwen3.5:9b-mlx", 1, 0, null, 2410, "hallucinated uptime, no status keyword", "18:41:24"),
+      T(false, "health", "harness", "qwen3.5:9b-mlx", 2, 1, true, 2914, "uptimeSec 4127 does not match live 4131 (±2s)", "18:42:18"),
+      T(true, "hello", "harness", "gpt-4o-mini", 1, 3, true, 3902, "all three greetings match verbatim", "18:42:23"),
+      T(false, "hello", "no harness", "qwen3.5:9b-mlx", 1, 0, null, 2033, "greetings invented; server never called", "18:42:29"),
+      T(false, "hello", "harness", "qwen3.5:9b-mlx", 1, 2, false, 4180, "schema: message[2] missing", "18:42:41"),
+      T(true, "reason", "no harness", "gpt-4o-mini", 1, 0, null, 990, "3/3 answers correct", "18:42:52"),
+      T(true, "reason", "harness", "gpt-4o-mini", 1, 0, true, 1602, "3/3 answers correct", "18:43:01"),
+    ];
+    const trialsNewest = [...trials].reverse();
+    // live grid: 2 rows × 18 cells; 22 done, 1 running, 13 queued
+    const outcomes = [1,0,1,1,0,1,1,0,1,1,0,0,1,0,1,1,1,0,1,0,1,1];
+    const mk = (i, doneCount, runIdx) => {
+      if (i < doneCount) { const ok = outcomes[i % outcomes.length]; return { title: ok ? "pass" : "fail", bg: ok ? L.pass : L.fail, bc: ok ? L.pass : L.fail }; }
+      if (i === runIdx) return { title: "running", bg: "transparent", bc: L.acc };
+      return { title: "queued", bg: L.line, bc: L.line };
+    };
+    const gridRows = [
+      { label: "no harness", cells: Array.from({ length: 18 }, (_, i) => mk(i, 12, 99)) },
+      { label: "harness", cells: Array.from({ length: 18 }, (_, i) => mk(i, 10, 10)) },
+    ];
+    const stripCells = Array.from({ length: 36 }, (_, i) => { const c = mk(i, 22, 22); return { bg: c.bg === L.pass ? D.pass : c.bg === L.fail ? D.fail : c.bg === L.line ? D.line : "transparent", bc: c.bc === L.acc ? D.acc : (c.bg === L.pass ? D.pass : c.bg === L.fail ? D.fail : D.line) }; });
+    const modelCards = [
+      { model: "gpt-4o-mini", provider: "openai", a: "50%", b: "100%", lat: "1.2→2.9s", tools: "100%", schema: "100%", tokens: "6,910", spark: "0,22 25,20 50,18 75,21 100,12 125,10 150,9 175,11 200,8" },
+      { model: "qwen3.5:9b-mlx", provider: "local · ollama", a: "17%", b: "50%", lat: "2.2→3.5s", tools: "80%", schema: "60%", tokens: "7,296", spark: "0,24 25,18 50,22 75,14 100,20 125,9 150,16 175,6 200,12" },
+    ];
+    const transcript = [
+      { label: "system", meta: "", dot: D.ink3, labelColor: D.ink3, border: D.line, body: "You are an operations assistant. Use the provided tools to inspect the webserver. Respond ONLY with JSON matching the schema." },
+      { label: "user", meta: "", dot: D.ink3, labelColor: D.ink3, border: D.line, body: "Report the live status and uptime of the webserver." },
+      { label: "tool call · health({})", meta: "round 1 · 312ms", dot: D.acc, labelColor: D.acc, border: "#4c3a86", body: '{ "status": "ok", "uptimeSec": 4131, "timestamp": "2026-09-02T23:42:19.104Z" }' },
+      { label: "final message", meta: "114 tok · stop", dot: D.fail, labelColor: D.fail, border: "#5a2a2c", body: '{"status":"ok","uptimeSec":4127}' },
+      { label: "scorer", meta: "scoreHarness", dot: D.fail, labelColor: D.fail, border: D.line, body: "schema valid · uptimeSec 4127 does not match live 4131 (±2s) → fail" },
+    ];
+    const mm = (model, a, an, b, bn) => { const A = pct(a, an), B = pct(b, bn); const pp = an && bn ? B - A : null;
+      return { model, a: `${a}/${an}`, b: `${b}/${bn}`, aPct: `${A}%`, bPct: `${B}%`, delta: pp === null ? "—" : `${pp >= 0 ? "+" : ""}${pp.toFixed(0)}pp`, dColor: pp === null ? L.ink3 : pp > 0 ? L.pass : pp < 0 ? L.fail : L.ink2 }; };
+    const multiples = [
+      { task: "health", category: "api-call", note: "Free text can't know uptime; harness checks status and uptime ±2s.", models: [mm("gpt-4o-mini", 1, 3, 3, 3), mm("qwen3.5:9b-mlx", 0, 3, 2, 3)] },
+      { task: "hello", category: "api-call", note: "Greetings must match the server verbatim for three names.", models: [mm("gpt-4o-mini", 1, 3, 3, 3), mm("qwen3.5:9b-mlx", 0, 2, 1, 2)] },
+      { task: "reason", category: "pure-reasoning", note: "Control task, no tools. A delta here is schema/prompt effect only.", models: [mm("gpt-4o-mini", 2, 2, 1, 1), mm("qwen3.5:9b-mlx", 1, 1, 0, 0)] },
+    ];
+    return { recipeTasks, recipeModes, providers, matrix, trials, trialsNewest, gridRows, stripCells, modelCards, transcript, multiples };
+  }
+}
+</script>
+</body>
+</html>

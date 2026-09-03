@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { isStructuredMode } from "../src/runner.js";
+import { isStructuredMode, runTrial, runMatrix, planMatrix, MODE_NAMES, DEFAULT_MODES } from "../src/runner.js";
 import { resolveModes } from "../src/bench.js";
 
 // The runner treats a mode by behavior (structured vs free-form), not by name. schemaOnly and
@@ -14,152 +14,158 @@ test("isStructuredMode classifies the four modes", () => {
   assert.equal(isStructuredMode("toolOnly"), false);
 });
 
-test("resolveModes accepts the new mode names", () => {
-  assert.deepEqual(resolveModes("schemaOnly"), ["schemaOnly"]);
-  assert.deepEqual(resolveModes("toolOnly"), ["toolOnly"]);
-  assert.deepEqual(resolveModes("noHarness,schemaOnly,toolOnly"), ["noHarness", "schemaOnly", "toolOnly"]);
+test("MODE_NAMES is the one list of modes; DEFAULT_MODES is the headline pair", () => {
+  assert.deepEqual(MODE_NAMES, ["noHarness", "harness", "schemaOnly", "toolOnly"]);
+  assert.deepEqual(DEFAULT_MODES, ["noHarness", "harness"]);
 });
 
-test("resolveModes rejects an unknown mode", () => {
+test("resolveModes accepts every mode name and rejects unknown ones", () => {
+  assert.deepEqual(resolveModes("schemaOnly"), ["schemaOnly"]);
+  assert.deepEqual(resolveModes("noHarness,schemaOnly,toolOnly"), ["noHarness", "schemaOnly", "toolOnly"]);
   assert.throws(() => resolveModes("bogus"), /must be one of/);
 });
 
-test("resolveModes with no spec returns the default two modes", () => {
-  assert.deepEqual(resolveModes(), ["noHarness", "harness"]);
+test("resolveModes with no spec returns the default pair", () => {
+  assert.deepEqual(resolveModes(), DEFAULT_MODES);
 });
 
-// The runner's mode selection: a structured mode runs tools + parses JSON, a free-form one runs
-// neither. These tasks carry no live ground() that hits the webserver, so we stub the task shape
-// and the client, then assert which code path each mode takes.
+// ---- a fake client that follows the real Client contract ------------------------------------
 
-test("runTrial in structured mode runs tools and scores the parsed JSON", async () => {
-  const task = {
-    name: "probe",
-    harness: {
-      prompt: "do it",
-      tools: [{ name: "noop", impl: async () => "ok" }],
-      schema: { type: "object", properties: { ok: { type: "string" } }, required: ["ok"] },
-    },
-    noHarness: { prompt: "say hi", extract: "text" },
-    eval: {
-      ground: async () => ({ ok: "ok" }),
-      scoreHarness: (out) => ({ correct: out?.ok === "ok", reason: "structured" }),
-      scoreNoHarness: (out) => ({ correct: false, reason: "free text" }),
-    },
-  };
-
-  // The mock follows the real client contract: runWithTools parses the final message text.
-  // Emitting JSON directly (no tool calls) makes runWithTools return immediately with that JSON.
-  const client = {
+function fakeClient({ text = "", structured = null, toolCalls = [], toolResults = [] } = {}) {
+  return {
     name: "probe",
     model: "probe",
     async chat() {
-      return { text: "", toolCalls: [], finishReason: "stop", usage: null };
+      return { text, toolCalls: [], finishReason: "stop", usage: null };
     },
     async runWithTools() {
-      // The real client returns the final message already parsed as JSON. Mirror that here so
-      // runWithTools scores the parsed object rather than raw text.
-      return { text: '{"ok":"ok"}', structured: { ok: "ok" }, toolCalls: [], finishReason: "function_call", usage: { total_tokens: 11 } };
+      return { text, structured, toolCalls, toolResults, rounds: toolCalls.length ? 2 : 1, finishReason: "stop", usage: { total_tokens: 11 } };
     },
   };
+}
 
-  const structured = await import("../src/runner.js").then((r) => r.runTrial({
-    task, mode: "harness", client, index: 1,
-  }));
-  assert.equal(structured.toolCalls.length, 0, "no tool calls expected");
-  assert.equal(structured.correct, true, "harness should score the parsed JSON");
+const SCHEMA = { type: "object", properties: { ok: { type: "string" } }, required: ["ok"] };
+const NOOP = { name: "noop", impl: async () => "ok" };
 
-  const free = await import("../src/runner.js").then((r) => r.runTrial({
-    task, mode: "noHarness", client, index: 1,
-  }));
-  assert.equal(free.toolCalls.length, 0, "free-form should not call tools");
-  assert.equal(free.correct, false, "free-form uses scoreNoHarness");
-});
-
-test("schemaOnly scores the parsed JSON even with no tools", async () => {
-  const task = {
+function probeTask(extra = {}) {
+  return {
     name: "probe",
-    schemaOnly: {
-      prompt: "emit json",
-      schema: { type: "object", properties: { ok: { type: "string" } }, required: ["ok"] },
-    },
-    noHarness: { prompt: "say hi", extract: "text" },
-    harness: {
-      prompt: "do it",
-      tools: [{ name: "noop", impl: async () => "ok" }],
-      schema: { type: "object", properties: { ok: { type: "string" } }, required: ["ok"] },
-    },
+    noHarness: { prompt: "say hi" },
+    harness: { system: "sys", prompt: "do it", tools: [NOOP], schema: SCHEMA },
     eval: {
       ground: async () => ({ ok: "ok" }),
       scoreHarness: (out) => ({ correct: out?.ok === "ok", reason: "structured" }),
-      scoreNoHarness: (out) => ({ correct: false, reason: "free text" }),
-    },
-  };
-
-  const client = {
-    name: "probe",
-    model: "probe",
-    async chat() {
-      return { text: "", toolCalls: [], finishReason: "stop", usage: null };
-    },
-    async runWithTools() {
-      // The real client returns the final message already parsed as JSON. Mirror that here so
-      // runWithTools scores the parsed object rather than raw text.
-      return { text: '{"ok":"ok"}', structured: { ok: "ok" }, toolCalls: [], finishReason: "function_call", usage: { total_tokens: 9 } };
-    },
-  };
-
-  const row = await import("../src/runner.js").then((r) => r.runTrial({
-    task, mode: "schemaOnly", client, index: 1,
-  }));
-  assert.equal(row.toolCalls.length, 0, "schemaOnly should not call tools");
-  assert.equal(row.correct, true, "schemaOnly should score the parsed JSON");
-  assert.equal(row.schemaValid, true, "schemaOnly should validate against the schema");
-});
-
-test("toolOnly scores the raw text even with tools", async () => {
-  const task = {
-    name: "probe",
-    toolOnly: { prompt: "call and answer", tools: [{ name: "noop", impl: async () => "ok" }] },
-    noHarness: { prompt: "say hi", extract: "text" },
-    harness: {
-      prompt: "do it",
-      tools: [{ name: "noop", impl: async () => "ok" }],
-      schema: { type: "object", properties: { ok: { type: "string" } }, required: ["ok"] },
-    },
-    eval: {
-      ground: async () => "ok",
-      scoreHarness: (out) => ({ correct: false, reason: "structured" }),
       scoreNoHarness: (out) => ({ correct: String(out).trim() === "ok", reason: "free text" }),
     },
+    ...extra,
   };
+}
 
-  const client = {
-    name: "probe",
-    model: "probe",
-    async chat() {
-      return { text: "", toolCalls: [], finishReason: "stop", usage: null };
-    },
-    async runWithTools() {
-      // Mirror the real client's internal loop: round 1 requests the tool, round 2 (final) emits
-      // prose "ok", which the free-form scorer reads as raw text. The runner calls runWithTools
-      // exactly once, so the loop must live inside the mock.
-      const calls = [];
-      let round = 0;
-      while (round < 2) {
-        round += 1;
-        if (round === 1) {
-          calls.push({ name: "noop", arguments: {}, id: "call_1" });
-        }
-      }
-      return { text: "ok", structured: null, toolCalls: calls, finishReason: "function_call", usage: { total_tokens: 3 }, rounds: round };
-    },
-  };
+test("harness scores the parsed JSON; noHarness scores the raw text", async () => {
+  const task = probeTask();
+  const structured = await runTrial({ task, mode: "harness", client: fakeClient({ text: '{"ok":"ok"}', structured: { ok: "ok" } }) });
+  assert.equal(structured.correct, true);
+  assert.equal(structured.schemaValid, true);
+  assert.match(structured.system, /matching this schema/);
 
-  const row = await import("../src/runner.js").then((r) => r.runTrial({
-    task, mode: "toolOnly", client, index: 1,
-  }));
-  assert.equal(row.toolCalls.length, 1, "toolOnly should call the tool");
-  assert.equal(row.correct, true, "toolOnly should score the raw text");
-  assert.equal(row.schemaValid, false, "toolOnly has no schema to validate against");
+  const free = await runTrial({ task, mode: "noHarness", client: fakeClient({ text: "ok" }) });
+  assert.equal(free.correct, true);
+  assert.equal(free.schemaValid, null);
+  assert.equal(free.toolCalls.length, 0);
+});
+
+test("schemaOnly scores the parsed JSON and validates it even with no tools", async () => {
+  const task = probeTask({ schemaOnly: { prompt: "emit json", schema: SCHEMA } });
+  const row = await runTrial({ task, mode: "schemaOnly", client: fakeClient({ text: '{"ok":"ok"}', structured: { ok: "ok" } }) });
+  assert.equal(row.toolCalls.length, 0);
+  assert.equal(row.correct, true);
+  assert.equal(row.schemaValid, true);
+});
+
+test("toolOnly runs tools, scores the raw text, and has no schema verdict", async () => {
+  const task = probeTask({ toolOnly: { system: "sys", prompt: "call and answer", tools: [NOOP] } });
+  const client = fakeClient({
+    text: "ok",
+    toolCalls: [{ id: "call_1", name: "noop", arguments: {} }],
+    toolResults: [{ id: "call_1", name: "noop", ok: true, content: "ok" }],
+  });
+  const row = await runTrial({ task, mode: "toolOnly", client });
+  assert.equal(row.toolCalls.length, 1);
+  assert.equal(row.correct, true);
+  assert.equal(row.schemaValid, null, "nothing to validate against, so no verdict");
+  assert.equal(row.system, "sys", "no schema is injected for a free-form mode");
+});
+
+test("ground() receives what the trial's tools returned", async () => {
+  const task = probeTask({
+    eval: {
+      ground: ({ toolResults }) => JSON.parse(toolResults[0].content).v,
+      scoreHarness: (out, ground) => ({ correct: out?.v === ground, reason: "" }),
+      scoreNoHarness: () => ({ correct: false, reason: "" }),
+    },
+  });
+  const client = fakeClient({
+    structured: { v: 7 },
+    toolCalls: [{ id: "c", name: "noop", arguments: {} }],
+    toolResults: [{ id: "c", name: "noop", ok: true, content: '{"v":7}' }],
+  });
+  const row = await runTrial({ task, mode: "harness", client });
+  assert.equal(row.ground, 7);
+  assert.equal(row.correct, true);
+});
+
+test("a constant ground is accepted as-is", async () => {
+  const task = probeTask({
+    eval: {
+      ground: ["fixed"],
+      scoreHarness: (out, ground) => ({ correct: ground[0] === "fixed", reason: "" }),
+      scoreNoHarness: () => ({ correct: false, reason: "" }),
+    },
+  });
+  const row = await runTrial({ task, mode: "harness", client: fakeClient({ structured: {} }) });
+  assert.deepEqual(row.ground, ["fixed"]);
+  assert.equal(row.correct, true);
+});
+
+test("planMatrix skips (task, mode) pairs a task does not declare and keeps execution order", () => {
+  const probe = probeTask();
+  const other = { ...probeTask(), name: "other", schemaOnly: { prompt: "x", schema: SCHEMA } };
+  const plan = planMatrix({ tasks: [probe, other], modes: ["noHarness", "schemaOnly"], clients: [{ name: "c1" }, { name: "c2" }], count: 3 });
+  assert.deepEqual(plan.skipped, [{ task: "probe", mode: "schemaOnly" }]);
+  assert.equal(plan.total, 3 * 2 * 3);
+  assert.deepEqual(
+    plan.cells.map((c) => `${c.task.name}/${c.mode}/${c.client.name}`),
+    ["probe/noHarness/c1", "probe/noHarness/c2", "other/noHarness/c1", "other/noHarness/c2", "other/schemaOnly/c1", "other/schemaOnly/c2"],
+  );
+});
+
+test("runMatrix reports skipped pairs and never emits an unsupported-mode row", async () => {
+  const events = [];
+  const { rows, skipped } = await runMatrix({
+    tasks: [probeTask()],
+    modes: ["noHarness", "harness", "toolOnly"],
+    clients: [fakeClient({ text: "ok", structured: { ok: "ok" } })],
+    count: 2,
+    onEvent: (e) => events.push(e),
+  });
+  assert.deepEqual(skipped, [{ task: "probe", mode: "toolOnly" }]);
+  assert.equal(events[0].type, "start");
+  assert.equal(events[0].total, 4);
+  assert.deepEqual(events[0].skipped, skipped);
+  assert.equal(rows.length, 4);
+  assert.ok(rows.every((r) => !r.error && r.correct));
+  assert.equal(events.at(-1).type, "done");
+  assert.equal(events.at(-1).summary.runs, 4);
+});
+
+test("an aborted signal stops the matrix without inventing exception rows", async () => {
+  const controller = new AbortController();
+  controller.abort();
+  const events = [];
+  const { rows } = await runMatrix({
+    tasks: [probeTask()], modes: ["noHarness"], clients: [fakeClient({ text: "ok" })], count: 3,
+    signal: controller.signal, onEvent: (e) => events.push(e),
+  });
+  assert.equal(rows.length, 0);
+  assert.equal(events.at(-1).cancelled, true);
 });

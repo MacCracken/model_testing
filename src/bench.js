@@ -8,24 +8,16 @@
 // Every run is saved under results/runs/ (so the web UI can review it too); --json also prints
 // the rows to stdout, --no-save skips persistence.
 
+import "./env.js";
 import { getTask, tasks as allTasks } from "./tasks/registry.js";
 import { resolveClients } from "./providers/index.js";
-import { runMatrix, runTrial, MODES } from "./runner.js";
+import { runMatrix, planMatrix, isStructuredMode, describeSignificance, MODE_NAMES, DEFAULT_MODES } from "./runner.js";
 import { newRunId, saveRun } from "./results.js";
 import { parseArgs } from "./args.js";
 
 function fail(msg) {
   console.error(JSON.stringify({ ok: false, error: msg }));
   process.exit(1);
-}
-
-/** Back-compat wrapper: run one task in one mode `count` times. */
-export async function runBenchTask({ task, mode, client, count = 1, signal }) {
-  const results = [];
-  for (let i = 0; i < count; i++) {
-    results.push(await runTrial({ task, mode, client, index: i + 1, signal }));
-  }
-  return results;
 }
 
 export function resolveTasks(spec) {
@@ -38,16 +30,20 @@ export function resolveTasks(spec) {
 }
 
 export function resolveModes(spec) {
-  if (!spec) return [...MODES];
+  if (!spec) return [...DEFAULT_MODES];
   const modes = (Array.isArray(spec) ? spec : String(spec).split(","))
     .map((s) => String(s).trim())
     .filter(Boolean);
-  if (!modes.length) return [...MODES];
+  if (!modes.length) return [...DEFAULT_MODES];
   for (const m of modes) {
-    if (!["noHarness", "harness", "schemaOnly", "toolOnly"].includes(m))
-      throw new Error(`--mode must be one of noHarness, harness, schemaOnly, toolOnly, got "${m}"`);
+    if (!MODE_NAMES.includes(m)) throw new Error(`--mode must be one of ${MODE_NAMES.join(", ")}, got "${m}"`);
   }
   return modes;
+}
+
+// Human-readable note for each (task, mode) pair a run skips because the task has no such spec.
+export function describeSkipped(skipped) {
+  return skipped.map((s) => `${s.task}/${s.mode} skipped: the task declares no ${s.mode} spec`);
 }
 
 async function main() {
@@ -72,7 +68,13 @@ async function main() {
   }
 
   const quiet = !!args.json;
-  const { rows, summary } = await runMatrix({
+  const plan = planMatrix({ tasks: taskList, modes: modeList, clients, count });
+  if (!quiet) {
+    for (const note of describeSkipped(plan.skipped)) console.log(`skip  ${note}`);
+    if (!plan.total) fail("nothing to run — no selected task declares any of the selected modes");
+  }
+
+  const { rows, summary, skipped } = await runMatrix({
     tasks: taskList,
     modes: modeList,
     clients,
@@ -82,10 +84,10 @@ async function main() {
       const r = ev.result;
       const mark = r.correct ? "PASS" : "FAIL";
       console.log(
-        `${mark}  ${r.task.padEnd(8)} ${r.mode.padEnd(9)} ${r.model.padEnd(22)} #${r.index}  ${String(r.latencyMs).padStart(6)}ms  ${r.reason}`,
+        `${mark}  ${r.task.padEnd(8)} ${r.mode.padEnd(10)} ${r.model.padEnd(22)} #${r.index}  ${String(r.latencyMs).padStart(6)}ms  ${r.reason}`,
       );
       if (r.error) console.log(`      error: ${r.error}`);
-      else if (!r.correct) console.log(`      answer: ${preview(r.mode === "harness" ? r.structured ?? r.answerText : r.answerText)}`);
+      else if (!r.correct) console.log(`      answer: ${preview(isStructuredMode(r.mode) ? r.structured ?? r.answerText : r.answerText)}`);
     },
   });
 
@@ -101,6 +103,7 @@ async function main() {
       clients: clients.map((c) => c.name),
       count,
     },
+    warnings: describeSkipped(skipped),
     progress: { completed: rows.length, total: rows.length },
     summary,
     rows,
@@ -120,8 +123,7 @@ async function main() {
   }
   const d = summary.delta.overall;
   if (d) {
-    const sig = d.pValue === null ? "n/a" : (d.pValue < 0.05 ? "significant" : `p=${d.pValue.toFixed(2)} (n=${d.noHarnessRuns}/${d.harnessRuns})`);
-    console.log(`\nharness delta: ${d.noHarnessPct.toFixed(1)}% -> ${d.harnessPct.toFixed(1)}% (${d.deltaPp >= 0 ? "+" : ""}${d.deltaPp.toFixed(1)}pp)  [${sig}]`);
+    console.log(`\nharness delta: ${d.noHarnessPct.toFixed(1)}% -> ${d.harnessPct.toFixed(1)}% (${d.deltaPp >= 0 ? "+" : ""}${d.deltaPp.toFixed(1)}pp)  [${describeSignificance(d)}]`);
   }
   if (!args.noSave) console.log(`\nsaved: results/runs/${run.id}.json`);
 }
@@ -136,5 +138,3 @@ function preview(value, max = 200) {
 if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
   main().catch((err) => fail(err.message));
 }
-
-export { resolveClients };

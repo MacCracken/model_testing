@@ -63,12 +63,20 @@ export class Client {
         }
 
         try {
-            const res = await this.fetchImpl(this.url, {
-                method: "POST",
-                headers: this.headers,
-                body: JSON.stringify(body),
-                signal: controller.signal,
-            });
+            let res;
+            try {
+                res = await this.fetchImpl(this.url, {
+                    method: "POST",
+                    headers: this.headers,
+                    body: JSON.stringify(body),
+                    signal: controller.signal,
+                });
+            } catch (err) {
+                // Timeouts and cancellations carry their own reason; a bare "fetch failed" does not
+                // say which endpoint was unreachable, which is the first thing anyone needs to know.
+                if (controller.signal.aborted) throw err;
+                throw new Error(`${this.name}: ${err?.message ?? err} — is ${this.url} reachable?`);
+            }
             const text = await res.text();
             if (!res.ok) {
                 let detail = text;

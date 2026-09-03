@@ -7,12 +7,13 @@
 //   node src/cli.js bench --task health --mode harness --clients openai:gpt-4o-mini
 //   node src/cli.js aggregate --tasks health,hello --modes noHarness,harness
 
+import "./env.js";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 import { listTasks } from "./tasks/registry.js";
-import { PROVIDERS, apiKeyFor, labelModel, probeLocalModels } from "./providers/index.js";
+import { PROVIDERS, hasCredentials, labelModel, probeLocalModels } from "./providers/index.js";
 import { parseArgs } from "./args.js";
 
 const SRC = dirname(fileURLToPath(import.meta.url));
@@ -24,13 +25,15 @@ async function main() {
     case "list": {
       console.log("Tasks:");
       for (const t of listTasks()) {
-        console.log(`  ${t.name.padEnd(10)} ${t.category.padEnd(10)} ${t.description}`);
+        console.log(`  ${t.name.padEnd(10)} ${t.category.padEnd(15)} modes: ${t.modes.join(",").padEnd(30)} ${t.description}`);
       }
       const live = await probeLocalModels();
       console.log("\nProviders:");
       for (const [name, cfg] of Object.entries(PROVIDERS)) {
         const models = name === "local" && live ? live : cfg.models;
-        const status = apiKeyFor(name) ? "key set" : `${name.toUpperCase()}_API_KEY missing`;
+        const status = cfg.needsKey === false
+          ? (live ? `live, ${live.length} model(s)` : "offline — showing the fallback list")
+          : (hasCredentials(name) ? "key set" : `${name.toUpperCase()}_API_KEY missing`);
         console.log(`  ${name.padEnd(10)} [${status}]`);
         for (const m of models) console.log(`    ${name}:${m.padEnd(30)} ${labelModel(m)}`);
       }
@@ -61,7 +64,7 @@ async function main() {
       console.log("Usage:");
       console.log("  node src/cli.js list");
       console.log("  node src/cli.js serve [--port 4000] [--host 127.0.0.1] [--open]");
-      console.log("  node src/cli.js bench --task <name|all> --modes noHarness,harness --clients <p:model,...> [--count N] [--json]");
+      console.log("  node src/cli.js bench --task <name|all> --modes noHarness,harness,schemaOnly,toolOnly --clients <p:model,...> [--count N] [--json]");
       console.log("  node src/cli.js aggregate [--tasks <name,...>] [--modes ...] [--clients ...] [--count N]");
       process.exit(cmd ? 1 : 0);
   }

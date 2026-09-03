@@ -34,11 +34,18 @@ export function saveRun(run) {
   return run;
 }
 
+// A run file that is unparseable, or missing the shape every surface relies on, is treated as
+// absent rather than crashing the history listing (a half-written file can look exactly like this).
+function isRun(run) {
+  return !!run && typeof run === "object" && typeof run.id === "string" && !!run.config && Array.isArray(run.rows);
+}
+
 export function loadRun(id) {
   const p = pathFor(id);
   if (!existsSync(p)) return null;
   try {
-    return JSON.parse(readFileSync(p, "utf8"));
+    const run = JSON.parse(readFileSync(p, "utf8"));
+    return isRun(run) ? run : null;
   } catch {
     return null;
   }

@@ -7,9 +7,7 @@
 // The tool implementation hits the real webserver /health endpoint.
 
 import { labelModel } from "../providers/index.js";
-
-const PORT = process.env.PORT ?? 3000;
-const BASE = `http://localhost:${PORT}`;
+import { BASE } from "./util.js";
 
 // Slack between the model's tool call and our own ground-truth fetch. Wide enough that a
 // truthful report always passes, tight enough that a guessed number never does.
@@ -103,10 +101,10 @@ export const task = {
     scoreNoHarness: (out, ground) => {
       const text = String(out ?? "").toLowerCase();
       const healthy = String(ground.status ?? "").toLowerCase() === "ok";
-      if (/down|unreachable|not running|5[0-9][0-9]/.test(text)) {
+      if (/\bdown\b|unreachable|not running|\b5\d\d\b/.test(text)) {
         return { correct: !healthy, reason: healthy ? "reported DOWN, ground is ok" : "reported DOWN, matches ground" };
       }
-      if (/\bok\b|\bup\b|healthy|running|200|available|good/.test(text)) {
+      if (/\bok\b|\bup\b|healthy|running|\b200\b|available|good/.test(text)) {
         return { correct: healthy, reason: healthy ? "reported OK, matches ground" : "reported OK, ground is not ok" };
       }
       return { correct: false, reason: "no status indicated" };

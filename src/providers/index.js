@@ -1,5 +1,6 @@
+import "../env.js";
 import { Client } from "./client.js";
-import { parseEnv } from "../util.js";
+import { envValue } from "../util.js";
 
 // Provider registry: maps a stable provider name -> a list of models to try, plus the URL and
 // auth scheme. Kept here so CLI flags and the web UI can select providers/tasks/models without
@@ -26,8 +27,10 @@ const PROVIDERS = {
     models: ["llama-3.3-70b-versatile", "gemma2-9b-it"],
   },
   local: {
-    baseUrl: process.env.OLLAMA_BASE_URL ?? "http://localhost:11434/v1/chat/completions",
+    baseUrl: envValue("OLLAMA_BASE_URL", "http://localhost:11434/v1/chat/completions"),
+    // Ollama ignores auth entirely, so there is no key to configure.
     auth: () => "Bearer local",
+    needsKey: false,
     // Fallback list; the live set is probed from Ollama's /v1/models where it's reachable.
     models: ["ornith-1.5:9b", "qwen3.5:9b-mlx", "gemma4:31b-mlx", "qwen3.8:27b-mlx"],
   },
@@ -54,15 +57,21 @@ export function labelModel(model) {
 }
 
 export function apiKeyFor(provider) {
-  return parseEnv(`${provider.toUpperCase()}_API_KEY`);
+  return envValue(`${provider.toUpperCase()}_API_KEY`);
 }
 
-// Build a Client for a single { provider, model } pair, or null if the key is missing.
+// A provider is usable when it needs no key (local) or has one configured.
+export function hasCredentials(provider) {
+  const cfg = PROVIDERS[provider];
+  return !!cfg && (cfg.needsKey === false || !!apiKeyFor(provider));
+}
+
+// Build a Client for a single { provider, model } pair, or null if the credentials are missing.
 export function buildClient({ provider, model }) {
   const cfg = PROVIDERS[provider];
   if (!cfg) throw new Error(`unknown provider: ${provider}`);
-  const key = apiKeyFor(provider);
-  if (!key) return null;
+  if (!hasCredentials(provider)) return null;
+  const key = apiKeyFor(provider) || "local";
   return new Client({
     name: `${provider}:${model}`,
     provider,
@@ -91,7 +100,7 @@ export function normalizeClientSpecs(spec) {
 }
 
 // Resolve the full list of clients to run. With no spec, every configured provider/model that
-// has a key. Bare provider names expand to that provider's default models.
+// has credentials. Bare provider names expand to that provider's default models.
 export function resolveClients(spec) {
   const clients = [];
   const seen = new Set();
@@ -138,13 +147,15 @@ export async function probeLocalModels({ timeoutMs = 1500 } = {}) {
   }
 }
 
-// Provider metadata for the web UI: which providers have keys, and what models to offer.
+// Provider metadata for the web UI: which providers are usable, and what models to offer.
+// `live` is null for hosted providers, true/false for the local daemon.
 export async function describeProviders({ probe = true } = {}) {
   const live = probe ? await probeLocalModels() : null;
   return Object.entries(PROVIDERS).map(([name, cfg]) => ({
     name,
     baseUrl: cfg.baseUrl,
-    hasKey: !!apiKeyFor(name),
+    needsKey: cfg.needsKey !== false,
+    hasKey: hasCredentials(name),
     live: name === "local" ? live !== null : null,
     models: (name === "local" && live ? live : cfg.models).map((model) => ({
       id: model,

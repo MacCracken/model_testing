@@ -8,6 +8,7 @@
     "llm-harness-bench": "src/cli.js"
   },
   "scripts": {
+    "test": "node --test test/",
     "serve": "node src/cli.js serve",
     "bench": "node src/cli.js",
     "one": "node src/bench.js",

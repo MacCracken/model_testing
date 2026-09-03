@@ -6,9 +6,7 @@
 // Eval: compare the greetings the model reports against the ones the real endpoint returns.
 
 import { labelModel } from "../providers/index.js";
-
-const PORT = process.env.PORT ?? 3000;
-const BASE = `http://localhost:${PORT}`;
+import { BASE, unwrapList } from "./util.js";
 
 const NAMES = ["alice", "bob", "carol"];
 
@@ -62,14 +60,7 @@ const schema = {
 
 // The model may reasonably answer with a bare array or wrap it in an object. Accept either.
 function greetingsFrom(out) {
-  if (Array.isArray(out)) return out;
-  if (out && typeof out === "object") {
-    for (const key of ["greetings", "messages", "results", "data"]) {
-      if (Array.isArray(out[key])) return out[key];
-    }
-    if (out.message || out.greeting) return [out];
-  }
-  return [];
+  return unwrapList(out, ["greetings", "messages", "results", "data"], (o) => !!(o.message || o.greeting));
 }
 
 function messageOf(entry) {

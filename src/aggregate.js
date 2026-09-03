@@ -7,9 +7,10 @@
 //
 // Prints per-mode and per-cell breakdowns plus the harness delta.
 
+import "./env.js";
 import { resolveClients } from "./providers/index.js";
-import { resolveTasks, resolveModes } from "./bench.js";
-import { runMatrix } from "./runner.js";
+import { resolveTasks, resolveModes, describeSkipped } from "./bench.js";
+import { runMatrix, planMatrix, describeSignificance } from "./runner.js";
 import { newRunId, saveRun } from "./results.js";
 import { parseArgs } from "./args.js";
 
@@ -26,10 +27,12 @@ export async function main() {
     process.exit(1);
   }
 
+  const plan = planMatrix({ tasks: taskList, modes: modeList, clients, count });
+  for (const note of describeSkipped(plan.skipped)) console.log(`skip  ${note}`);
   const label = `${taskList.length} task(s) x ${modeList.length} mode(s) x ${clients.length} client(s) x ${count}`;
-  console.log(`running ${label} = ${taskList.length * modeList.length * clients.length * count} trials\n`);
+  console.log(`running ${label} = ${plan.total} trials\n`);
 
-  const { rows, summary } = await runMatrix({
+  const { rows, summary, skipped } = await runMatrix({
     tasks: taskList,
     modes: modeList,
     clients,
@@ -38,7 +41,7 @@ export async function main() {
       if (ev.type !== "trial") return;
       const r = ev.result;
       const mark = r.correct ? "PASS" : "FAIL";
-      console.log(`  [${String(ev.completed).padStart(3)}/${ev.total}] ${mark}  ${r.task.padEnd(8)} ${r.mode.padEnd(9)} ${r.model.padEnd(22)} ${String(r.latencyMs).padStart(6)}ms  ${r.reason}`);
+      console.log(`  [${String(ev.completed).padStart(3)}/${ev.total}] ${mark}  ${r.task.padEnd(8)} ${r.mode.padEnd(10)} ${r.model.padEnd(22)} ${String(r.latencyMs).padStart(6)}ms  ${r.reason}`);
     },
   });
 
@@ -61,13 +64,13 @@ export async function main() {
 
   console.log("\n-- per task x mode x client");
   for (const cell of summary.cells) {
-    console.log(`   ${cell.task.padEnd(8)} ${cell.mode.padEnd(9)} ${cell.client.padEnd(28)} ${cell.correct}/${cell.runs} (${cell.correctPct.toFixed(0)}%)  ${cell.avgLatencyMs}ms`);
+    console.log(`   ${cell.task.padEnd(8)} ${cell.mode.padEnd(10)} ${cell.client.padEnd(28)} ${cell.correct}/${cell.runs} (${cell.correctPct.toFixed(0)}%)  ${cell.avgLatencyMs}ms`);
   }
 
-  const fmt = (d) => {
-    const sig = d.pValue === null ? "n/a" : (d.pValue < 0.05 ? "significant" : `p=${d.pValue.toFixed(2)}`);
-    return `${d.noHarnessPct.toFixed(1)}% -> ${d.harnessPct.toFixed(1)}% (${d.deltaPp >= 0 ? "+" : ""}${d.deltaPp.toFixed(1)}pp)  [${sig}]`;
-  };
+  // A delta needs both noHarness and harness rows; describeSignificance says so when one is missing.
+  const fmt = (d) => d
+    ? `${d.noHarnessPct.toFixed(1)}% -> ${d.harnessPct.toFixed(1)}% (${d.deltaPp >= 0 ? "+" : ""}${d.deltaPp.toFixed(1)}pp)  [${describeSignificance(d)}]`
+    : describeSignificance(null);
 
   console.log("\n-- harness delta (correctness)");
   console.log(`   overall:      ${fmt(summary.delta.overall)}`);
@@ -85,6 +88,7 @@ export async function main() {
     status: "done",
     source: "aggregate",
     config: { tasks: taskList.map((t) => t.name), modes: modeList, clients: clients.map((c) => c.name), count },
+    warnings: describeSkipped(skipped),
     progress: { completed: rows.length, total: rows.length },
     summary,
     rows,

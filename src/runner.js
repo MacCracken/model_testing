@@ -3,14 +3,21 @@
 // One place where a (task, mode, client) cell is actually run and scored, used by the CLI
 // (`bench.js`, `aggregate.js`) and by the web UI alike, so every surface reports the same
 // numbers. Callers get progress via `onEvent` and can cancel with an AbortSignal.
+//
+// This file has no Node-specific imports on purpose: the web server serves it to the browser as
+// `/lib/runner.js`, so the UI summarizes runs with this exact code instead of a copy that drifts.
 
 import { validateSchema, schemaHint } from "./schema.js";
 
-export const MODES = ["noHarness", "harness"];
+// Every mode the benchmark knows. `noHarness` vs `harness` is the headline pair; `schemaOnly` and
+// `toolOnly` are the two axes the bundle decomposes into. A task supports a mode by carrying a spec
+// under that name — pairs it does not declare are skipped, see planMatrix.
+export const MODE_NAMES = ["noHarness", "harness", "schemaOnly", "toolOnly"];
+export const DEFAULT_MODES = ["noHarness", "harness"];
 
 // A mode is one of two shapes, by *behavior* rather than by name:
 //   - structured  -> inject the output schema, run tools, and score the parsed JSON.
-//   - free-form   -> no tools, score the raw text.
+//   - free-form   -> no schema, score the raw text (tools still run if the spec carries them).
 // The classic "harness" bundle is the structured mode; the free-form mode is the bare baseline.
 // Adding an axis means adding a mode name that is structured or free-form — no runner changes.
 export function isStructuredMode(mode) {
@@ -30,10 +37,19 @@ export function buildSystemPrompt(spec, mode) {
   ].filter(Boolean).join("\n\n");
 }
 
+// Ground truth is either a function of the trial — called after the model has answered, with what
+// the trial actually did — or a constant, for tasks whose truth is fixed. Passing the trial in lets
+// a task define truth as "what my tools really returned", the only honest truth when the endpoint
+// is random (see tasks/lookup.js).
+async function resolveGround(task, ctx) {
+  const g = task.eval.ground;
+  return typeof g === "function" ? g(ctx) : g;
+}
+
 /** Run a single (task, mode, client) trial once and score it. Never throws. */
 export async function runTrial({ task, mode, client, index = 1, signal, maxRounds = 4 }) {
-  // A task carries a spec per mode (task[mode]). Only the modes it declares are run; the registry
-  // filters modes to those present so an unused axis never produces an "unsupported mode" row.
+  // A task carries a spec per mode (task[mode]). planMatrix only schedules the modes a task
+  // declares, so a missing spec here means runTrial was called directly with a bad pair.
   const spec = task[mode];
   const structured = isStructuredMode(mode);
   const started = Date.now();
@@ -90,14 +106,12 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
       record.rounds = resp.rounds ?? 0;
       record.structured = resp.structured ?? null;
 
-      // Schema validation is part of the structured (schema-aware) path. Running tools without a
-      // schema (toolOnly) validates nothing, so schemaValid stays null.
+      // Schema validation belongs to the structured path. With no schema to check against
+      // (toolOnly), schemaValid stays null rather than posing as a verdict.
       if (structured && spec.schema) {
         const { valid, errors } = validateSchema(resp.structured, spec.schema);
         record.schemaValid = resp.structured !== null && valid;
         record.schemaErrors = resp.structured === null ? ["final message was not JSON"] : errors;
-      } else {
-        record.schemaValid = resp.structured !== null;
       }
     } else {
       resp = await client.chat(
@@ -111,15 +125,21 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
     record.finishReason = resp.finishReason ?? null;
     record.usage = resp.usage ?? null;
 
-    // Truth: the task's ground is fetched after the model's reply, so the answer and the ground
-    // are taken at the same wall-clock point (the model never sees it). Fetch once for both modes.
-    const ground = await task.eval.ground();
+    // Truth: fetched after the model's reply, so the answer and the ground are taken at the same
+    // wall-clock point (the model never sees it). The trial is passed in so a task can define
+    // truth in terms of what its tools actually returned.
+    const ground = await resolveGround(task, {
+      mode,
+      toolCalls: record.toolCalls,
+      toolResults: record.toolResults,
+      structured: record.structured,
+      answerText: record.answerText,
+    });
     record.ground = ground;
 
     // Structured modes score the parsed JSON; free-form scores the raw text.
     const scorer = structured ? task.eval.scoreHarness : task.eval.scoreNoHarness;
     const answer = structured ? record.structured : record.answerText;
-    console.error("DEBUG structured=", record.structured, "answer=", answer, "ground=", ground);
     const score = await scorer(answer, ground);
 
     record.correct = !!score.correct;
@@ -137,67 +157,84 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
 }
 
 /**
+ * The cells a request would actually run, in execution order (task → mode → client), and the
+ * (task, mode) pairs it skips because the task declares no spec for that mode. Skipping — rather
+ * than scoring an "unsupported mode" error row — keeps a mode's numbers about the model.
+ */
+export function planMatrix({ tasks, modes, clients, count = 1 }) {
+  const cells = [];
+  const skipped = [];
+  for (const task of tasks) {
+    for (const mode of modes) {
+      if (!task[mode]) {
+        skipped.push({ task: task.name, mode });
+        continue;
+      }
+      for (const client of clients) cells.push({ task, mode, client });
+    }
+  }
+  return { cells, skipped, total: cells.length * count };
+}
+
+/**
  * Run the full tasks x modes x clients matrix, `count` trials per cell.
  * `onEvent` receives { type: "start" | "trial" | "done", ... } as work completes.
  */
 export async function runMatrix({ tasks, modes, clients, count = 1, onEvent, signal, maxRounds }) {
-  const total = tasks.length * modes.length * clients.length * count;
+  const { cells, skipped, total } = planMatrix({ tasks, modes, clients, count });
   const rows = [];
   let completed = 0;
 
-  onEvent?.({ type: "start", total, tasks: tasks.map((t) => t.name), modes, clients: clients.map((c) => c.name), count });
+  onEvent?.({
+    type: "start",
+    total,
+    skipped,
+    tasks: tasks.map((t) => t.name),
+    modes,
+    clients: clients.map((c) => c.name),
+    count,
+  });
 
   outer:
-  for (const task of tasks) {
-    for (const mode of modes) {
-      for (const client of clients) {
-        for (let i = 0; i < count; i++) {
-          if (signal?.aborted) break outer;
-          const row = await runTrial({ task, mode, client, index: i + 1, signal, maxRounds });
-          rows.push(row);
-          completed += 1;
-          onEvent?.({ type: "trial", completed, total, result: row });
-        }
-      }
+  for (const { task, mode, client } of cells) {
+    for (let i = 0; i < count; i++) {
+      if (signal?.aborted) break outer;
+      const row = await runTrial({ task, mode, client, index: i + 1, signal, maxRounds });
+      rows.push(row);
+      completed += 1;
+      onEvent?.({ type: "trial", completed, total, result: row });
     }
   }
 
   const summary = summarize(rows);
-  onEvent?.({ type: "done", completed, total, summary, cancelled: !!signal?.aborted });
-  return { rows, summary };
+  onEvent?.({ type: "done", completed, total, summary, skipped, cancelled: !!signal?.aborted });
+  return { rows, summary, skipped };
 }
 
 // ---- statistical significance --------------------------------------------------------------
 //
 // The harness delta is the whole point of the benchmark, so a bare difference of two percentages
-// tells you almost nothing — with a few trials, a 4-point gap is easily sampling noise. These
-// helpers let every delta carry a real answer to "is this gap real?":
+// tells you almost nothing — with a few trials, a 30-point gap is easily sampling noise. Every
+// delta therefore carries a real answer to "is this gap real?":
 //
-//   - twoPropZTest — a two-proportion z-test for whether the harness rate differs from baseline
-//     (one-sided p-value = probability the harness rate is *not* better than baseline).
-//   - wilsonInterval — the Wilson score interval, a confidence band on a single proportion that is
-//     far better behaved than the textbook interval when the rate is near 0 or 1.
+//   - fisherExact   — Fisher's exact test on the 2×2 table (correct/incorrect × baseline/harness).
+//                     It is exact at any sample size, which matters here: this bench routinely
+//                     runs 1–5 trials per cell, where a z-test's normal approximation is invalid.
+//                     This is the headline p-value.
+//   - twoPropZTest  — the two-proportion z-test, kept for large samples and as a reference.
+//   - wilsonInterval — a confidence band on a single proportion that stays honest near 0% / 100%.
 //
-// Both are pure math (no deps). normalCDF uses Abramowitz & Stegun 7.1.26 (max abs error ~1.2e-7).
+// All pure math, no deps.
 
+// Standard normal CDF via Abramowitz & Stegun 7.1.26 (max abs error 1.5e-7).
 function normalCDF(z) {
-  // z = 0 is the only exact point; the A&S rational approximation carries a ~1e-7 rounding error
-  // everywhere else (good enough for a significance test, but not for a == 0.5 assertion).
   if (z === 0) return 0.5;
   const sign = z < 0 ? -1 : 1;
-  // Abramowitz & Stegun 7.1.26: erf(x) ≈ 1 - P(t)·e^{-x²}, with t = 1/(1 + 0.3275911·x) and
-  // P(t) = a1·t + a2·t² + a3·t³ + a4·t⁴ + a5·t⁵. Since CDF(z) = 0.5·(1 + erf(z/sqrt(2))),
-  // the erf argument is z/sqrt(2).
   const x = Math.abs(z) / Math.SQRT2;
   const t = 1 / (1 + 0.3275911 * x);
-  // A&S 7.1.26 polynomial coefficients a1..a5.
-  const p = 0.3275911 * t
-    + 0.236255972 * t * t
-    + 0.138629446 * t * t * t
-    + 0.069460363 * t * t * t * t
-    + 0.011772830 * t * t * t * t * t;
-  const y = 1 - p * Math.exp(-x * x);
-  return 0.5 * (1 + sign * y);
+  const poly = ((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592;
+  const erf = 1 - poly * t * Math.exp(-x * x);
+  return 0.5 * (1 + sign * erf);
 }
 
 // Standard-normal quantiles for common confidence levels; 95% is the default band.
@@ -227,6 +264,35 @@ function wilsonInterval(x, n, level = 0.95) {
   return { low: Math.max(0, center - half), high: Math.min(1, center + half) };
 }
 
+// log(n!) with a growing memo. Fisher's test needs binomial coefficients that overflow doubles
+// past n ≈ 170, so everything stays in log space.
+const LOG_FACT = [0];
+function logFactorial(n) {
+  for (let i = LOG_FACT.length; i <= n; i++) LOG_FACT[i] = LOG_FACT[i - 1] + Math.log(i);
+  return LOG_FACT[n];
+}
+function logChoose(n, k) {
+  return logFactorial(n) - logFactorial(k) - logFactorial(n - k);
+}
+
+// Fisher's exact test, two-sided: with the margins fixed, the probability of every table at least
+// as unlikely as the observed one (the convention R's fisher.test uses).
+// n1/x1 = trials/correct in one group, n2/x2 in the other.
+function fisherExact(n1, x1, n2, x2) {
+  const N = n1 + n2;
+  const K = x1 + x2;
+  const lo = Math.max(0, K - n2);
+  const hi = Math.min(K, n1);
+  const logP = (x) => logChoose(n1, x) + logChoose(n2, K - x) - logChoose(N, K);
+  const observed = logP(x1);
+  let p = 0;
+  for (let x = lo; x <= hi; x++) {
+    const lp = logP(x);
+    if (lp <= observed + 1e-9) p += Math.exp(lp);
+  }
+  return Math.min(1, p);
+}
+
 export function pct(rows, cond) {
   if (!rows.length) return 0;
   return (rows.filter(cond).length / rows.length) * 100;
@@ -237,9 +303,8 @@ export function mean(xs) {
   return xs.reduce((a, b) => a + b, 0) / xs.length;
 }
 
-// Exported so the significance helpers can be unit-tested and reused by future tiers (e.g. a
-// per-task or per-cell significance). They are pure math, no I/O.
-export { normalCDF, twoPropZTest, wilsonInterval, deltaFor };
+// Exported so the significance helpers can be unit-tested and reused (e.g. per-cell significance).
+export { normalCDF, twoPropZTest, wilsonInterval, fisherExact, deltaFor };
 
 function statsFor(rows) {
   return {
@@ -258,27 +323,46 @@ function deltaFor(rows) {
   const noH = rows.filter((r) => r.mode === "noHarness");
   const withH = rows.filter((r) => r.mode === "harness");
   if (!noH.length || !withH.length) return null;
-  const a = pct(noH, (r) => r.correct);
-  const b = pct(withH, (r) => r.correct);
   const n = noH.length;
   const m = withH.length;
-  // Counts of correct answers (0..n), not percentages. `b` is a 0-100 percentage, so divide by 100.
-  const x1 = Math.round(n * a / 100);
-  const x2 = Math.round(m * b / 100);
-  const significance = twoPropZTest(n, x1, m, x2);
+  const x1 = noH.filter((r) => r.correct).length;
+  const x2 = withH.filter((r) => r.correct).length;
+  const a = (x1 / n) * 100;
+  const b = (x2 / m) * 100;
+  const pValue = fisherExact(n, x1, m, x2);
+  // The smallest p these sample sizes can produce at all (a 0% → 100% split). When even that is
+  // ≥ 0.05, no outcome of this run could have been significant: the honest reading is "run more
+  // trials", not "no effect".
+  const minPValue = Math.min(fisherExact(n, 0, m, m), fisherExact(n, n, m, 0));
   return {
     noHarnessPct: a,
     harnessPct: b,
     deltaPp: b - a,
     noHarnessRuns: n,
     harnessRuns: m,
-    // pValue is the probability the harness rate is *not* better than baseline (one-sided). A small
-    // value means the observed gap is unlikely to be sampling noise. null when either side is empty.
-    pValue: significance?.pValue ?? null,
-    z: significance?.z ?? null,
-    // The Wilson interval on the harness rate: a confidence band that is honest near 0% / 100%.
+    noHarnessCorrect: x1,
+    harnessCorrect: x2,
+    // Two-sided Fisher exact p-value: the probability of a gap at least this large if the harness
+    // made no difference. A harness that *hurts* is a real difference too, hence two-sided.
+    pValue,
+    minPValue,
+    significant: pValue < 0.05,
+    test: "fisher-exact",
+    z: twoPropZTest(n, x1, m, x2).z,
+    // Wilson intervals on each rate: confidence bands that are honest near 0% / 100%.
+    noHarnessWilson: wilsonInterval(x1, n),
     harnessWilson: wilsonInterval(x2, m),
   };
+}
+
+// One phrasing of "is this gap real?" shared by the CLI, the aggregator and the web UI.
+export function describeSignificance(d) {
+  if (!d) return "n/a — needs both noHarness and harness";
+  const n = `${d.noHarnessRuns} vs ${d.harnessRuns} trials`;
+  const p = d.pValue < 0.001 ? "p<0.001" : `p=${d.pValue.toFixed(2)}`;
+  if (d.pValue < 0.05) return `significant · ${p} · ${n}`;
+  if (d.minPValue >= 0.05) return `inconclusive · ${p} · ${n} — too few trials for any result to reach p<0.05`;
+  return `not significant · ${p} · ${n}`;
 }
 
 export function summarize(rows) {
