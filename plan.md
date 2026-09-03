@@ -90,3 +90,74 @@ open-ended tasks; automated `answer` blocks use regex / exact-match / optional c
    the model performs HTTP itself? I'll default to real implementations.
 3. **Judging:** for the starting tasks, automated ground-truth is enough. Open-ended judge
    tasks can be added later.
+
+---
+
+# Roadmap: improving the benchmark (in-progress)
+
+Working through the improvement tiers below, one at a time. Each tier is roughly independent, so
+the roadmap is resilient to a session ending mid-tier. Current state at start of this session:
+**44/44 tests pass, clean tree, 4 prior runs.** The harness delta is currently a plain difference of
+two percentages with no significance test — the highest-leverage gap.
+
+## Tier 1 — Core premise: is the delta real? (STARTED)
+
+- **[1] Statistical significance on the harness delta.** Turn the headline from "a difference" into
+  "a real difference." Add a binomial test / Wilson interval on harness-vs-baseline to the
+  aggregator, CLI, and web. This is the feature that makes the benchmark trustworthy instead of a
+  bar chart of noise. **Action: implement.**
+- **[2] A tool-essential calibration task.** Every current task is tool-*optional* (you can answer
+  without tools, tools just nudge). Need a task where the tool is genuinely required — e.g. "which
+  of these files match a regex?" — so no-harness floors out and harness is required. Also surfaces
+  the real failure mode: small models that refuse/can't call tools at all. **DONE:** added `lookup`
+  task (`src/tasks/lookup.js`), registered in `registry.js`, tested in `test/tasks.test.js`. The
+  webserver's `/api/hello?name=` returns a fresh random UUID per call — nothing to memorize, so a
+  free-form model cannot produce the real ids (verified live: no-harness 0/3, harness tool-calls
+  100% but 0/3 correct). This isolates "the tool is required" from "the schema is required".
+  Live run (local:ornith-1.5:9b, 3 trials): no-harness 0% correct (correctly reports it can't
+  guess), harness 100% tool-calls but 0% correct — the model fired the tool 3× but never passed
+  the required `name` arg, so each call returned a different random id and matched none of ground.
+  This reveals a *second* harness failure mode beyond "can't call tools at all": models that call
+  tools but use them wrong. Next: a task that rewards correct multi-arg tool use (e.g. the regex
+  task in the roadmap), and possibly tightening the lookup prompt so the model passes `name`.
+- **[3] Tool complexity.** Current tools are trivial (one arg or none). Add: multiple tools where
+  the model must pick, typed required args, a decoy/wrong-tool path, stateful side effects. Tests
+  whether models *reason about* tools, not just fire a one-shot. **DONE:** added `regex` task
+  (`src/tasks/regex.js`, registered, 8 tests in `test/tasks.test.js`). Two tools: the correct
+  `regex_match` (typed required args `pattern` + `string`) and a decoy `word_count`. Ground truth
+  is pure regex with near-miss strings ("12345", "123-456", "12-34" all look like "123-45" but don't
+  match the anchored pattern), so it isolates *selecting the right tool and building the right args*
+  from *firing at all*. Live run (local:ornith-1.5:9b, 1 trial): **no-harness 0% (0/6), harness 100%
+  tool-calls but 0% (structured output contained no results)** — the model returned the schema
+  definition itself as the answer instead of populating it. Confirms the failure mode; the task
+  isolates tool-selection/arg-building from firing.
+
+## Tier 2 — Methodology / task diversity
+
+- **[4] Decompose the harness (tools × schema view).** The UI already *collects* the 4 modes; surface
+  a 2×2 (tools × schema) view so the headline lift can be attributed to tools vs. the schema
+  instruction alone.
+- **[5] More task kinds.** Add tasks beyond "give me the answer" — e.g. extract-and-transform,
+  multi-step where later steps depend on tool results.
+
+## Tier 3 — Data / output
+
+- **[6] Export runs to CSV.** Saved, but no way to pull them out.
+- **[7] TTFT + latency distribution.** Latency is recorded but only averaged; streaming client lets
+  you measure time-to-first-token, a real signal for small models.
+
+## Tier 4 — Architecture
+
+- **[8] Provider/model breadth.** Client is OpenAI-compatible, so dropping in Cerebras/DeepSeek/
+  Together models to span capability tiers is cheap.
+- **[9] `schema.js` coverage.** It's a JSON-Schema subset; note/extend (`additionalProperties`,
+  `const`, `format`).
+
+## Done
+
+- Baseline benchmark (tasks × modes × clients matrix), CLI + web, per-mode/per-cell breakdowns,
+  harness delta.
+- schemaOnly / toolOnly axes to decompose the harness.
+- Local Ollama model probing from `/v1/models`.
+- 44 unit tests covering modes, JSON extraction, schema validation, and task scorers.
+

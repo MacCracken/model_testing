@@ -119,7 +119,10 @@ async function main() {
     console.log(`[${mode}] ${s.correct}/${s.runs} correct (${s.correctPct.toFixed(1)}%)  schema ${s.schemaValidPct.toFixed(0)}%  tools ${s.toolUsePct.toFixed(0)}%  ${s.avgLatencyMs}ms avg`);
   }
   const d = summary.delta.overall;
-  if (d) console.log(`\nharness delta: ${d.noHarnessPct.toFixed(1)}% -> ${d.harnessPct.toFixed(1)}% (${d.deltaPp >= 0 ? "+" : ""}${d.deltaPp.toFixed(1)}pp)`);
+  if (d) {
+    const sig = d.pValue === null ? "n/a" : (d.pValue < 0.05 ? "significant" : `p=${d.pValue.toFixed(2)} (n=${d.noHarnessRuns}/${d.harnessRuns})`);
+    console.log(`\nharness delta: ${d.noHarnessPct.toFixed(1)}% -> ${d.harnessPct.toFixed(1)}% (${d.deltaPp >= 0 ? "+" : ""}${d.deltaPp.toFixed(1)}pp)  [${sig}]`);
+  }
   if (!args.noSave) console.log(`\nsaved: results/runs/${run.id}.json`);
 }
 

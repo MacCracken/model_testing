@@ -167,7 +167,65 @@ export async function runMatrix({ tasks, modes, clients, count = 1, onEvent, sig
   return { rows, summary };
 }
 
-// ---- aggregation -------------------------------------------------------------------------
+// ---- statistical significance --------------------------------------------------------------
+//
+// The harness delta is the whole point of the benchmark, so a bare difference of two percentages
+// tells you almost nothing — with a few trials, a 4-point gap is easily sampling noise. These
+// helpers let every delta carry a real answer to "is this gap real?":
+//
+//   - twoPropZTest — a two-proportion z-test for whether the harness rate differs from baseline
+//     (one-sided p-value = probability the harness rate is *not* better than baseline).
+//   - wilsonInterval — the Wilson score interval, a confidence band on a single proportion that is
+//     far better behaved than the textbook interval when the rate is near 0 or 1.
+//
+// Both are pure math (no deps). normalCDF uses Abramowitz & Stegun 7.1.26 (max abs error ~1.2e-7).
+
+function normalCDF(z) {
+  // z = 0 is the only exact point; the A&S rational approximation carries a ~1e-7 rounding error
+  // everywhere else (good enough for a significance test, but not for a == 0.5 assertion).
+  if (z === 0) return 0.5;
+  const sign = z < 0 ? -1 : 1;
+  // Abramowitz & Stegun 7.1.26: erf(x) ≈ 1 - P(t)·e^{-x²}, with t = 1/(1 + 0.3275911·x) and
+  // P(t) = a1·t + a2·t² + a3·t³ + a4·t⁴ + a5·t⁵. Since CDF(z) = 0.5·(1 + erf(z/sqrt(2))),
+  // the erf argument is z/sqrt(2).
+  const x = Math.abs(z) / Math.SQRT2;
+  const t = 1 / (1 + 0.3275911 * x);
+  // A&S 7.1.26 polynomial coefficients a1..a5.
+  const p = 0.3275911 * t
+    + 0.236255972 * t * t
+    + 0.138629446 * t * t * t
+    + 0.069460363 * t * t * t * t
+    + 0.011772830 * t * t * t * t * t;
+  const y = 1 - p * Math.exp(-x * x);
+  return 0.5 * (1 + sign * y);
+}
+
+// Standard-normal quantiles for common confidence levels; 95% is the default band.
+function zForLevel(level) {
+  const table = {
+    0.90: 1.64485362695147,
+    0.95: 1.95996398454005,
+    0.99: 2.5758293035489,
+  };
+  return table[level] ?? table[0.95];
+}
+
+function twoPropZTest(n1, x1, n2, x2) {
+  const p1 = x1 / n1;
+  const p2 = x2 / n2;
+  const p = (x1 + x2) / (n1 + n2);
+  const se = Math.sqrt(p * (1 - p) * (1 / n1 + 1 / n2));
+  const z = se > 0 ? (p2 - p1) / se : 0;
+  return { z, pValue: 2 * (1 - normalCDF(Math.abs(z))), oneSidedP: 1 - normalCDF(z) };
+}
+
+function wilsonInterval(x, n, level = 0.95) {
+  if (n === 0) return { low: 0, high: 0 };
+  const z2 = zForLevel(level) ** 2;
+  const center = (x + z2 / 2) / (n + z2);
+  const half = (zForLevel(level) * Math.sqrt(x * (1 - x / n) + z2 / 4)) / (n + z2);
+  return { low: Math.max(0, center - half), high: Math.min(1, center + half) };
+}
 
 export function pct(rows, cond) {
   if (!rows.length) return 0;
@@ -178,6 +236,10 @@ export function mean(xs) {
   if (!xs.length) return 0;
   return xs.reduce((a, b) => a + b, 0) / xs.length;
 }
+
+// Exported so the significance helpers can be unit-tested and reused by future tiers (e.g. a
+// per-task or per-cell significance). They are pure math, no I/O.
+export { normalCDF, twoPropZTest, wilsonInterval, deltaFor };
 
 function statsFor(rows) {
   return {
@@ -198,12 +260,24 @@ function deltaFor(rows) {
   if (!noH.length || !withH.length) return null;
   const a = pct(noH, (r) => r.correct);
   const b = pct(withH, (r) => r.correct);
+  const n = noH.length;
+  const m = withH.length;
+  // Counts of correct answers (0..n), not percentages. `b` is a 0-100 percentage, so divide by 100.
+  const x1 = Math.round(n * a / 100);
+  const x2 = Math.round(m * b / 100);
+  const significance = twoPropZTest(n, x1, m, x2);
   return {
     noHarnessPct: a,
     harnessPct: b,
     deltaPp: b - a,
-    noHarnessRuns: noH.length,
-    harnessRuns: withH.length,
+    noHarnessRuns: n,
+    harnessRuns: m,
+    // pValue is the probability the harness rate is *not* better than baseline (one-sided). A small
+    // value means the observed gap is unlikely to be sampling noise. null when either side is empty.
+    pValue: significance?.pValue ?? null,
+    z: significance?.z ?? null,
+    // The Wilson interval on the harness rate: a confidence band that is honest near 0% / 100%.
+    harnessWilson: wilsonInterval(x2, m),
   };
 }
 

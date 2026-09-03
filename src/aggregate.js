@@ -64,9 +64,10 @@ export async function main() {
     console.log(`   ${cell.task.padEnd(8)} ${cell.mode.padEnd(9)} ${cell.client.padEnd(28)} ${cell.correct}/${cell.runs} (${cell.correctPct.toFixed(0)}%)  ${cell.avgLatencyMs}ms`);
   }
 
-  const fmt = (d) => d
-    ? `${d.noHarnessPct.toFixed(1)}% -> ${d.harnessPct.toFixed(1)}% (${d.deltaPp >= 0 ? "+" : ""}${d.deltaPp.toFixed(1)}pp)`
-    : "n/a (need both modes)";
+  const fmt = (d) => {
+    const sig = d.pValue === null ? "n/a" : (d.pValue < 0.05 ? "significant" : `p=${d.pValue.toFixed(2)}`);
+    return `${d.noHarnessPct.toFixed(1)}% -> ${d.harnessPct.toFixed(1)}% (${d.deltaPp >= 0 ? "+" : ""}${d.deltaPp.toFixed(1)}pp)  [${sig}]`;
+  };
 
   console.log("\n-- harness delta (correctness)");
   console.log(`   overall:      ${fmt(summary.delta.overall)}`);

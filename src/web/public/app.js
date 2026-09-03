@@ -312,10 +312,19 @@ function renderCards() {
   const structured = "harness";
   if (s.byMode[baseline] && s.byMode[structured]) {
     const pp = s.byMode[structured].correctPct - s.byMode[baseline].correctPct;
+    const d = s.delta.overall;
+    // Same significance label the CLI surfaces carry: "significant" below the 0.05 one-sided p,
+    // otherwise the p-value with sample sizes, and "n/a" when a mode was not run.
+    const sig = d.pValue === null
+      ? "n/a"
+      : d.pValue < 0.05
+        ? "significant"
+        : `p=${d.pValue.toFixed(2)} (${d.noHarnessRuns}/${d.harnessRuns})`;
     box.append(el("div", { className: "card headline" },
       el("div", { className: "k" }, "Harness delta"),
       el("div", { className: `v ${pp > 0 ? "up" : pp < 0 ? "down" : ""}` }, `${pp >= 0 ? "+" : ""}${pp.toFixed(1)}pp`),
       el("div", { className: "s" }, `${pct(s.byMode[baseline].correctPct)} → ${pct(s.byMode[structured].correctPct)} correct`),
+      el("div", { className: "sig" }, sig),
     ));
   }
 

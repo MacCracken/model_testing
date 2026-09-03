@@ -205,6 +205,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .card.headline { background: var(--accent-soft); border-color: transparent; }
 .card.headline .v.up { color: var(--pass); }
 .card.headline .v.down { color: var(--fail); }
+.card .sig { font-size: 11px; margin-top: 3px; font-variant-numeric: tabular-nums; color: var(--ink-2); }
 
 .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 9px; }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
