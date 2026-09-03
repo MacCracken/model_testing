@@ -100,7 +100,7 @@ the roadmap is resilient to a session ending mid-tier. Current state at start of
 **44/44 tests pass, clean tree, 4 prior runs.** The harness delta is currently a plain difference of
 two percentages with no significance test — the highest-leverage gap.
 
-## Tier 1 — Core premise: is the delta real? (STARTED)
+## Tier 1 — Core premise: is the delta real? (COMPLETE)
 
 - **[1] Statistical significance on the harness delta.** Turn the headline from "a difference" into
   "a real difference." Add a binomial test / Wilson interval on harness-vs-baseline to the
