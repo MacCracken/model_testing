@@ -29,11 +29,13 @@ export function isStructuredMode(mode) {
 export function buildSystemPrompt(spec, mode) {
   const base = spec.system ?? "";
   if (!isStructuredMode(mode) || !spec.schema) return base;
+  // Calibration runs showed models echoing the schema's own envelope ({"type":"array","items":[…]})
+  // when told to "match this schema", so the instruction spells out instance-not-schema.
   return [
     base,
-    "Return your final answer as JSON matching this schema exactly:",
+    "Return your final answer as a JSON value that is an instance of this JSON Schema (a value that validates against it — not the schema itself):",
     schemaHint(spec.schema),
-    "Reply with the JSON only — no prose, no markdown fences.",
+    "Reply with that JSON value only — no prose, no markdown fences.",
   ].filter(Boolean).join("\n\n");
 }
 

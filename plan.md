@@ -25,8 +25,8 @@ Key design decisions that still hold:
 
 ## State of the benchmark (2026-09-03)
 
-`npm test`: **93/93**. Twelve saved runs, all local `ornith-1.5:9b`; **none of them post-date the
-scorer fixes below, so every live number recorded in earlier versions of this file is void.**
+`npm test`: **98/98**. The scorer fixes below were followed by a full calibration on three models
+(see *Calibration results*); every live number recorded in earlier versions of this file is void.
 
 ### What the audit found
 
@@ -62,6 +62,107 @@ Other defects fixed in the same pass (all covered by tests where testable):
 - `package.json` had no `test` script; the tests are `npm test` now.
 - The web UI was rebuilt on the "Ledger" design (see below) with a light / dark / system switch.
 
+Found by the first live runs after those fixes (second pass, same day):
+
+- The `reason` answer key was wrong: 3 red + 5 green is **8** marbles that are not blue, not 10 (the
+  total). The free-form scorer hid it because answers mention the total too; the structured scorer
+  exposed it the first time a model answered correctly.
+- The Anthropic model ids in the registry no longer exist. Verified against both providers' live
+  `/models` lists: OpenAI now lists `gpt-4o-mini`, `gpt-4.1-mini`, `gpt-5-mini`; Anthropic
+  `claude-opus-5`, `claude-sonnet-5`, `claude-haiku-4-5`.
+- `schemaOnly` / `toolOnly` were declared by nothing but `reason`; the four tool tasks now carry
+  hand-written specs for both axes, so the four-mode UI runs what it advertises.
+- Models echoed the schema's envelope (`{"type":"array","items":[…]}`) when told to "match this
+  schema"; the instruction now says *an instance of this schema, not the schema itself*. Scorers
+  already unwrap the envelope, so this changes `schemaValid`, not correctness.
+- A free-form health answer that hedges ("I can't tell whether it is OK or DOWN") was reported as
+  "reported DOWN"; it is now reported as a hedge (still wrong).
+- `node src/cli.js show <id> --table` reviews a saved run without the UI, through the same reporter
+  `aggregate` prints with.
+
+### Calibration results (2026-09-03)
+
+All five tasks × four modes × **4 trials per cell**, one run per model, fixed scorers. Counts are
+correct/trials.
+
+**gpt-4o-mini** — delta +40pp, significant (p < 0.001, 20 vs 20):
+
+| task | noHarness | harness | schemaOnly | toolOnly |
+|---|---|---|---|---|
+| health | 4/4 | 4/4 | 0/4 | 4/4 |
+| hello | 4/4 | 4/4 | 4/4 | 4/4 |
+| reason | 0/4 | 4/4 | 4/4 | — |
+| lookup | 0/4 | 4/4 | 0/4 | 4/4 |
+| regex | 4/4 | 4/4 | 4/4 | 4/4 |
+| **all** | **12/20** | **20/20** | **12/20** | **16/16** |
+
+**claude-haiku-4-5** — delta +30pp, significant (p = 0.02, 20 vs 20):
+
+| task | noHarness | harness | schemaOnly | toolOnly |
+|---|---|---|---|---|
+| health | 3/4 | 4/4 | 0/4 | 4/4 |
+| hello | 3/4 | 4/4 | 4/4 | 4/4 |
+| reason | 4/4 | 4/4 | 4/4 | — |
+| lookup | 0/4 | 4/4 | 0/4 | 4/4 |
+| regex | 4/4 | 4/4 | 4/4 | 4/4 |
+| **all** | **14/20** | **20/20** | **12/20** | **16/16** |
+
+**local ornith-1.5:9b** — delta +15pp, **not significant** (p = 0.48, 20 vs 20). This run used the
+older "match this schema" wording; see the note after the table.
+
+| task | noHarness | harness | schemaOnly | toolOnly |
+|---|---|---|---|---|
+| health | 1/4 | 4/4 | 0/4 | 4/4 |
+| hello | 4/4 | 4/4 | 3/4 | 4/4 |
+| reason | 4/4 | 3/4 | 4/4 | — |
+| lookup | 0/4 | 2/4 | 0/4 | 4/4 |
+| regex | 4/4 | 3/4 | 4/4 | 4/4 |
+| **all** | **13/20** | **16/20** | **11/20** | **16/16** |
+
+The small model inverts the hosted picture in one telling way: **tools-only is perfect (16/16) and
+the full harness is not (16/20)**. 13 of its structured answers echoed the schema's envelope, and
+twice it emitted JSON that does not parse at all (duplicate `items` keys, objects without keys), so
+the schema instruction *cost* it correct answers that the tool had already delivered. Its free-form
+health answers refuse to guess and say so at length (scored as hedges); its `lookup` harness rows
+report only alice after fetching all three names — the partial-report failure seen before the fixes.
+Neither model on any run touched the `word_count` decoy.
+
+**Schema-wording A/B (same day).** The schema instruction was changed from "matching this schema
+exactly" to "a JSON value that is an instance of this JSON Schema — not the schema itself", and the
+schema modes were rerun at 4 per cell:
+
+| model · mode | envelope echoes | schema-valid | correct |
+|---|---|---|---|
+| gpt-4o-mini · harness | 5 → **0** | 15/20 → **20/20** | 20/20 → 20/20 |
+| ornith-1.5:9b · harness | 7 → **0** | 10/20 → **18/20** | 16/20 → **18/20** |
+| ornith-1.5:9b · schemaOnly | 6 → **0** | 10/20 → 14/20 | 11/20 → 10/20 |
+
+One sentence of prompt removed the echo entirely on both models and, on the small model, turned the
+harness from *worse than tools-only* into 90% correct. With the new wording the local headline is
+13/20 → 18/20, not significant · p=0.13 · 20 vs 20 trials. The remaining local failures are the model's: two answers that are not JSON at
+all, one `lookup` report with no ids, and the expected `schemaOnly` zeros on `health` and `lookup`.
+The wording is part of the harness under test, so this is itself a harness result: the schema axis
+is sensitive to phrasing in a way the tool axis is not.
+
+How to read it:
+
+- The 2×2 separates cleanly on both hosted models: **tools are the whole lift** (toolOnly = harness
+  = 100%), and **the schema alone buys nothing** (schemaOnly = baseline). That is the control the
+  benchmark was designed around, and it now holds in data rather than by assertion.
+- `lookup` behaves as the tool-essential calibration should: 0% without a tool in both free-form and
+  schema-only, 100% with one in both harness and tools-only. Free-form models refuse rather than
+  fabricate; schema-only makes gpt-4o-mini fabricate plausible UUIDs and haiku refuse in prose.
+- `health` schema-only is 0/4 on both: without a tool the uptime is a guess (gpt-4o-mini writes 3600
+  every time), and the schema turns a hedge into a confidently wrong number.
+- `reason` is the surprise: gpt-4o-mini answers the marbles question **wrong in free form (10) and
+  right in structured mode (8), four times out of four**; haiku gets both. Asking for JSON changed
+  the arithmetic. Worth a dedicated look before reading `reason` as a pure control.
+- Per-task deltas at 4 vs 4 are only significant for a perfect 0 → 4 split (`lookup`); the
+  20-vs-20 pooled delta is what carries the significance. Ten per cell is the sensible default.
+- No model on any run chose the `word_count` decoy, so the regex task's tool-selection trap has
+  not bitten anyone yet; its signal today is argument construction and the schema echo, not tool
+  choice. A less obviously irrelevant decoy would make it a real test.
+
 ### What is genuinely done
 
 - Baseline benchmark (tasks × modes × clients), CLI + web, per-mode / per-cell breakdowns, saved runs.
@@ -78,24 +179,22 @@ Other defects fixed in the same pass (all covered by tests where testable):
 
 ## Roadmap
 
-### Tier 1 — Core premise: is the delta real? (RE-OPENED)
+### Tier 1 — Core premise: is the delta real?
 
-Nothing in this tier can be called done until it has been **run** with the fixed scorers.
-
-- **[1] Re-run the calibration set.** All five tasks, `noHarness` + `harness`, at least one local and
-  one hosted model, **≥ 4 trials per cell** (the Fisher floor; 10 is a sensible default). Paste the
-  headline numbers and their significance lines into this file. Expected shape: `lookup` free-form 0%
-  with a real harness lift; `regex` free-form well above 0%; `reason` delta ≈ 0.
+- **[1] Re-run the calibration set.** **DONE** for two hosted models at 4 trials per cell (see
+  *Calibration results*); the local run is recorded in the addendum. The expected shape held:
+  `lookup` free-form 0% with a full harness lift, `regex` free-form 100%, and the 2×2 attributes the
+  lift to tools. Still open: raise to 10 per cell and add a second local model so per-task deltas can
+  reach significance on their own.
 - **[2] Tool-argument correctness as a hygiene metric.** The saved `regex` run shows the model calling
   `regex_match` on strings that were not in the list ("123-457", "123-450"). "Called the right tool with
   the right args" is a distinct signal from "final answer correct"; record it per trial
   (`argsCorrect`) and surface it beside tool-use and schema-valid.
-- **[3] Decide the 2×2.** `schemaOnly` / `toolOnly` are *not* derived automatically on purpose: the
-  prompts are entangled with the mode (free-form prompts say "without any tools", harness prompts say
-  "call the X tool and return JSON"), so a derived spec would either contradict itself or score the
-  wrong thing. Author explicit specs for `hello`, `lookup` and `regex`, then add the 2×2 view (the
-  dumbbell already draws hollow markers for the extra modes). If Tier 5 goes ahead, do this after it —
-  the axes question changes shape when the harness is a real product.
+- **[3] Decide the 2×2.** **Specs DONE:** `health`, `hello`, `lookup` and `regex` carry hand-written
+  `schemaOnly` / `toolOnly` specs (not derived: a free-form prompt says "without any tools" and a
+  harness prompt says "call the X tool and return JSON", so a derived spec would contradict itself).
+  Still open: a dedicated 2×2 panel in the UI (today the dumbbell draws hollow markers for the two
+  extra modes and the headline shows a column per mode).
 
 ### Tier 2 — Methodology / task diversity
 

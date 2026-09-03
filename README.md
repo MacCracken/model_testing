@@ -15,9 +15,8 @@ attributable to the harness:
 
 `no-harness` is the bare baseline. `harness` is the full bundle. `schemaOnly` and `toolOnly` are the
 two axes the bundle is made of. A task takes part in a mode by declaring a spec for it; pairs a task
-does not declare are skipped and reported, not scored. Today every task declares the headline pair,
-`reason` also declares `schemaOnly` (it has no tools, so its harness *is* schema-only), and no task
-declares `toolOnly` yet — see `plan.md`.
+does not declare are skipped and reported, not scored. The four tool tasks declare all four modes;
+`reason` has no tools, so its harness *is* schema-only and it declares no `toolOnly`.
 
 The `webserver` (`./webserver`) is the **system under test**. Its real endpoints (`/health`,
 `/api/hello`) are what the harness tools actually hit — the runner executes each tool and feeds
@@ -89,15 +88,17 @@ shows up in the web UI's history. `--json` prints the whole run record; `--no-sa
 writing it.
 
 ```bash
-node src/cli.js list    # tasks (with the modes each declares) and providers, with key status
+node src/cli.js list                    # tasks (with the modes each declares) and providers, with key status
+node src/cli.js show                    # recent saved runs
+node src/cli.js show <run-id> --table   # one saved run: per-mode stats, deltas with significance, a task × mode table
 ```
 
 ## Providers
 
 Multiple providers behind a single OpenAI-compatible client (no SDKs):
 
-- **OpenAI** — `gpt-4o-mini`, `gpt-4o`, `gpt-4.1-mini`
-- **Anthropic** — via Anthropic's OpenAI-compatible route
+- **OpenAI** — `gpt-4o-mini`, `gpt-4.1-mini`, `gpt-5-mini`
+- **Anthropic** — `claude-opus-5`, `claude-sonnet-5`, `claude-haiku-4-5`, via Anthropic's OpenAI-compatible route
 - **Groq** — `llama-3.3-70b-versatile`, `gemma2-9b-it`
 - **Local (Ollama)** — no key needed; whatever the daemon reports from `/v1/models`
 

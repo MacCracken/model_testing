@@ -65,6 +65,28 @@ export const task = {
     extract: "structured",
   },
 
+  // ---- schema only: no tools, but the output schema — the "ask for JSON" axis alone ----
+  schemaOnly: {
+    system: "You are a precise API client. Return exactly the requested structured data.",
+    prompt:
+      "The webserver exposes GET /health which returns its status, uptime, and timestamp. " +
+      "Without any tools, determine the current health of the webserver and report its status " +
+      "and its uptime in seconds as best you can.",
+    tools: [],
+    schema,
+    extract: "structured",
+  },
+
+  // ---- tools only: the health tool, but a free-form answer and no schema ----
+  toolOnly: {
+    system: "You are a precise API client. Use the provided tools.",
+    prompt:
+      "Check the current health of the webserver using the health tool, then reply with a short " +
+      "natural-language statement (include the word OK or DOWN and the status).",
+    tools: [tool],
+    extract: "text",
+  },
+
   // ---- evaluation ----
   eval: {
     // Truth: call the real endpoint ourselves.
@@ -98,13 +120,18 @@ export const task = {
 
     // No-harness: look for "ok" / "down" in free text. Note this is a weaker bar than the
     // harness scorer (status only, no uptime) — without tools the model cannot know uptime.
+    // A reply that mentions both verdicts ("I can't tell whether it is OK or DOWN") has not reported
+    // a status at all — it is scored wrong either way, but the reason says "hedged", not "DOWN".
     scoreNoHarness: (out, ground) => {
       const text = String(out ?? "").toLowerCase();
       const healthy = String(ground.status ?? "").toLowerCase() === "ok";
-      if (/\bdown\b|unreachable|not running|\b5\d\d\b/.test(text)) {
+      const saysDown = /\bdown\b|unreachable|not running|\b5\d\d\b/.test(text);
+      const saysOk = /\bok\b|\bup\b|healthy|running|\b200\b|available|good/.test(text);
+      if (saysDown && saysOk) return { correct: false, reason: "hedged: mentions both OK and DOWN, no status committed" };
+      if (saysDown) {
         return { correct: !healthy, reason: healthy ? "reported DOWN, ground is ok" : "reported DOWN, matches ground" };
       }
-      if (/\bok\b|\bup\b|healthy|running|\b200\b|available|good/.test(text)) {
+      if (saysOk) {
         return { correct: healthy, reason: healthy ? "reported OK, matches ground" : "reported OK, ground is not ok" };
       }
       return { correct: false, reason: "no status indicated" };

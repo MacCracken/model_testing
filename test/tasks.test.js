@@ -334,3 +334,10 @@ test("a harness answer wrapped in prose is still parseable before scoring", () =
   assert.ok(parsed, "parseJSONLoose should extract the JSON");
   assert.equal(t.eval.scoreHarness(parsed, { status: "ok", uptimeSec: 42 }).correct, true);
 });
+
+test("health noHarness scorer calls a hedge a hedge, not a DOWN report", () => {
+  const t = getTask("health");
+  const r = t.eval.scoreNoHarness("I cannot check the endpoint, so I can't say whether it is OK or DOWN.", { status: "ok", uptimeSec: 42 });
+  assert.equal(r.correct, false);
+  assert.match(r.reason, /hedged/);
+});

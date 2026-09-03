@@ -19,7 +19,7 @@ const PROBLEMS = [
   },
   {
     question: "A bag has 3 red, 2 blue, and 5 green marbles. How many marbles are not blue?",
-    answer: "10",
+    answer: "8",
   },
   {
     question: "If today is Monday and 3 days from now is X, what day is X?",

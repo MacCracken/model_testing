@@ -12,14 +12,14 @@ const PROVIDERS = {
   openai: {
     baseUrl: "https://api.openai.com/v1/chat/completions",
     auth: (key) => `Bearer ${key}`,
-    models: ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini"],
+    models: ["gpt-4o-mini", "gpt-4.1-mini", "gpt-5-mini"],
   },
   anthropic: {
     baseUrl: "https://api.anthropic.com/v1/chat/completions",
     // Anthropic supports the OpenAI-compatible route at the URL above; auth is Bearer on the
     // key. This lets the same client drive Anthropic models.
     auth: (key) => `Bearer ${key}`,
-    models: ["claude-3-5-sonnet-latest", "claude-opus-4-20250514"],
+    models: ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"],
   },
   groq: {
     baseUrl: "https://api.groq.com/openai/v1/chat/completions",
@@ -41,8 +41,10 @@ const MODEL_LABELS = {
   "gpt-4o-mini": "GPT-4o mini",
   "gpt-4o": "GPT-4o",
   "gpt-4.1-mini": "GPT-4.1 mini",
-  "claude-3-5-sonnet-latest": "Claude 3.5 Sonnet",
-  "claude-opus-4-20250514": "Claude Opus 4",
+  "gpt-5-mini": "GPT-5 mini",
+  "claude-opus-5": "Claude Opus 5",
+  "claude-sonnet-5": "Claude Sonnet 5",
+  "claude-haiku-4-5": "Claude Haiku 4.5",
   "llama-3.3-70b-versatile": "Llama 3.3 70B",
   "gemma2-9b-it": "Gemma 2 9B",
   "ornith-1.5:9b": "Ornith 1.5 9B",

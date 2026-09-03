@@ -19,6 +19,7 @@ export function parseArgs(argv) {
       case "--open": args.open = true; break;
       case "--json": args.json = true; break;
       case "--no-save": args.noSave = true; break;
+      case "--table": args.table = true; break;
       default: args._.push(a);
     }
   }

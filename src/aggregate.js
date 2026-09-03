@@ -10,7 +10,8 @@
 import "./env.js";
 import { resolveClients } from "./providers/index.js";
 import { resolveTasks, resolveModes, describeSkipped } from "./bench.js";
-import { runMatrix, planMatrix, describeSignificance } from "./runner.js";
+import { runMatrix, planMatrix } from "./runner.js";
+import { printSummary } from "./report.js";
 import { newRunId, saveRun } from "./results.js";
 import { parseArgs } from "./args.js";
 
@@ -51,35 +52,7 @@ export async function main() {
   }
 
   console.log("\n=== Harness benchmark results ===\n");
-
-  for (const mode of summary.modes) {
-    const s = summary.byMode[mode];
-    console.log(`-- mode: ${mode}`);
-    console.log(`   correct:      ${s.correct}/${s.runs} (${s.correctPct.toFixed(1)}%)`);
-    console.log(`   schemaValid:  ${s.schemaValidPct.toFixed(1)}%`);
-    console.log(`   toolCalls:    ${s.toolUsePct.toFixed(1)}%`);
-    console.log(`   errors:       ${s.errorPct.toFixed(1)}%`);
-    console.log(`   avgLatency:   ${s.avgLatencyMs}ms`);
-  }
-
-  console.log("\n-- per task x mode x client");
-  for (const cell of summary.cells) {
-    console.log(`   ${cell.task.padEnd(8)} ${cell.mode.padEnd(10)} ${cell.client.padEnd(28)} ${cell.correct}/${cell.runs} (${cell.correctPct.toFixed(0)}%)  ${cell.avgLatencyMs}ms`);
-  }
-
-  // A delta needs both noHarness and harness rows; describeSignificance says so when one is missing.
-  const fmt = (d) => d
-    ? `${d.noHarnessPct.toFixed(1)}% -> ${d.harnessPct.toFixed(1)}% (${d.deltaPp >= 0 ? "+" : ""}${d.deltaPp.toFixed(1)}pp)  [${describeSignificance(d)}]`
-    : describeSignificance(null);
-
-  console.log("\n-- harness delta (correctness)");
-  console.log(`   overall:      ${fmt(summary.delta.overall)}`);
-  for (const [task, d] of Object.entries(summary.delta.byTask)) {
-    console.log(`   ${task.padEnd(13)} ${fmt(d)}`);
-  }
-  for (const [client, d] of Object.entries(summary.delta.byClient)) {
-    console.log(`   ${client.padEnd(13)} ${fmt(d)}`);
-  }
+  printSummary(summary);
 
   const run = {
     id: newRunId(),

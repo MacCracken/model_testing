@@ -96,6 +96,29 @@ export const task = {
     extract: "structured",
   },
 
+  // ---- schema only: no tools, but the output schema ----
+  schemaOnly: {
+    system: "You are a precise API client. Return exactly the requested structured data.",
+    prompt:
+      "The webserver exposes GET /api/hello?name=<name> which returns a greeting like " +
+      '"Hello, <name>!" plus an id. WITHOUT any tools, write the greeting the endpoint would ' +
+      `return for each of these names: ${NAMES.join(", ")}. Return a JSON array with one object ` +
+      "per name, each carrying the name and the greeting in the exact format the endpoint uses.",
+    tools: [],
+    schema,
+    extract: "structured",
+  },
+
+  // ---- tools only: the hello tool, but a free-form answer and no schema ----
+  toolOnly: {
+    system: "You are a precise API client. Use the provided tools.",
+    prompt:
+      `Call the hello tool for these names: ${NAMES.join(", ")}. ` +
+      "Then write the greeting the tool returned for each name — one line each, verbatim.",
+    tools: [tool],
+    extract: "text",
+  },
+
   // ---- evaluation ----
   eval: {
     // Truth: the greetings the real endpoint actually produces, one per name.

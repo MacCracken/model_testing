@@ -13,8 +13,10 @@ behaviors to isolate the harness's axes — see `isStructuredMode` in `runner.js
 
 A task supports a mode by declaring a spec under that name. `planMatrix` **skips** any (task, mode)
 pair the task does not declare — it is reported as a warning, never scored as an error row, so a
-mode's numbers stay about the model. Today only `reason` declares `schemaOnly` (its harness has no
-tools, so the two are the same spec); no task declares `toolOnly` yet.
+mode's numbers stay about the model. The four tool tasks declare all four modes; `reason` has no
+tools, so its `schemaOnly` is its harness spec and it declares no `toolOnly`. The decomposition specs
+are written by hand, not derived: a free-form prompt says "without any tools" and a harness prompt
+says "call the X tool and return JSON", so a derived spec would contradict itself.
 
 ## Layout
 
@@ -31,8 +33,9 @@ tools, so the two are the same spec); no task declares `toolOnly` yet.
   by every entry point and by `providers/index.js`.
 - `src/bench.js` — CLI over `runMatrix`; `--json` for machine-readable output.
 - `src/aggregate.js` — the same matrix with a comparative report.
+- `src/report.js` — the one text report over a summary, used by `aggregate` and `cli show`.
 - `src/web/` — the control plane: `server.js` (node:http, zero deps) + `public/` (the UI).
-- `src/cli.js` — entry point (`list` / `serve` / `bench` / `aggregate`).
+- `src/cli.js` — entry point (`list` / `show` / `serve` / `bench` / `aggregate`).
 - `test/` — `npm test` (node:test, no deps). Scorers are tested with synthetic ground values, the
   runner with a fake client; nothing in the suite needs a model or the webserver.
 
@@ -92,6 +95,7 @@ probed live from `/v1/models` and the UI marks the provider offline when the dae
 npm test                                    # unit tests, no model needed
 node src/cli.js serve                       # web UI on http://127.0.0.1:4000
 node src/cli.js list                        # tasks/providers, with key status
+node src/cli.js show <run-id> --table       # review a saved run without the UI
 node src/bench.js --task all --modes harness --clients openai:gpt-4o-mini
 node src/aggregate.js --tasks health,hello --modes noHarness,harness --clients local
 ```

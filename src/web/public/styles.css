@@ -193,7 +193,8 @@ pre { margin: 0; font: inherit; }
 .tag.ok { color: var(--pass); }
 .tag.no { color: var(--fail); }
 .model { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 11px; cursor: pointer; position: relative; color: var(--ink-2); }
-.model input { position: absolute; opacity: 0; width: 0; height: 0; }
+/* Visually hidden but still focusable and exposed to assistive tech (a 0×0 box is dropped from the tree). */
+.model input { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; overflow: hidden; clip: rect(0 0 0 0); }
 .model .box { width: 10px; height: 10px; border-radius: 3px; border: 1px solid var(--line); flex: none; background: transparent; }
 .model input:checked + .box { background: var(--accent); border-color: var(--accent); }
 .model input:checked ~ span { color: var(--ink); }

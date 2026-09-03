@@ -66,7 +66,8 @@ test("harness scores the parsed JSON; noHarness scores the raw text", async () =
   const structured = await runTrial({ task, mode: "harness", client: fakeClient({ text: '{"ok":"ok"}', structured: { ok: "ok" } }) });
   assert.equal(structured.correct, true);
   assert.equal(structured.schemaValid, true);
-  assert.match(structured.system, /matching this schema/);
+  assert.match(structured.system, /instance of this JSON Schema/);
+  assert.match(structured.system, /not the schema itself/);
 
   const free = await runTrial({ task, mode: "noHarness", client: fakeClient({ text: "ok" }) });
   assert.equal(free.correct, true);

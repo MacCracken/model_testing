@@ -15,6 +15,9 @@ import { dirname, join } from "node:path";
 import { listTasks } from "./tasks/registry.js";
 import { PROVIDERS, hasCredentials, labelModel, probeLocalModels } from "./providers/index.js";
 import { parseArgs } from "./args.js";
+import { listRuns, loadRun } from "./results.js";
+import { summarize } from "./runner.js";
+import { printSummary, summaryTable } from "./report.js";
 
 const SRC = dirname(fileURLToPath(import.meta.url));
 
@@ -37,6 +40,29 @@ async function main() {
         console.log(`  ${name.padEnd(10)} [${status}]`);
         for (const m of models) console.log(`    ${name}:${m.padEnd(30)} ${labelModel(m)}`);
       }
+      break;
+    }
+
+    // Review a saved run without the UI: `show` lists recent runs, `show <id>` prints one.
+    case "show": {
+      const args = parseArgs(rest);
+      const id = args._[0];
+      if (!id) {
+        for (const r of listRuns({ limit: 20 })) {
+          console.log(`${r.id}  ${r.status.padEnd(9)} ${r.source.padEnd(9)} ${r.config.clients.join(",").padEnd(30)} ${r.config.tasks.join(",")} × ${r.config.modes.join(",")} × ${r.config.count}  (${r.rowCount} rows)`);
+        }
+        break;
+      }
+      const run = loadRun(id);
+      if (!run) { console.error(`unknown run: ${id}`); process.exit(1); }
+      console.log(`run ${run.id} · ${run.source} · ${run.status} · ${run.config.clients.join(", ")} · ${run.rows.length} rows`);
+      for (const w of run.warnings ?? []) console.log(`warning: ${w}`);
+      console.log("");
+      // Summaries are recomputed from the rows, so a run saved before a scorer's *reporting* changed
+      // still prints with today's aggregation; the verdicts themselves are whatever was recorded.
+      const summary = summarize(run.rows);
+      printSummary(summary);
+      if (args.table) console.log(`\n${summaryTable(summary)}`);
       break;
     }
 
@@ -63,6 +89,7 @@ async function main() {
     default:
       console.log("Usage:");
       console.log("  node src/cli.js list");
+      console.log("  node src/cli.js show [<run-id>] [--table]");
       console.log("  node src/cli.js serve [--port 4000] [--host 127.0.0.1] [--open]");
       console.log("  node src/cli.js bench --task <name|all> --modes noHarness,harness,schemaOnly,toolOnly --clients <p:model,...> [--count N] [--json]");
       console.log("  node src/cli.js aggregate [--tasks <name,...>] [--modes ...] [--clients ...] [--count N]");

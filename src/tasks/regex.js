@@ -121,6 +121,32 @@ export const task = {
     extract: "structured",
   },
 
+  // ---- schema only: decide by hand, but return the schema shape ----
+  schemaOnly: {
+    system: "You are a precise analyst. Return exactly the requested structured data.",
+    prompt:
+      `Which of these strings match the regular expression ${TARGET}? Strings: ${STRINGS.join(", ")}. ` +
+      "Decide by hand — no tools are available. Return a JSON array with one object per string, in " +
+      "order, each with the string and whether it matched.",
+    tools: [],
+    schema,
+    extract: "structured",
+  },
+
+  // ---- tools only: both tools, but a free-form answer and no schema ----
+  toolOnly: {
+    system:
+      "You are a precise tool-using analyst. Use the provided tools, reasoning about which tool and " +
+      "what arguments each call needs.",
+    prompt:
+      `For each string in ${STRINGS.join(", ")} decide whether it matches ${TARGET}. ` +
+      "Call the regex_match tool once per string with the pattern and the string. Do NOT use the " +
+      "word_count tool. Then reply with one line per string, in order, in the form \`<string>: yes\` " +
+      "if it matched or \`<string>: no\` if it did not.",
+    tools,
+    extract: "text",
+  },
+
   // ---- evaluation ----
   eval: {
     // Ground: which strings actually match the target regex — the same truth the harness

@@ -101,6 +101,30 @@ export const task = {
     extract: "structured",
   },
 
+  // ---- schema only: no tools, but the output schema — still nothing real to report ----
+  schemaOnly: {
+    system: "You are a precise API client. Return exactly the requested structured data.",
+    prompt:
+      "The webserver exposes GET /api/hello?name=<name>, which returns an object with a \`message\` " +
+      "and a freshly generated random \`id\`. WITHOUT any tools, and with no way to reach the server, " +
+      `write the ids the endpoint would return for these names: ${NAMES.join(", ")}. You will not ` +
+      "be able to know the real ids; report them anyway as best you can, as a JSON array with one " +
+      "object per name carrying the name and the id.",
+    tools: [],
+    schema,
+    extract: "structured",
+  },
+
+  // ---- tools only: the lookup tool, but a free-form answer and no schema ----
+  toolOnly: {
+    system: "You are a precise API client. Use the provided tools.",
+    prompt:
+      `Call the lookup tool for these names: ${NAMES.join(", ")}. ` +
+      "Then report the id the tool returned for each name — one line each, verbatim.",
+    tools: [tool],
+    extract: "text",
+  },
+
   // ---- evaluation ----
   eval: {
     // Truth: every id the tool returned for each name during this trial. A name the model looked
