@@ -18,6 +18,7 @@ export function printSummary(summary, { log = console.log } = {}) {
     log(`   errors:       ${s.errorPct.toFixed(1)}%`);
     log(`   latency:      avg ${s.avgLatencyMs}ms · p50 ${s.latencyP50Ms}ms · p95 ${s.latencyP95Ms}ms · max ${s.latencyMaxMs}ms`);
     if (s.ttftP50Ms !== null) log(`   first token:  p50 ${s.ttftP50Ms}ms (any) · ${s.ttfaP50Ms ?? "—"}ms (answer)`);
+    if (s.judged) log(`   judge:        mean score ${s.judgeMeanScore.toFixed(2)} over ${s.judged} judged`);
   }
 
   log("\n-- per task x mode x client");
@@ -40,6 +41,16 @@ export function printSummary(summary, { log = console.log } = {}) {
   log(`   overall:      ${fmtDelta(summary.delta.overall)}`);
   for (const [task, d] of Object.entries(summary.delta.byTask)) log(`   ${task.padEnd(13)} ${fmtDelta(d)}`);
   for (const [client, d] of Object.entries(summary.delta.byClient)) log(`   ${client.padEnd(13)} ${fmtDelta(d)}`);
+
+  const arms = Object.entries(summary.delta.byArm ?? {});
+  if (arms.length) {
+    log("\n-- harness arms vs the free-form baseline of the same model");
+    for (const [client, a] of arms) {
+      log(`   ${client}  (model ${a.model}; baseline from ${a.baselineClients.join(", ")})`);
+      log(`      overall:    ${fmtDelta(a.overall)}`);
+      for (const [task, d] of Object.entries(a.byTask)) log(`      ${task.padEnd(11)} ${fmtDelta(d)}`);
+    }
+  }
 
   const cells = Object.entries(summary.delta.byTaskClient ?? {});
   if (cells.length > 1) {

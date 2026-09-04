@@ -9,7 +9,7 @@
 
 import "./env.js";
 import { resolveClients } from "./providers/index.js";
-import { resolveTasks, resolveModes, describeSkipped, modelParamsFrom } from "./bench.js";
+import { resolveTasks, resolveModes, describeSkipped, modelParamsFrom, resolveJudge } from "./bench.js";
 import { benchVersions } from "./version.js";
 import { runMatrix, planMatrix } from "./runner.js";
 import { printSummary } from "./report.js";
@@ -25,6 +25,7 @@ export async function main() {
 
   const modelParams = modelParamsFrom(args);
   const clients = resolveClients(args.clients, { modelParams });
+  const judge = resolveJudge(args.judge);
   if (!clients.length) {
     console.error("no clients configured — set *_API_KEY in .env or pass --clients");
     process.exit(1);
@@ -40,6 +41,7 @@ export async function main() {
     modes: modeList,
     clients,
     count,
+    judge,
     onEvent: (ev) => {
       if (ev.type !== "trial") return;
       const r = ev.result;
@@ -62,7 +64,7 @@ export async function main() {
     finishedAt: new Date().toISOString(),
     status: "done",
     source: "aggregate",
-    config: { tasks: taskList.map((t) => t.name), modes: modeList, clients: clients.map((c) => c.name), count, modelParams },
+    config: { tasks: taskList.map((t) => t.name), modes: modeList, clients: clients.map((c) => c.name), count, modelParams, judge: judge?.name ?? null },
     versions: benchVersions(),
     warnings: describeSkipped(skipped),
     progress: { completed: rows.length, total: rows.length },

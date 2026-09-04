@@ -49,7 +49,7 @@ async function resolveGround(task, ctx) {
 }
 
 /** Run a single (task, mode, client) trial once and score it. Never throws. */
-export async function runTrial({ task, mode, client, index = 1, signal, maxRounds = 4 }) {
+export async function runTrial({ task, mode, client, index = 1, signal, maxRounds = 4, judge = null }) {
   // A task carries a spec per mode (task[mode]). planMatrix only schedules the modes a task
   // declares, so a missing spec here means runTrial was called directly with a bad pair.
   const spec = task[mode];
@@ -82,6 +82,8 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
     reason: "",
     toolUseOk: null,
     toolUseReason: "",
+    judgeScore: null,
+    judgeReason: "",
     usage: null,
     ground: null,
     error: null,
@@ -151,10 +153,15 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
     // Structured modes score the parsed JSON; free-form scores the raw text.
     const scorer = structured ? task.eval.scoreHarness : task.eval.scoreNoHarness;
     const answer = structured ? record.structured : record.answerText;
-    const score = await scorer(answer, ground);
+    // Scorers get the judge (when one is configured) so an open-ended task can grade with it.
+    const score = await scorer(answer, ground, { judge, mode });
 
     record.correct = !!score.correct;
     record.reason = score.reason ?? "";
+    if (score.judge) {
+      record.judgeScore = score.judge.score ?? null;
+      record.judgeReason = score.judge.reason ?? "";
+    }
 
     // Was the tool used correctly — right tool, right arguments, right calls? A separate signal
     // from "final answer correct": a model can reach the right answer by hand after firing the
@@ -212,7 +219,7 @@ export function planMatrix({ tasks, modes, clients, count = 1 }) {
  * Run the full tasks x modes x clients matrix, `count` trials per cell.
  * `onEvent` receives { type: "start" | "trial" | "done", ... } as work completes.
  */
-export async function runMatrix({ tasks, modes, clients, count = 1, onEvent, signal, maxRounds }) {
+export async function runMatrix({ tasks, modes, clients, count = 1, onEvent, signal, maxRounds, judge = null }) {
   const { cells, skipped, total } = planMatrix({ tasks, modes, clients, count });
   const rows = [];
   let completed = 0;
@@ -231,7 +238,7 @@ export async function runMatrix({ tasks, modes, clients, count = 1, onEvent, sig
   for (const { task, mode, client } of cells) {
     for (let i = 0; i < count; i++) {
       if (signal?.aborted) break outer;
-      const row = await runTrial({ task, mode, client, index: i + 1, signal, maxRounds });
+      const row = await runTrial({ task, mode, client, index: i + 1, signal, maxRounds, judge });
       rows.push(row);
       completed += 1;
       onEvent?.({ type: "trial", completed, total, result: row });
@@ -360,6 +367,8 @@ function statsFor(rows) {
     toolArgsJudged: judged.length,
     toolArgsOkPct: pct(judged, (r) => r.toolUseOk === true),
     schemaValidPct: pct(rows, (r) => r.schemaValid === true),
+    judged: rows.filter((r) => typeof r.judgeScore === "number").length,
+    judgeMeanScore: (() => { const j = rows.filter((r) => typeof r.judgeScore === "number"); return j.length ? mean(j.map((r) => r.judgeScore)) : null; })(),
     errorPct: pct(rows, (r) => !!r.error),
     avgLatencyMs: Math.round(mean(latencies)),
     latencyP50Ms: Math.round(percentile(latencies, 50)),
@@ -439,6 +448,39 @@ export function twoByTwo(summary) {
   return { grid, toolsEffect, schemaEffect, interaction };
 }
 
+// "gpt-4o-mini", "openai/gpt-4o-mini" and "GPT-4o-mini" are the same model for baseline matching.
+function normalizeModel(m) {
+  const s = String(m ?? "").toLowerCase();
+  return s.includes("/") ? s.slice(s.lastIndexOf("/") + 1) : s;
+}
+
+// A real-harness arm has no free-form rows of its own, so its delta is its harness rate against the
+// free-form baseline of the same model from any other client in the run (normally the synthetic
+// arm). Keyed by the arm's client name; absent when no client ran that model free-form.
+function armDeltas(rows, clientNames, taskNames) {
+  const byArm = {};
+  for (const client of clientNames) {
+    const own = rows.filter((r) => r.client === client);
+    const harness = own.filter((r) => r.mode === "harness");
+    if (!harness.length || own.some((r) => r.mode === "noHarness")) continue;
+    const models = new Set(harness.map((r) => normalizeModel(r.model)));
+    const baseline = rows.filter((r) => r.mode === "noHarness" && r.client !== client && models.has(normalizeModel(r.model)));
+    if (!baseline.length) continue;
+    const byTask = {};
+    for (const t of taskNames) {
+      const d = deltaFor([...baseline, ...harness].filter((r) => r.task === t));
+      if (d) byTask[t] = d;
+    }
+    byArm[client] = {
+      overall: deltaFor([...baseline, ...harness]),
+      byTask,
+      baselineClients: [...new Set(baseline.map((r) => r.client))],
+      model: [...models].join(", "),
+    };
+  }
+  return byArm;
+}
+
 export function summarize(rows) {
   const modes = [...new Set(rows.map((r) => r.mode))];
   const taskNames = [...new Set(rows.map((r) => r.task))];
@@ -479,6 +521,6 @@ export function summarize(rows) {
     clients: clientNames,
     byMode,
     cells,
-    delta: { overall: deltaFor(rows), byTask, byClient, byTaskClient },
+    delta: { overall: deltaFor(rows), byTask, byClient, byTaskClient, byArm: armDeltas(rows, clientNames, taskNames) },
   };
 }

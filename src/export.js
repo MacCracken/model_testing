@@ -3,7 +3,7 @@
 
 const ROW_COLUMNS = [
   "run", "task", "mode", "client", "model", "index", "correct", "reason", "error",
-  "toolCalls", "toolUseOk", "toolUseReason", "schemaValid", "latencyMs", "ttftMs", "ttfaMs",
+  "toolCalls", "toolUseOk", "toolUseReason", "schemaValid", "judgeScore", "judgeReason", "latencyMs", "ttftMs", "ttfaMs",
   "promptTokens", "completionTokens", "totalTokens", "rounds", "finishReason", "startedAt",
 ];
 
@@ -37,6 +37,8 @@ export function rowsToCsv(run) {
     toolUseOk: r.toolUseOk ?? null,
     toolUseReason: r.toolUseReason ?? "",
     schemaValid: r.schemaValid ?? null,
+    judgeScore: r.judgeScore ?? null,
+    judgeReason: r.judgeReason ?? "",
     latencyMs: r.latencyMs,
     ttftMs: r.ttftMs ?? null,
     ttfaMs: r.ttfaMs ?? null,

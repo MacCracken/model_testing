@@ -125,6 +125,7 @@ function wire() {
   $("#run").addEventListener("click", launch);
   $("#cancel").addEventListener("click", cancel);
   $("#count").addEventListener("input", updatePlan);
+  $("#judge").addEventListener("change", updatePlan);
   $("#history").addEventListener("change", (e) => { if (e.target.value) openRun(e.target.value); });
   $("#delete-run").addEventListener("click", removeRun);
   $("#detail-close").addEventListener("click", closeDetail);
@@ -201,9 +202,9 @@ function renderTasks() {
   for (const t of state.meta.tasks) {
     state.tasks.add(t.name);
     box.append(chip({
-      label: t.name,
+      label: t.needsJudge ? `${t.name} ⚖` : t.name,
       on: true,
-      title: `${t.description}\nmodes: ${t.modes.map((m) => MODE_LABEL[m] ?? m).join(", ")}${t.tools.length ? `\ntools: ${t.tools.join(", ")}` : ""}`,
+      title: `${t.description}\nmodes: ${t.modes.map((m) => MODE_LABEL[m] ?? m).join(", ")}${t.tools.length ? `\ntools: ${t.tools.join(", ")}` : ""}${t.needsJudge ? "\nneeds a judge model (pick one below)" : ""}`,
       onToggle: (on) => { on ? state.tasks.add(t.name) : state.tasks.delete(t.name); renderModes(); updatePlan(); },
     }));
   }
@@ -229,7 +230,19 @@ function renderModes() {
   }
 }
 
+function renderJudgeOptions() {
+  const sel = $("#judge");
+  const current = sel.value;
+  sel.replaceChildren(el("option", { value: "" }, "none"));
+  for (const p of state.meta.providers) {
+    if (p.kind === "harness" || !p.hasKey || p.live === false) continue;
+    for (const m of p.models) sel.append(el("option", { value: m.client }, m.client));
+  }
+  if ([...sel.options].some((o) => o.value === current)) sel.value = current;
+}
+
 function renderClients() {
+  renderJudgeOptions();
   const box = $("#clients");
   box.replaceChildren();
   for (const p of state.meta.providers) {
@@ -268,12 +281,16 @@ function selectAll(kind) {
 function plan() {
   const count = Math.max(1, Math.min(20, Number($("#count").value) || 1));
   const modes = [...state.modes].filter(modeSupported);
+  // A harness arm runs structured modes only; the server skips its free-form pairs, so the recipe
+  // counts them the same way.
+  const arms = new Set((state.meta?.providers ?? []).filter((p) => p.kind === "harness").flatMap((p) => p.models.map((m) => m.client)));
+  const clientsFor = (m) => [...state.clients].filter((c) => !(arms.has(c) && !isStructuredMode(m))).length;
   let cells = 0;
   const skipped = [];
   for (const name of state.tasks) {
     const t = taskMeta(name);
     for (const m of modes) {
-      if (t?.modes.includes(m)) cells += state.clients.size;
+      if (t?.modes.includes(m)) cells += clientsFor(m);
       else skipped.push(`${name}/${MODE_LABEL[m] ?? m}`);
     }
   }
@@ -294,6 +311,8 @@ function updatePlan() {
     );
     if (p.skipped.length) node.append(el("span", { className: "hint" }, `skips ${p.skipped.join(", ")} — not declared by that task`));
   }
+  const judged = [...state.tasks].filter((name) => taskMeta(name)?.needsJudge);
+  if (p.total && judged.length && !$("#judge").value) node.append(el("span", { className: "hint" }, `${judged.join(", ")} needs a judge — pick one below or its trials will error`));
   $("#run").disabled = !p.total || busy;
   $("#mode-hint").textContent = state.modes.has("noHarness") && state.modes.has("harness")
     ? "no harness + harness → delta"
@@ -320,6 +339,7 @@ async function launch() {
     const raw = $(`#${key}`).value;
     if (raw !== "") body[key] = Number(raw);
   }
+  if ($("#judge").value) body.judge = $("#judge").value;
   try {
     const { run } = await postJSON("/api/runs", body);
     setBusy(true);
@@ -442,12 +462,20 @@ function renderHeadline(s) {
       el("div", { className: "sub" }, `${fmtPct(d.noHarnessPct)} → ${fmtPct(d.harnessPct)} correct · ${progress}`),
       el("div", { className: `sig${d.significant ? " yes" : ""}` }, describeSignificance(d)),
     );
-  } else {
-    col.append(
+  }
+  for (const [client, a] of Object.entries(s.delta.byArm ?? {})) {
+    if (!a.overall) continue;
+    col.append(el("div", { className: "sub", title: `${describeSignificance(a.overall)} · baseline from ${a.baselineClients.join(", ")}` },
+      `${client}: ${signedPp(a.overall.deltaPp, 1)} vs ${a.model} free-form`));
+  }
+  if (!d) {
+    col.prepend(
       el("div", { className: "big flat" }, "—"),
       el("div", { className: "sub" }, progress),
       el("div", { className: "sig" }, describeSignificance(null)),
     );
+    col.prepend(el("div", { className: "eyebrow" }, "Harness delta"));
+    col.querySelectorAll(".eyebrow")[1]?.remove();
   }
   box.append(col);
 
@@ -571,7 +599,8 @@ function renderMatrix(s) {
       if (!present.some((m) => cells[m])) continue;
       const a = cells.noHarness;
       const b = cells.harness;
-      const d = deltaFor(state.run.rows.filter((r) => r.task === task && r.client === client));
+      const arm = s.delta.byArm?.[client];
+      const d = deltaFor(state.run.rows.filter((r) => r.task === task && r.client === client)) ?? arm?.byTask?.[task] ?? null;
 
       const track = el("div", { className: "dumbbell" }, el("i", { className: "track" }));
       if (a && b) {
@@ -584,7 +613,7 @@ function renderMatrix(s) {
       }
 
       const delta = d
-        ? el("div", { className: `mc right ${d.deltaPp > 0 ? "up" : d.deltaPp < 0 ? "down" : "muted"}`, title: describeSignificance(d) }, signedPp(d.deltaPp, 0))
+        ? el("div", { className: `mc right ${d.deltaPp > 0 ? "up" : d.deltaPp < 0 ? "down" : "muted"}`, title: `${describeSignificance(d)}${arm ? ` · vs the free-form baseline of ${arm.model} (${arm.baselineClients.join(", ")})` : ""}` }, signedPp(d.deltaPp, 0))
         : el("div", { className: "mc right faint" }, "—");
 
       box.append(el("div", { className: "mc" }, task), el("div", { className: "mc muted ellipsis", title: client }, client), el("div", { className: "mc" }, track), delta);
@@ -727,6 +756,7 @@ function renderDetail() {
   });
   if (TOOL_MODES.has(r.mode) && !(r.toolCalls ?? []).length) step("tool calls", "", "The model never called a tool.", "bad");
   if (r.toolUseOk === true || r.toolUseOk === false) step("tool use", r.toolUseOk ? "correct" : "wrong", r.toolUseReason || "—", r.toolUseOk ? "ok" : "bad");
+  if (typeof r.judgeScore === "number") step("judge", `score ${r.judgeScore.toFixed(2)}`, r.judgeReason || "—", r.correct ? "ok" : "bad");
   step("final message", r.finishReason ? `finish: ${r.finishReason}` : "", r.answerText || "(empty)", r.correct ? "ok" : "bad");
   step(
     `scorer · ${isStructuredMode(r.mode) ? "scoreHarness" : "scoreNoHarness"}`,

@@ -23,6 +23,7 @@ export function parseArgs(argv) {
       case "--temperature": args.temperature = Number(next()); break;
       case "--seed": args.seed = Number(next()); break;
       case "--model-param": (args.modelParam ??= []).push(next()); break;
+      case "--judge": args.judge = next(); break;
       case "--cells": args.cells = true; break;
       case "--out": args.out = next(); break;
       default: args._.push(a);

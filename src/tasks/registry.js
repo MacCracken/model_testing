@@ -18,8 +18,9 @@ import { task as lookupTask } from "./lookup.js";
 import { task as regexTask } from "./regex.js";
 import { task as chainTask } from "./chain.js";
 import { task as transformTask } from "./transform.js";
+import { task as explainTask } from "./explain.js";
 
-export const tasks = [healthTask, helloTask, reasonTask, lookupTask, regexTask, chainTask, transformTask];
+export const tasks = [healthTask, helloTask, reasonTask, lookupTask, regexTask, chainTask, transformTask, explainTask];
 
 export function getTask(name) {
   const t = tasks.find((x) => x.name === name);
@@ -36,5 +37,6 @@ export function listTasks() {
     description: t.description ?? "",
     modes: MODE_NAMES.filter((m) => !!t[m]),
     tools: (t.harness?.tools ?? []).map((tool) => tool.name),
+    needsJudge: !!t.eval?.needsJudge,
   }));
 }

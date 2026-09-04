@@ -37,6 +37,7 @@ output.
 | `regex` | tool-reasoning | Which of six strings match an anchored regex, with a correct `regex_match` tool and a `word_count` decoy. Tests tool *selection* and typed arguments, not just firing. |
 | `chain` | multi-step | Greet alice, then greet the id that came back, and report the second greeting. The second call depends on the first; the id is random, so nothing but the chain produces the answer. |
 | `transform` | extract-transform | Fetch three greetings, then report each name with the first 8 characters of its id and the greeting in upper case. Tool-essential, plus two transformations of what came back. |
+| `explain` | open-ended | Explain the server's health and running time to a non-engineer. Graded by a **judge model** against the live facts; needs `--judge`. |
 
 ## Setup
 
@@ -133,6 +134,10 @@ harness arm: it gets the task's plain-language **goal**, brings its own tools an
 message is scored exactly like a synthetic harness trial. Arms run structured modes only; the
 free-form baseline for the same model comes from the synthetic client.
 
+In a run that mixes arms with the synthetic client, each arm gets its own **delta against the
+free-form baseline of the same model** (the report's "harness arms" section; the headline and the
+matrix show it too), so "harness X on model M vs raw M" is read straight off the run.
+
 Arms are scored against what the webserver actually served: each arm brackets its run with
 timestamps and asks `GET /api/recent` for the replies in that window (merged with anything it can
 read out of the harness's own tool output), so `lookup`, `chain` and `transform` score the same way
@@ -189,7 +194,14 @@ Tasks carry an `eval` block with:
   separate signal from correctness: a model can reach the right answer by hand after firing the
   wrong tool, or fire the right tool and misreport.
 
-All seven tasks use automated ground-truth scoring. Scorers judge content, not wrappers: a list
+Scorers receive a third argument, `{ judge, mode }`; a task that needs the judge (`eval.needsJudge`)
+calls it and returns its verdict alongside `correct` and `reason`.
+
+Seven tasks use automated ground-truth scoring; `explain` is graded by an LLM judge that is handed
+the ground truth (status, uptime in human units) and a rubric, and returns a score in 0..1 with a
+one-sentence reason. A trial passes at 0.75. Pick the judge with `--judge provider:model` (or
+`BENCH_JUDGE` in `.env`, or the judge field in the recipe); it is recorded in the run, and each
+row keeps the judge's score and reason. Without a judge, judged tasks produce error rows that say so. Scorers judge content, not wrappers: a list
 returned under `results`, `data` or the schema's own `items` key scores the same as a bare array,
 while `schemaValid` still records whether the shape matched exactly.
 

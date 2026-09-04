@@ -38,6 +38,10 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
 - `src/report.js` — the one text report over a summary, used by `aggregate` and `cli show`.
 - `src/export.js` — CSV views of a run (trial rows, or task × model × mode cells).
 - `src/version.js` — bench version / git commit / node, recorded on every run as `versions`.
+- `src/judge.js` — LLM-as-judge: `makeJudge(client)` returns `({ rubric, answer, ground, task }) =>
+  { score, reason }`, asked for strict JSON and handed the task's ground truth. The runner passes the
+  judge to every scorer as `{ judge, mode }`; `--judge provider:model` / `BENCH_JUDGE` / the recipe
+  field choose it; the run records it and each row keeps `judgeScore` / `judgeReason`.
 - `src/harness/` — real agent harnesses as the harness arm. `util.js` holds what arms share: the
   goal prompt (goal + the same schema instruction the synthetic harness gets), recovery of the
   webserver's replies from raw tool output into bench-shaped tool results, the argv splitter and the
@@ -68,9 +72,10 @@ export const task = {
   // optional: schemaOnly / toolOnly specs for the decomposition axes
   eval: {
     ground,         // truth: a function of the trial, or a constant (see below)
-    scoreHarness,   // (structuredOutput, ground) => { correct, reason }
-    scoreNoHarness, // (freeText, ground)         => { correct, reason }
+    scoreHarness,   // (structuredOutput, ground, { judge, mode }) => { correct, reason, judge? }
+    scoreNoHarness, // (freeText, ground, { judge, mode })         => { correct, reason, judge? }
     toolUse,        // optional: ({ toolCalls, toolResults }) => { ok, reason } — right tool, right args
+    needsJudge,     // optional: true when the scorers grade through the judge (explain)
   },
 };
 ```
@@ -92,6 +97,10 @@ Scorers judge content, not wrappers: use `unwrapList` so a list under `results`,
 schema's own `items` key scores the same as a bare array.
 
 ## Statistics
+
+`summarize` also computes `delta.byArm`: for a client with harness rows and no free-form rows of its
+own (a real-harness arm), its delta against the free-form rows of the same model from any other
+client in the run, matched on the model id with any `provider/` prefix stripped.
 
 The headline delta carries a two-sided **Fisher exact** p-value (`fisherExact` in `runner.js`),
 exact at the handful of trials this bench actually runs; the z-test and Wilson intervals are kept

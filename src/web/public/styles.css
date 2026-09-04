@@ -172,6 +172,7 @@ pre { margin: 0; font: inherit; }
   border: 1px solid var(--line); border-radius: 5px; padding: 3px 6px;
 }
 .field.row input::placeholder { color: var(--ink-3); }
+.field.row select { max-width: 150px; font-size: 11px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 5px; padding: 3px 6px; }
 .mark { margin-left: 4px; }
 .mark.ok { color: var(--pass); }
 .mark.bad { color: var(--fail); }

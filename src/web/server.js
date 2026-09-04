@@ -16,7 +16,7 @@ import { fileURLToPath } from "node:url";
 import { listTasks, getTask } from "../tasks/registry.js";
 import { describeProviders, resolveClients } from "../providers/index.js";
 import { runMatrix, MODE_NAMES, DEFAULT_MODES } from "../runner.js";
-import { describeSkipped } from "../bench.js";
+import { describeSkipped, resolveJudge } from "../bench.js";
 import { newRunId, saveRun, loadRun, listRuns, deleteRun, runHeader } from "../results.js";
 import { benchVersions } from "../version.js";
 import { rowsToCsv, cellsToCsv } from "../export.js";
@@ -54,9 +54,10 @@ function broadcast(id, event) {
   }
 }
 
-function startRun({ tasks, modes, clients, count, modelParams = {} }) {
+function startRun({ tasks, modes, clients, count, modelParams = {}, judge: judgeSpec = null }) {
   const taskObjs = tasks.map(getTask);
   const clientObjs = resolveClients(clients, { modelParams });
+  const judge = resolveJudge(judgeSpec);
   if (!clientObjs.length) throw new Error("no usable clients — check the model names and that the provider's API key is set in .env");
 
   const missing = clients.filter((c) => !clientObjs.some((r) => r.name === c));
@@ -68,7 +69,7 @@ function startRun({ tasks, modes, clients, count, modelParams = {} }) {
     finishedAt: null,
     status: "running",
     source: "web",
-    config: { tasks, modes, clients: clientObjs.map((c) => c.name), count, modelParams },
+    config: { tasks, modes, clients: clientObjs.map((c) => c.name), count, modelParams, judge: judge?.name ?? null },
     versions: benchVersions(),
     warnings: missing.length ? [`skipped (no API key or unknown provider): ${missing.join(", ")}`] : [],
     // The real total arrives with the runner's "start" event, once undeclared (task, mode) pairs
@@ -88,6 +89,7 @@ function startRun({ tasks, modes, clients, count, modelParams = {} }) {
         modes,
         clients: clientObjs,
         count,
+        judge,
         signal: controller.signal,
         onEvent: (ev) => {
           if (ev.type === "start") {
@@ -192,7 +194,8 @@ function validateLaunch(body) {
     if (!Number.isFinite(n)) throw new Error(`${key} must be a number`);
     modelParams[key] = n;
   }
-  return { tasks, modes, clients, count, modelParams };
+  const judgeSpec = typeof body.judge === "string" && body.judge.trim() ? body.judge.trim() : null;
+  return { tasks, modes, clients, count, modelParams, judge: judgeSpec };
 }
 
 async function handle(req, res) {

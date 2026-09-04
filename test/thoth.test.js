@@ -62,7 +62,7 @@ test("the thoth arm refuses free-form modes", async () => {
 });
 
 test("every task has a goal for real-harness arms", () => {
-  for (const name of ["health", "hello", "reason", "lookup", "regex", "chain", "transform"]) {
+  for (const name of ["health", "hello", "reason", "lookup", "regex", "chain", "transform", "explain"]) {
     const g = getTask(name).goal;
     assert.ok(typeof g === "string" && g.length > 40, `${name} goal`);
     assert.ok(!/\bthe (hello|lookup|health|regex_match) tool\b/.test(g), `${name} goal must not name a bench function tool`);

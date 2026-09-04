@@ -204,6 +204,20 @@ hedge, which the report now names). With the instance-not-schema wording its har
 where the 4-per-cell run with the old wording had it at 80%. The one tool-use miss in 100 judged
 calls is a name split as "car ol".
 
+
+**local qwen3.8:27b-mlx** (4 per cell, 2026-09-04) — 12/28 → 28/28, **+57.1pp**, significant · p<0.001 · 28 vs 28 trials; tools-only 24/24, schema-only 12/28; tool args ok 100%; harness p50 7.6 s, first token p50 0.1 s:
+
+| task | noHarness | harness | schemaOnly | toolOnly |
+|---|---|---|---|---|
+| health | 0/4 | 4/4 | 0/4 | 4/4 |
+| hello | 4/4 | 4/4 | 4/4 | 4/4 |
+| reason | 4/4 | 4/4 | 4/4 | — |
+| lookup | 0/4 | 4/4 | 0/4 | 4/4 |
+| regex | 4/4 | 4/4 | 4/4 | 4/4 |
+| chain | 0/4 | 4/4 | 0/4 | 4/4 |
+| transform | 0/4 | 4/4 | 0/4 | 4/4 |
+| **all** | **12/28** | **28/28** | **12/28** | **24/24** |
+
 Per-task deltas now reach significance on their own where the floor is real (`lookup`, `chain`,
 `health` on haiku and ornith, `reason` on gpt-4o-mini).
 
@@ -272,8 +286,8 @@ What it says:
 - **[1] Re-run the calibration set.** **DONE** for two hosted models at 4 trials per cell (see
   *Calibration results*); the local run is recorded in the addendum. The expected shape held:
   `lookup` free-form 0% with a full harness lift, `regex` free-form 100%, and the 2×2 attributes the
-  lift to tools. Still open: raise to 10 per cell and add a second local model so per-task deltas can
-  reach significance on their own.
+  lift to tools. Ten per cell **DONE** on three models; the second local model is
+  `qwen3.8:27b-mlx` (about 40 s per free-form answer, so four per cell; see the addendum).
 - **[2] Tool-argument correctness as a hygiene metric.** **DONE.** Every tool task defines
   `eval.toolUse` (right tool, right arguments, right calls — `regex` judges the pattern by what it
   computes on the listed strings, not by spelling, and flags the decoy); the runner records
@@ -293,7 +307,11 @@ What it says:
   greetings and must report each name with the first 8 characters of its id and the greeting in
   upper case — tool-essential plus two reshapings of what came back. Both read their truth from the
   trial's own tool results.
-- **[5] LLM-as-judge** for open-ended tasks (`eval.judge`), still pluggable and still unbuilt.
+- **[5] LLM-as-judge.** **DONE** (2026-09-04). `src/judge.js` builds a judge from any synthetic
+  client; scorers receive it as `{ judge, mode }`; `--judge` / `BENCH_JUDGE` / the recipe field
+  choose it and the run records it. First open-ended task: `explain` (health and running time for a
+  non-engineer, graded against the live facts with a rubric, pass at 0.75). Live smoke with
+  gpt-4o-mini answering and judging: harness 2/2 at score 1.0 with sensible reasons, free-form 0/2.
 - **[6] Determinism knobs.** **DONE.** `--temperature` / `--seed` on the CLI and two fields in the
   recipe flow into every request as-is and are recorded in `run.config.modelParams` (shown in the
   headline). `--model-param key=value` (repeatable, JSON-parsed) covers anything else a provider
@@ -427,6 +445,11 @@ the documented item shapes and every trial currently ends as an error row naming
 Arms run structured modes only; `planMatrix` skips their free-form pairs and says so, so a mixed
 run of synthetic and arm clients yields the baseline from the synthetic client and the harness rows
 from every arm in one record.
+
+**Arm dimension in the summary (2026-09-04).** `summary.delta.byArm` gives every arm its delta
+against the free-form baseline of the same model from the synthetic client in the same run
+(matched on the model id, provider prefix stripped); the report, the headline and the matrix show
+it. "Harness X on model M vs raw M" is now a number the run computes, not a table someone assembles.
 
 Practical shape of a Thoth arm from this machine: `ssh -R 3000:localhost:3000 arch thoth --events
 '<goal>'`, so Thoth's tools reach the webserver under test through the reverse tunnel; parse the

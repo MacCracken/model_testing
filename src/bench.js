@@ -15,6 +15,18 @@ import { runMatrix, planMatrix, isStructuredMode, describeSignificance, MODE_NAM
 import { newRunId, saveRun } from "./results.js";
 import { parseArgs } from "./args.js";
 import { benchVersions } from "./version.js";
+import { makeJudge } from "./judge.js";
+import { envValue } from "./util.js";
+
+// The judge model for open-ended tasks: --judge provider:model, else BENCH_JUDGE, else none.
+export function resolveJudge(spec) {
+  const chosen = spec || envValue("BENCH_JUDGE");
+  if (!chosen) return null;
+  const [client] = resolveClients(chosen);
+  if (!client) throw new Error(`--judge ${chosen}: no usable client (unknown provider, missing key, or a harness arm)`);
+  if (client.structuredOnly) throw new Error(`--judge ${chosen}: a harness arm cannot be the judge`);
+  return makeJudge(client);
+}
 
 function fail(msg) {
   console.error(JSON.stringify({ ok: false, error: msg }));
@@ -90,6 +102,9 @@ async function main() {
     fail(`no client resolved — check the model name and that ${(args.provider ?? "the provider").toUpperCase()}_API_KEY is set in .env`);
   }
 
+  let judge = null;
+  try { judge = resolveJudge(args.judge); } catch (err) { fail(err.message); }
+
   const quiet = !!args.json;
   const plan = planMatrix({ tasks: taskList, modes: modeList, clients, count });
   if (!quiet) {
@@ -102,6 +117,7 @@ async function main() {
     modes: modeList,
     clients,
     count,
+    judge,
     onEvent: quiet ? undefined : (ev) => {
       if (ev.type !== "trial") return;
       const r = ev.result;
@@ -126,6 +142,7 @@ async function main() {
       clients: clients.map((c) => c.name),
       count,
       modelParams,
+      judge: judge?.name ?? null,
     },
     versions: benchVersions(),
     warnings: describeSkipped(skipped),

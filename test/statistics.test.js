@@ -191,3 +191,22 @@ test("twoByTwo reads the tools and schema effects off the four modes", async () 
   assert.equal(three.toolsEffect, 50, "one available tools contrast");
   assert.equal(three.interaction, null);
 });
+
+// --- arm deltas: a harness arm against the free-form baseline of the same model --------------
+
+test("summarize computes an arm's delta against another client's free-form rows for the same model", () => {
+  const rows = [];
+  const add = (client, model, mode, task, correct, n) => { for (let i = 0; i < n; i++) rows.push({ client, model, mode, task, correct: i < correct, latencyMs: 1 }); };
+  add("openai:gpt-4o-mini", "gpt-4o-mini", "noHarness", "lookup", 0, 4);
+  add("openai:gpt-4o-mini", "gpt-4o-mini", "harness", "lookup", 4, 4);
+  add("pi:openai/gpt-4o-mini", "openai/gpt-4o-mini", "harness", "lookup", 4, 4);
+  add("claude-code:claude-haiku-4-5", "claude-haiku-4-5", "harness", "lookup", 4, 4);
+  const s = summarize(rows);
+  const pi = s.delta.byArm["pi:openai/gpt-4o-mini"];
+  assert.ok(pi, "pi arm matched the gpt-4o-mini baseline despite the provider prefix");
+  assert.equal(pi.overall.deltaPp, 100);
+  assert.deepEqual(pi.baselineClients, ["openai:gpt-4o-mini"]);
+  assert.equal(pi.byTask.lookup.harnessRuns, 4);
+  assert.equal(s.delta.byArm["claude-code:claude-haiku-4-5"], undefined, "no haiku baseline in this run");
+  assert.equal(s.delta.byArm["openai:gpt-4o-mini"], undefined, "a client with its own baseline is not an arm");
+});

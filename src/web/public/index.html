@@ -70,6 +70,10 @@
         <label for="seed" title="Sent as-is with every request where the provider supports it (OpenAI, Ollama).">seed</label>
         <input id="seed" type="number" step="1" placeholder="none" />
       </div>
+      <div class="field row">
+        <label for="judge" title="The model that grades open-ended tasks (explain). Recorded in the run.">judge</label>
+        <select id="judge"><option value="">none</option></select>
+      </div>
 
       <div class="launch">
         <p id="plan" class="plan"></p>
