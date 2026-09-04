@@ -66,6 +66,8 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
     model: client.model,
     startedAt: new Date(started).toISOString(),
     latencyMs: 0,
+    ttftMs: null,
+    ttfaMs: null,
     prompt: spec?.prompt ?? null,
     system: null,
     toolCalls: [],
@@ -131,6 +133,8 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
     record.answerText = resp.text ?? "";
     record.finishReason = resp.finishReason ?? null;
     record.usage = resp.usage ?? null;
+    record.ttftMs = resp.ttftMs ?? null;
+    record.ttfaMs = resp.ttfaMs ?? null;
 
     // Truth: fetched after the model's reply, so the answer and the ground are taken at the same
     // wall-clock point (the model never sees it). The trial is passed in so a task can define
@@ -156,7 +160,9 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
     // from "final answer correct": a model can reach the right answer by hand after firing the
     // wrong tool, or fire the right tool and still misreport. Judged only when the spec carried
     // tools and the task defines a judge; null otherwise.
-    if (hasTools && typeof task.eval.toolUse === "function") {
+    // A real-harness arm brings its own tools, so a judge written against the bench's tools has
+    // nothing to say about it; the verdict stays null there.
+    if (hasTools && typeof task.eval.toolUse === "function" && !resp.harness) {
       const use = await task.eval.toolUse({ mode, toolCalls: record.toolCalls, toolResults: record.toolResults });
       record.toolUseOk = !!use.ok;
       record.toolUseReason = use.reason ?? "";
@@ -187,7 +193,16 @@ export function planMatrix({ tasks, modes, clients, count = 1 }) {
         skipped.push({ task: task.name, mode });
         continue;
       }
-      for (const client of clients) cells.push({ task, mode, client });
+      for (const client of clients) {
+        // A real-harness arm always brings its tools, so a free-form baseline from it would not be
+        // a baseline; those pairs are skipped and reported, and the baseline comes from the
+        // synthetic client for the same model.
+        if (client.structuredOnly && !isStructuredMode(mode)) {
+          skipped.push({ task: task.name, mode, client: client.name });
+          continue;
+        }
+        cells.push({ task, mode, client });
+      }
     }
   }
   return { cells, skipped, total: cells.length * count };
@@ -334,6 +349,8 @@ export function percentile(xs, p) {
 function statsFor(rows) {
   const judged = rows.filter((r) => r.toolUseOk === true || r.toolUseOk === false);
   const latencies = rows.map((r) => r.latencyMs ?? 0);
+  const ttft = rows.map((r) => r.ttftMs).filter((v) => typeof v === "number");
+  const ttfa = rows.map((r) => r.ttfaMs).filter((v) => typeof v === "number");
   return {
     runs: rows.length,
     correct: rows.filter((r) => r.correct).length,
@@ -348,6 +365,9 @@ function statsFor(rows) {
     latencyP50Ms: Math.round(percentile(latencies, 50)),
     latencyP95Ms: Math.round(percentile(latencies, 95)),
     latencyMaxMs: latencies.length ? Math.max(...latencies) : 0,
+    // Time to first token (any kind) and to the first answer token, medians over streamed rows.
+    ttftP50Ms: ttft.length ? Math.round(percentile(ttft, 50)) : null,
+    ttfaP50Ms: ttfa.length ? Math.round(percentile(ttfa, 50)) : null,
     totalTokens: rows.reduce((a, r) => a + (r.usage?.total_tokens ?? 0), 0),
   };
 }
@@ -396,6 +416,27 @@ export function describeSignificance(d) {
   if (d.pValue < 0.05) return `significant · ${p} · ${n}`;
   if (d.minPValue >= 0.05) return `inconclusive · ${p} · ${n} — too few trials for any result to reach p<0.05`;
   return `not significant · ${p} · ${n}`;
+}
+
+// The 2×2 that the four modes form: rows = tools (no / yes), columns = schema (no / yes).
+//   noHarness  = no tools, no schema      schemaOnly = no tools, schema
+//   toolOnly   = tools, no schema         harness    = tools, schema
+// Effects are the average lift along each axis, in percentage points; null until at least three
+// cells are present (two effects need three cells; the fourth adds the interaction).
+export function twoByTwo(summary) {
+  const cell = (m) => summary.byMode?.[m] ?? null;
+  const grid = { noHarness: cell("noHarness"), schemaOnly: cell("schemaOnly"), toolOnly: cell("toolOnly"), harness: cell("harness") };
+  const present = Object.values(grid).filter(Boolean).length;
+  if (present < 3) return null;
+  const pctOf = (c) => (c ? c.correctPct : null);
+  const diffs = (pairs) => pairs.map(([a, b]) => (a !== null && b !== null ? b - a : null)).filter((v) => v !== null);
+  const avg = (xs) => (xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : null);
+  const toolsEffect = avg(diffs([[pctOf(grid.noHarness), pctOf(grid.toolOnly)], [pctOf(grid.schemaOnly), pctOf(grid.harness)]]));
+  const schemaEffect = avg(diffs([[pctOf(grid.noHarness), pctOf(grid.schemaOnly)], [pctOf(grid.toolOnly), pctOf(grid.harness)]]));
+  const interaction = present === 4
+    ? (pctOf(grid.harness) - pctOf(grid.toolOnly)) - (pctOf(grid.schemaOnly) - pctOf(grid.noHarness))
+    : null;
+  return { grid, toolsEffect, schemaEffect, interaction };
 }
 
 export function summarize(rows) {

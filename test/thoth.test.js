@@ -53,7 +53,7 @@ test("a thoth arm trial is scored like any structured trial, with the goal promp
   assert.equal(row.toolCalls.length, 1);
   assert.equal(row.usage.total_tokens, 3658);
   assert.equal(row.model, "ornith-1.5:9b", "the model Thoth routed to is recorded");
-  assert.equal(row.toolUseOk, false, "web_fetch is not the bench's health tool, so the synthetic judge says no");
+  assert.equal(row.toolUseOk, null, "the bench's tool judge does not apply to a real harness's own tools");
 });
 
 test("the thoth arm refuses free-form modes", async () => {
@@ -62,7 +62,7 @@ test("the thoth arm refuses free-form modes", async () => {
 });
 
 test("every task has a goal for real-harness arms", () => {
-  for (const name of ["health", "hello", "reason", "lookup", "regex", "chain"]) {
+  for (const name of ["health", "hello", "reason", "lookup", "regex", "chain", "transform"]) {
     const g = getTask(name).goal;
     assert.ok(typeof g === "string" && g.length > 40, `${name} goal`);
     assert.ok(!/\bthe (hello|lookup|health|regex_match) tool\b/.test(g), `${name} goal must not name a bench function tool`);

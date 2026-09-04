@@ -20,7 +20,9 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
 
 ## Layout
 
-- `src/providers/` — OpenAI-compatible client + provider registry (`index.js`). No SDKs.
+- `src/providers/` — OpenAI-compatible client + provider registry (`index.js`). No SDKs. The client
+  streams by default (SSE chunks, tool-call deltas merged by index, usage from the trailing chunk) and
+  records `ttftMs` / `ttfaMs`; `stream: false` keeps the plain path.
 - `src/tasks/` — task specs: prompt/tools/schema per mode + `eval` block (ground + scorers).
   `tasks/util.js` holds what they share: the webserver `BASE` URL and `unwrapList`.
 - `src/runner.js` — **the execution core**: runs one (task, mode, client) trial, scores it,
@@ -36,11 +38,17 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
 - `src/report.js` — the one text report over a summary, used by `aggregate` and `cli show`.
 - `src/export.js` — CSV views of a run (trial rows, or task × model × mode cells).
 - `src/version.js` — bench version / git commit / node, recorded on every run as `versions`.
-- `src/harness/` — real agent harnesses as the harness arm. `thoth.js` spawns `thoth --events`
-  (stdin closed, task quoted for ssh), folds its NDJSON into the synthetic result shape, and reports
-  the routed model. Tasks expose a `goal` (plain job statement, endpoint described, no bench tool
-  names) for such arms; `runTrial` passes `task` and `mode` to `runWithTools` so an arm can build
-  its own prompt.
+- `src/harness/` — real agent harnesses as the harness arm. `util.js` holds what arms share: the
+  goal prompt (goal + the same schema instruction the synthetic harness gets), recovery of the
+  webserver's replies from raw tool output into bench-shaped tool results, the argv splitter and the
+  child runner. `claude-code.js` runs `claude -p --bare --output-format json` and parses its
+  transcript (tool outputs included). `pi.js` runs `pi --mode json -p` and reads its `message_end`
+  events (tool outputs, usage and cost). `codex.js` runs `codex exec --json` (documented item shapes;
+  needs `codex login`). `thoth.js` spawns `thoth --events` (stdin closed, task quoted for ssh) and
+  folds its NDJSON (no tool-result contents). Arms report the routed model, run structured modes only
+  (`structuredOnly`; the planner skips the rest), and the bench's tool-use judge stays null for them.
+  Tasks expose a `goal` (plain job statement, endpoint described, no bench tool names) for arms;
+  `runTrial` passes `task` and `mode` to `runWithTools` so an arm can build its own prompt.
 - `src/web/` — the control plane: `server.js` (node:http, zero deps) + `public/` (the UI).
 - `src/cli.js` — entry point (`list` / `show` / `export` / `serve` / `bench` / `aggregate`).
 - `test/` — `npm test` (node:test, no deps). Scorers are tested with synthetic ground values, the
@@ -112,6 +120,8 @@ node src/aggregate.js --tasks health,hello --modes noHarness,harness --clients l
 ```
 
 The `webserver/` directory is the **system under test**, not part of the benchmark harness —
-keep it minimal. Every run (CLI or web) is saved to `results/`, which is gitignored along
+keep it minimal. Its one concession to the bench is `GET /api/recent?since=&until=`, a log of the
+last few hundred `/api/hello` replies, which lets real-harness arms be scored against what the
+server actually served (`recentGreetings` in `harness/util.js`). Every run (CLI or web) is saved to `results/`, which is gitignored along
 with `.env`. `plan.md` is the roadmap; keep its "done" claims tied to what the tests and saved runs
 actually show.

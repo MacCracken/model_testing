@@ -38,7 +38,7 @@ async function main() {
         const models = name === "local" && live ? live : cfg.models;
         if (cfg.harness && name !== "local") { /* the arm's model is whatever it routes to */ }
         const status = cfg.harness
-          ? `harness arm · ${cfg.baseUrl}`
+          ? `harness arm · ${cfg.baseUrl}${cfg.keyEnv ? (hasCredentials(name) ? ` · ${cfg.keyEnv} set` : ` · ${cfg.keyEnv} missing`) : ""}`
           : cfg.needsKey === false
             ? (live ? `live, ${live.length} model(s)` : "offline — showing the fallback list")
             : (hasCredentials(name) ? "key set" : `${name.toUpperCase()}_API_KEY missing`);
@@ -110,7 +110,7 @@ async function main() {
       console.log("  node src/cli.js show [<run-id>] [--table]");
       console.log("  node src/cli.js export <run-id> [--cells] [--out file.csv]");
       console.log("  node src/cli.js serve [--port 4000] [--host 127.0.0.1] [--open]");
-      console.log("  node src/cli.js bench --task <name|all> --modes noHarness,harness,schemaOnly,toolOnly --clients <p:model,...> [--count N] [--temperature T] [--seed S] [--json]");
+      console.log("  node src/cli.js bench --task <name|all> --modes noHarness,harness,schemaOnly,toolOnly --clients <p:model,...> [--count N] [--temperature T] [--seed S] [--model-param k=v]... [--json]");
       console.log("  node src/cli.js aggregate [--tasks <name,...>] [--modes ...] [--clients ...] [--count N]");
       process.exit(cmd ? 1 : 0);
   }

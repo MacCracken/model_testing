@@ -174,3 +174,20 @@ test("summarize carries latency percentiles, tool-args hygiene and per task × c
   const b = s.delta.byTaskClient["b|c1"];
   assert.equal(b.deltaPp, 0);
 });
+
+// --- the 2×2 decomposition ---------------------------------------------------------------------
+
+test("twoByTwo reads the tools and schema effects off the four modes", async () => {
+  const { twoByTwo } = await import("../src/runner.js");
+  const rows = [];
+  const add = (mode, correct, n) => { for (let i = 0; i < n; i++) rows.push({ mode, correct: i < correct, task: "t", client: "c", latencyMs: 1 }); };
+  add("noHarness", 5, 10); add("schemaOnly", 5, 10); add("toolOnly", 10, 10); add("harness", 10, 10);
+  const box = twoByTwo(summarize(rows));
+  assert.equal(box.toolsEffect, 50);
+  assert.equal(box.schemaEffect, 0);
+  assert.equal(box.interaction, 0);
+  assert.equal(twoByTwo(summarize(rows.filter((r) => r.mode !== "schemaOnly" && r.mode !== "toolOnly"))), null, "two cells are not a 2×2");
+  const three = twoByTwo(summarize(rows.filter((r) => r.mode !== "toolOnly")));
+  assert.equal(three.toolsEffect, 50, "one available tools contrast");
+  assert.equal(three.interaction, null);
+});

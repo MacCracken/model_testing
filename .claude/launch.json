@@ -4,8 +4,21 @@
     {
       "name": "bench-ui",
       "runtimeExecutable": "node",
-      "runtimeArgs": ["src/cli.js", "serve", "--port", "4000"],
+      "runtimeArgs": [
+        "src/cli.js",
+        "serve",
+        "--port",
+        "4000"
+      ],
       "port": 4000
+    },
+    {
+      "name": "webserver",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "webserver/server.js"
+      ],
+      "port": 3000
     }
   ]
 }

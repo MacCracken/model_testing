@@ -249,6 +249,19 @@ pre { margin: 0; font: inherit; }
 .kv { display: flex; justify-content: space-between; gap: 10px; }
 .kv span:first-child { color: var(--ink-2); }
 
+/* ---- results: 2×2 -------------------------------------------------------------------------- */
+
+.two-by-two { display: grid; grid-template-columns: 110px 1fr 1fr; gap: 6px 14px; align-items: stretch; max-width: 640px; }
+.two-by-two .corner { }
+.two-by-two .axis { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); align-self: end; }
+.two-by-two .axis.row { text-align: right; align-self: center; }
+.two-by-two .cell2 { border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; background: var(--surface); display: flex; flex-direction: column; gap: 2px; }
+.two-by-two .cell2 .v { font-family: var(--serif); font-size: 26px; line-height: 1; letter-spacing: -0.02em; }
+.two-by-two .cell2 .s { font-size: 10.5px; color: var(--ink-3); }
+.two-by-two .cell2.harness { border-color: var(--accent); }
+.two-by-two .cell2.harness .v { color: var(--accent); }
+.two-by-two .cell2.missing { opacity: 0.4; }
+
 /* ---- results: blocks, live grid, matrix -------------------------------------------------- */
 
 .block { display: flex; flex-direction: column; gap: 10px; }

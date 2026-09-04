@@ -22,6 +22,11 @@ export class Client {
         this.timeoutMs = opts.timeoutMs ?? 120_000;
         this.modelParams = opts.modelParams ?? {};
         this.fetchImpl = opts.fetchImpl ?? fetch;
+        // Streaming is the default: it is the only way to measure time-to-first-token, and every
+        // OpenAI-compatible provider here speaks the same chunk format. `streamUsage` asks for the
+        // trailing usage chunk (stream_options.include_usage); set it false for a provider that rejects it.
+        this.stream = opts.stream ?? true;
+        this.streamUsage = opts.streamUsage ?? true;
 
         const auth = opts.headers?.["Authorization"] ?? `Bearer ${opts.apiKey}`;
         this.headers = { "Content-Type": "application/json", "Accept": "application/json", Authorization: auth, ...(opts.headers ?? {}) };
@@ -43,7 +48,12 @@ export class Client {
         try { return JSON.parse(args); } catch { return {}; }
     }
 
-    /** Send a chat completion with optional tools. One round trip; no tool execution. */
+    /**
+     * Send a chat completion with optional tools. One round trip; no tool execution.
+     * Returns { text, toolCalls, finishReason, usage, ttftMs, ttfaMs } — the two timings are
+     * time to the first token of any kind (reasoning included) and to the first *answer* token
+     * (content or a tool call); both null when the request was not streamed.
+     */
     async chat(messages, tools, { signal } = {}) {
         const normalizedTools = tools && tools.length ? this.normalizeTools(tools) : undefined;
 
@@ -51,8 +61,10 @@ export class Client {
             model: this.model,
             messages,
             ...(normalizedTools ? { tools: normalizedTools } : {}),
+            ...(this.stream ? { stream: true, ...(this.streamUsage ? { stream_options: { include_usage: true } } : {}) } : {}),
             ...(this.modelParams ?? {}),
         };
+        const t0 = performance.now();
 
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(new Error("request timed out")), this.timeoutMs);
@@ -77,13 +89,16 @@ export class Client {
                 if (controller.signal.aborted) throw err;
                 throw new Error(`${this.name}: ${err?.message ?? err} — is ${this.url} reachable?`);
             }
-            const text = await res.text();
             if (!res.ok) {
+                const text = await res.text();
                 let detail = text;
                 try { detail = JSON.parse(text).error?.message ?? text; } catch { /* keep raw */ }
                 throw new Error(`HTTP ${res.status} from ${this.name}: ${detail}`);
             }
 
+            if (this.stream) return await this.readStream(res, t0);
+
+            const text = await res.text();
             const parsed = JSON.parse(text);
             const choice = parsed.choices?.[0];
             if (!choice) throw new Error(`no choice returned from ${this.name}`);
@@ -104,11 +119,88 @@ export class Client {
                 toolCalls,
                 finishReason: choice.finish_reason ?? "stop",
                 usage: parsed.usage ?? null,
+                ttftMs: null,
+                ttfaMs: null,
             };
         } finally {
             clearTimeout(timer);
             if (signal) signal.removeEventListener?.("abort", onAbort);
         }
+    }
+
+    /**
+     * Assemble a streamed chat completion: SSE lines of `data: {chunk}`, ending with `data: [DONE]`.
+     * Text deltas are concatenated; tool-call deltas are merged by index (OpenAI splits a call's
+     * arguments across chunks; Ollama sends them whole); the trailing usage chunk, when present,
+     * carries the token counts. Timings come from the wall clock at each first delta.
+     */
+    async readStream(res, t0) {
+        const decoder = new TextDecoder();
+        const reader = res.body.getReader();
+        let buffered = "";
+        let text = "";
+        let finishReason = null;
+        let usage = null;
+        let ttftMs = null;
+        let ttfaMs = null;
+        const calls = [];
+        const mark = () => Math.round(performance.now() - t0);
+
+        const handle = (line) => {
+            const data = line.startsWith("data:") ? line.slice(5).trim() : null;
+            if (data === null || data === "" || data === "[DONE]") return;
+            let chunk;
+            try { chunk = JSON.parse(data); } catch { return; }
+            if (chunk.usage) usage = chunk.usage;
+            const choice = chunk.choices?.[0];
+            if (!choice) return;
+            const delta = choice.delta ?? {};
+            if (delta.reasoning || delta.reasoning_content) {
+                if (ttftMs === null) ttftMs = mark();
+            }
+            if (typeof delta.content === "string" && delta.content.length) {
+                if (ttftMs === null) ttftMs = mark();
+                if (ttfaMs === null) ttfaMs = mark();
+                text += delta.content;
+            }
+            for (const tc of delta.tool_calls ?? []) {
+                if (ttftMs === null) ttftMs = mark();
+                if (ttfaMs === null) ttfaMs = mark();
+                const idx = typeof tc.index === "number" ? tc.index : calls.length;
+                const entry = (calls[idx] ??= { id: null, name: "", argsText: "" });
+                if (tc.id) entry.id = tc.id;
+                if (tc.function?.name) entry.name += tc.function.name;
+                if (typeof tc.function?.arguments === "string") entry.argsText += tc.function.arguments;
+                else if (tc.function?.arguments && typeof tc.function.arguments === "object") entry.argsText += JSON.stringify(tc.function.arguments);
+            }
+            if (choice.finish_reason) finishReason = choice.finish_reason;
+        };
+
+        for (;;) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buffered += decoder.decode(value, { stream: true });
+            let nl;
+            while ((nl = buffered.indexOf("\n")) !== -1) {
+                handle(buffered.slice(0, nl).trim());
+                buffered = buffered.slice(nl + 1);
+            }
+        }
+        if (buffered.trim()) handle(buffered.trim());
+
+        const toolCalls = calls.filter(Boolean).map((c, i) => ({
+            id: c.id ?? `call_${i}`,
+            name: c.name,
+            arguments: this.parseToolArgs({ function: { arguments: c.argsText || "{}" } }),
+        }));
+        return {
+            text,
+            toolCalls,
+            finishReason: finishReason ?? (toolCalls.length ? "tool_calls" : "stop"),
+            usage,
+            ttftMs,
+            ttfaMs,
+        };
     }
 
     /**
@@ -127,11 +219,14 @@ export class Client {
         const allResults = [];
         let usage = null;
         let rounds = 0;
+        let ttftMs = null;
+        let ttfaMs = null;
 
         while (rounds < maxRounds) {
             rounds += 1;
             const resp = await this.chat(messages, tools, { signal });
             usage = addUsage(usage, resp.usage);
+            if (rounds === 1) { ttftMs = resp.ttftMs ?? null; ttfaMs = resp.ttfaMs ?? null; }
 
             // No tool calls: this is the model's answer.
             if (!resp.toolCalls.length) {
@@ -143,6 +238,8 @@ export class Client {
                     rounds,
                     finishReason: resp.finishReason,
                     usage,
+                    ttftMs,
+                    ttfaMs,
                 };
             }
 
@@ -198,6 +295,8 @@ export class Client {
             rounds,
             finishReason: "max_rounds",
             usage,
+            ttftMs,
+            ttfaMs,
         };
     }
 }

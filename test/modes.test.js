@@ -185,3 +185,18 @@ test("toolUseOk is judged only when the spec carries tools and the task defines 
   const noJudge = await runTrial({ task: probeTask(), mode: "harness", client: withCall });
   assert.equal(noJudge.toolUseOk, null, "no judge on the task → no verdict");
 });
+
+test("modelParamsFrom merges the knobs and parses --model-param values as JSON when possible", async () => {
+  const { modelParamsFrom } = await import("../src/bench.js");
+  assert.deepEqual(modelParamsFrom({}), {});
+  assert.deepEqual(modelParamsFrom({ temperature: 0, seed: 7 }), { temperature: 0, seed: 7 });
+  assert.deepEqual(modelParamsFrom({ modelParam: ["think=false", "top_p=0.9", "stop=[\"END\"]", "format=text"] }), { think: false, top_p: 0.9, stop: ["END"], format: "text" });
+  assert.throws(() => modelParamsFrom({ modelParam: ["nonsense"] }), /key=value/);
+});
+
+test("planMatrix skips free-form modes for structured-only (harness arm) clients and names the client", () => {
+  const arm = { name: "arm", structuredOnly: true };
+  const plan = planMatrix({ tasks: [probeTask()], modes: ["noHarness", "harness"], clients: [{ name: "c1" }, arm], count: 2 });
+  assert.deepEqual(plan.skipped, [{ task: "probe", mode: "noHarness", client: "arm" }]);
+  assert.equal(plan.total, 3 * 2);
+});

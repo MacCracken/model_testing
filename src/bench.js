@@ -43,16 +43,29 @@ export function resolveModes(spec) {
 }
 
 // The determinism knobs from the CLI, keeping only the ones actually given.
-export function modelParamsFrom({ temperature, seed } = {}) {
+// `--model-param key=value` covers everything else a provider accepts (e.g. `think=false` for
+// Ollama's thinking models); values parse as JSON when they can, else stay strings.
+export function modelParamsFrom({ temperature, seed, modelParam } = {}) {
   const params = {};
   if (Number.isFinite(temperature)) params.temperature = temperature;
   if (Number.isFinite(seed)) params.seed = seed;
+  for (const kv of modelParam ?? []) {
+    const eq = String(kv).indexOf("=");
+    if (eq === -1) throw new Error(`--model-param expects key=value, got "${kv}"`);
+    const key = kv.slice(0, eq).trim();
+    const raw = kv.slice(eq + 1).trim();
+    let value = raw;
+    try { value = JSON.parse(raw); } catch { /* keep the string */ }
+    params[key] = value;
+  }
   return params;
 }
 
 // Human-readable note for each (task, mode) pair a run skips because the task has no such spec.
 export function describeSkipped(skipped) {
-  return skipped.map((s) => `${s.task}/${s.mode} skipped: the task declares no ${s.mode} spec`);
+  return skipped.map((s) => (s.client
+    ? `${s.task}/${s.mode} skipped for ${s.client}: a harness arm runs structured modes only`
+    : `${s.task}/${s.mode} skipped: the task declares no ${s.mode} spec`));
 }
 
 async function main() {

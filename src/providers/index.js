@@ -1,6 +1,9 @@
 import "../env.js";
 import { Client } from "./client.js";
 import { ThothClient } from "../harness/thoth.js";
+import { ClaudeCodeClient } from "../harness/claude-code.js";
+import { PiClient } from "../harness/pi.js";
+import { CodexClient } from "../harness/codex.js";
 import { envValue } from "../util.js";
 
 // Provider registry: maps a stable provider name -> a list of models to try, plus the URL and
@@ -27,14 +30,45 @@ const PROVIDERS = {
     auth: (key) => `Bearer ${key}`,
     models: ["llama-3.3-70b-versatile", "gemma2-9b-it"],
   },
+  deepseek: {
+    baseUrl: "https://api.deepseek.com/v1/chat/completions",
+    auth: (key) => `Bearer ${key}`,
+    models: ["deepseek-chat", "deepseek-reasoner"],
+  },
   // A real agent harness as the harness arm (see harness/thoth.js). Needs no key; THOTH_CMD says
   // how to invoke it (e.g. `ssh -n arch cd ~/Repos/thoth && thoth`). Structured modes only.
   thoth: {
     baseUrl: envValue("THOTH_CMD", "thoth"),
     auth: () => "",
     needsKey: false,
-    harness: true,
+    harness: "thoth",
     models: ["default"],
+  },
+  // Claude Code as the harness arm (see harness/claude-code.js): `claude -p --bare`, Bash only,
+  // permissions bypassed. Uses ANTHROPIC_API_KEY; CLAUDE_CODE_CMD overrides the binary.
+  "claude-code": {
+    baseUrl: envValue("CLAUDE_CODE_CMD", "claude"),
+    auth: () => "",
+    keyEnv: "ANTHROPIC_API_KEY",
+    harness: "claude-code",
+    models: ["claude-haiku-4-5", "claude-sonnet-5", "claude-opus-5"],
+  },
+  // Pi as the harness arm (see harness/pi.js): model ids are `provider/model`; the key for that
+  // provider (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, …) is passed to Pi with --api-key.
+  pi: {
+    baseUrl: envValue("PI_CMD", "pi"),
+    auth: () => "",
+    needsKey: false,
+    harness: "pi",
+    models: ["openai/gpt-4o-mini", "anthropic/claude-haiku-4-5"],
+  },
+  // Codex CLI as the harness arm (see harness/codex.js). Authenticates through `codex login`.
+  codex: {
+    baseUrl: envValue("CODEX_CMD", "codex"),
+    auth: () => "",
+    needsKey: false,
+    harness: "codex",
+    models: ["gpt-5-mini", "gpt-5.4-mini"],
   },
   local: {
     baseUrl: envValue("OLLAMA_BASE_URL", "http://localhost:11434/v1/chat/completions"),
@@ -57,6 +91,8 @@ const MODEL_LABELS = {
   "claude-haiku-4-5": "Claude Haiku 4.5",
   "llama-3.3-70b-versatile": "Llama 3.3 70B",
   "gemma2-9b-it": "Gemma 2 9B",
+  "deepseek-chat": "DeepSeek V3 (chat)",
+  "deepseek-reasoner": "DeepSeek R1 (reasoner)",
   "ornith-1.5:9b": "Ornith 1.5 9B",
   "qwen3.5:9b-mlx": "Qwen 3.5 9B",
   "nemotron-3.5-lightning:30b-mlx": "Nemotron 3.5 Lightning 30B",
@@ -70,7 +106,8 @@ export function labelModel(model) {
 }
 
 export function apiKeyFor(provider) {
-  return envValue(`${provider.toUpperCase()}_API_KEY`);
+  const cfg = PROVIDERS[provider];
+  return envValue(cfg?.keyEnv ?? `${provider.toUpperCase()}_API_KEY`);
 }
 
 // A provider is usable when it needs no key (local) or has one configured.
@@ -86,7 +123,13 @@ export function buildClient({ provider, model, modelParams = {} }) {
   const cfg = PROVIDERS[provider];
   if (!cfg) throw new Error(`unknown provider: ${provider}`);
   if (!hasCredentials(provider)) return null;
-  if (cfg.harness) return new ThothClient({ name: `${provider}:${model}`, model, command: cfg.baseUrl });
+  if (cfg.harness === "thoth") return new ThothClient({ name: `${provider}:${model}`, model, command: cfg.baseUrl });
+  if (cfg.harness === "claude-code") return new ClaudeCodeClient({ name: `${provider}:${model}`, model, command: cfg.baseUrl, apiKey: apiKeyFor(provider) });
+  if (cfg.harness === "pi") {
+    const upstream = model.includes("/") ? model.slice(0, model.indexOf("/")) : null;
+    return new PiClient({ name: `${provider}:${model}`, model, command: cfg.baseUrl, apiKey: upstream ? envValue(`${upstream.toUpperCase()}_API_KEY`) || null : null });
+  }
+  if (cfg.harness === "codex") return new CodexClient({ name: `${provider}:${model}`, model, command: cfg.baseUrl });
   const key = apiKeyFor(provider) || "local";
   return new Client({
     name: `${provider}:${model}`,
@@ -174,6 +217,7 @@ export async function describeProviders({ probe = true } = {}) {
     name,
     baseUrl: cfg.baseUrl,
     kind: cfg.harness ? "harness" : "model",
+    harness: cfg.harness ?? null,
     needsKey: cfg.needsKey !== false,
     hasKey: hasCredentials(name),
     live: name === "local" ? live !== null : null,

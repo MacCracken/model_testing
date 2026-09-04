@@ -3,7 +3,7 @@
 // Summaries come from the runner itself (served as /lib/runner.js), so a run in flight, a run
 // loaded from history, and the CLI all report the same numbers through the same code.
 
-import { summarize, deltaFor, describeSignificance, isStructuredMode, DEFAULT_MODES } from "/lib/runner.js";
+import { summarize, deltaFor, describeSignificance, isStructuredMode, twoByTwo, DEFAULT_MODES } from "/lib/runner.js";
 
 // ---- tiny DOM + format helpers -------------------------------------------------------------
 
@@ -417,6 +417,7 @@ function renderReport() {
 
   const s = summarize(run.rows);
   renderHeadline(s);
+  renderTwoByTwo(s);
   renderLive();
   renderMatrix(s);
   renderTrials();
@@ -457,6 +458,7 @@ function renderHeadline(s) {
       el("div", { className: "eyebrow" }, MODE_LABEL[m]),
       el("div", { className: "num" }, fmtPct(st.correctPct)),
       el("div", { className: "sub", title: `avg ${fmtMs(st.avgLatencyMs)} · max ${fmtMs(st.latencyMaxMs)}` }, `${st.correct}/${st.runs} · p50 ${fmtMs(st.latencyP50Ms)} · p95 ${fmtMs(st.latencyP95Ms)}`),
+      st.ttftP50Ms !== null && st.ttftP50Ms !== undefined ? el("div", { className: "sub", title: "median time to the first token of any kind, and to the first answer token" }, `first token ${fmtMs(st.ttftP50Ms)} · answer ${fmtMs(st.ttfaP50Ms ?? st.ttftP50Ms)}`) : null,
       el("div", { className: "bar" }, el("i", { className: m === "noHarness" ? "grey" : "", style: { width: `${st.correctPct}%` } })),
     ));
   }
@@ -479,6 +481,31 @@ function renderHeadline(s) {
   box.style.gridTemplateColumns = `1.35fr repeat(${modeCols.length}, 1fr) 1.15fr`;
 }
 
+// The tools × schema decomposition, shown once three of the four modes have rows.
+function renderTwoByTwo(s) {
+  const box = twoByTwo(s);
+  const section = $("#grid2x2");
+  section.hidden = !box;
+  if (!box) return;
+  const pp = (v) => (v === null ? "n/a" : signedPp(v, 1));
+  $("#grid2x2-effects").replaceChildren(
+    el("span", { title: "average lift from adding tools, across both schema settings" }, `tools ${pp(box.toolsEffect)}`),
+    el("span", { title: "average lift from adding the schema, across both tool settings" }, `schema ${pp(box.schemaEffect)}`),
+    el("span", { title: "how much the two together differ from the sum of their separate effects" }, `interaction ${pp(box.interaction)}`),
+  );
+  const cell = (mode) => {
+    const c = box.grid[mode];
+    return el("div", { className: `cell2 ${mode}${c ? "" : " missing"}` },
+      el("div", { className: "v" }, c ? fmtPct(c.correctPct) : "—"),
+      el("div", { className: "s" }, c ? `${MODE_LABEL[mode]} · ${c.correct}/${c.runs}` : `${MODE_LABEL[mode]} · not run`));
+  };
+  $("#grid2x2-body").replaceChildren(
+    el("div", { className: "corner" }), el("div", { className: "axis" }, "no schema"), el("div", { className: "axis" }, "schema"),
+    el("div", { className: "axis row" }, "no tools"), cell("noHarness"), cell("schemaOnly"),
+    el("div", { className: "axis row" }, "tools"), cell("toolOnly"), cell("harness"),
+  );
+}
+
 // One cell per planned trial, in the runner's execution order (task → mode → client → trial), so
 // the grid fills in left to right and the first empty cell is the one running now.
 function renderLive() {
@@ -488,6 +515,8 @@ function renderLive() {
 
   const { tasks = [], modes = [], clients = [], count = 1 } = run.config ?? {};
   const declared = (task, mode) => taskMeta(task)?.modes.includes(mode) ?? true;
+  const armClients = new Set((state.meta?.providers ?? []).filter((p) => p.kind === "harness").flatMap((p) => p.models.map((m) => m.client)));
+  const structuredMode = (mode) => mode === "harness" || mode === "schemaOnly";
   const byKey = new Map(run.rows.map((r) => [`${r.task}|${r.mode}|${r.client}|${r.index}`, r]));
 
   const order = [];
@@ -495,6 +524,7 @@ function renderLive() {
     for (const mode of modes) {
       if (!declared(task, mode)) continue;
       for (const client of clients) {
+        if (armClients.has(client) && !structuredMode(mode)) continue;
         for (let i = 1; i <= count; i++) {
           order.push({ task, mode, client, index: i, row: byKey.get(`${task}|${mode}|${client}|${i}`) });
         }
@@ -665,7 +695,7 @@ function renderDetail() {
     : "no usage reported";
   $("#detail-sub").textContent = [
     r.client,
-    fmtMs(r.latencyMs),
+    fmtMs(r.latencyMs) + (typeof r.ttftMs === "number" ? ` (first token ${fmtMs(r.ttftMs)})` : ""),
     usage,
     TOOL_MODES.has(r.mode) ? plural(r.rounds ?? 0, "round") : null,
     r.finishReason ? `finish: ${r.finishReason}` : null,

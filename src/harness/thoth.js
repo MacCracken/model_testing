@@ -18,9 +18,9 @@
 // e.g. `ssh -n arch cd ~/Repos/thoth && thoth` when it lives on another host. The model is whatever
 // Thoth's config routes to; the `model` reported in the events is recorded on every row.
 
-import { spawn } from "node:child_process";
 import { parseJSONLoose } from "../json.js";
-import { schemaHint } from "../schema.js";
+import { goalPrompt, synthesizeToolResults, recentGreetings, splitCommand, runChild } from "./util.js";
+import { BASE } from "../tasks/util.js";
 
 export function parseEvents(ndjson) {
   const toolCalls = [];
@@ -57,10 +57,6 @@ export function parseEvents(ndjson) {
   return { text, error, model, tokens, turnEnd, toolCalls, toolResults };
 }
 
-// Split a command prefix into argv; the last element is the executable and the rest its args.
-function splitCommand(cmd) {
-  return String(cmd).match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g)?.map((s) => s.replace(/^["']|["']$/g, "")) ?? ["thoth"];
-}
 
 export class ThothClient {
   constructor({ name = "thoth", model = "thoth", command = process.env.THOTH_CMD ?? "thoth", timeoutMs = 300_000 } = {}) {
@@ -69,6 +65,7 @@ export class ThothClient {
     this.model = model;
     this.command = command;
     this.timeoutMs = timeoutMs;
+    this.structuredOnly = true;
   }
 
   // Free-form mode has no meaning for a harness arm — Thoth always brings its tools — so a task's
@@ -78,31 +75,28 @@ export class ThothClient {
   }
 
   async runWithTools(prompt, _tools, system, { signal, task, mode, timeoutMs = this.timeoutMs } = {}) {
-    const goal = task?.goal ?? prompt;
-    const schema = task?.[mode]?.schema;
-    const taskText = [
-      goal,
-      schema
-        ? `Return your final answer as a JSON value that is an instance of this JSON Schema (a value that validates against it — not the schema itself):\n${schemaHint(schema)}\nReply with that JSON value only — no prose, no markdown fences.`
-        : "",
-    ].filter(Boolean).join("\n\n");
+    const taskText = goalPrompt(task, mode, prompt);
 
     const prefix = splitCommand(this.command);
     // Over ssh the remote shell re-parses the argument list, so the task text is single-quoted for it.
     const remote = prefix[0] === "ssh";
     const argv = [...prefix, "--events", remote ? `'${taskText.replace(/'/g, "'\\''")}'` : taskText];
     const t0 = performance.now();
-    const { stdout, stderr, code } = await run(argv, { signal, timeoutMs });
+    const startedAt = new Date().toISOString();
+    const { stdout, stderr, code } = await runChild(argv, { signal, timeoutMs, label: "thoth" });
+    const endedAt = new Date().toISOString();
     const parsed = parseEvents(stdout);
     const text = parsed.text ?? "";
     if (parsed.error) throw new Error(`thoth: ${parsed.error}`);
     if (code !== 0 && !parsed.text) throw new Error(`thoth exited ${code}: ${stderr.trim().split("\n").pop() ?? ""}`);
     if (parsed.model) this.model = parsed.model;
+    // Thoth's events carry no tool-result contents, so what the server served is the only truth.
+    const served = await recentGreetings(BASE, startedAt, endedAt);
     return {
       text,
       structured: parseJSONLoose(text),
       toolCalls: parsed.toolCalls,
-      toolResults: parsed.toolResults,
+      toolResults: [...parsed.toolResults, ...synthesizeToolResults(task, mode, [], served)],
       rounds: 1,
       finishReason: parsed.turnEnd?.ok === false ? "error" : "stop",
       usage: parsed.tokens === null ? null : { total_tokens: parsed.tokens },
@@ -112,16 +106,3 @@ export class ThothClient {
   }
 }
 
-function run(argv, { signal, timeoutMs }) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(argv[0], argv.slice(1), { stdio: ["ignore", "pipe", "pipe"] });
-    let stdout = "", stderr = "";
-    const timer = setTimeout(() => { child.kill("SIGTERM"); reject(new Error(`thoth timed out after ${timeoutMs}ms`)); }, timeoutMs);
-    const onAbort = () => { child.kill("SIGTERM"); reject(new Error("cancelled")); };
-    signal?.addEventListener("abort", onAbort, { once: true });
-    child.stdout.on("data", (d) => { stdout += d; });
-    child.stderr.on("data", (d) => { stderr += d; });
-    child.on("error", (err) => { clearTimeout(timer); reject(err); });
-    child.on("close", (code) => { clearTimeout(timer); signal?.removeEventListener("abort", onAbort); resolve({ stdout, stderr, code }); });
-  });
-}

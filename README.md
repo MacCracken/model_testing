@@ -21,7 +21,10 @@ does not declare are skipped and reported, not scored. The four tool tasks decla
 The `webserver` (`./webserver`) is the **system under test**. Its real endpoints (`/health`,
 `/api/hello`) are what the harness tools actually hit — the runner executes each tool and feeds
 its real response back to the model. What gets scored is the model's *final message*, written
-after it has seen that output, so harness mode measures the model, not the endpoint.
+after it has seen that output, so harness mode measures the model, not the endpoint. It also keeps
+a small log of what `/api/hello` served (`GET /api/recent?since=…`), which is how a real-harness
+arm is scored against what the server actually returned even when the harness reshaped its tool
+output.
 
 ## Tasks
 
@@ -33,6 +36,7 @@ after it has seen that output, so harness mode measures the model, not the endpo
 | `lookup` | api-call | Three server-minted random ids. **Tool-essential**: there is nothing to memorize, so free text floors at 0 and truth is whatever the tool returned during the trial. |
 | `regex` | tool-reasoning | Which of six strings match an anchored regex, with a correct `regex_match` tool and a `word_count` decoy. Tests tool *selection* and typed arguments, not just firing. |
 | `chain` | multi-step | Greet alice, then greet the id that came back, and report the second greeting. The second call depends on the first; the id is random, so nothing but the chain produces the answer. |
+| `transform` | extract-transform | Fetch three greetings, then report each name with the first 8 characters of its id and the greeting in upper case. Tool-essential, plus two transformations of what came back. |
 
 ## Setup
 
@@ -56,7 +60,9 @@ Then open <http://127.0.0.1:4000>. The page is a recipe on the left and the resu
   it; providers without a key, or an offline Ollama, are greyed out) and set trials per cell — the
   recipe sentence shows exactly how many trials will run and which pairs are skipped;
 - the headline is the **harness delta** with its significance line, the per-mode rates with p50/p95
-  latency, and the harness hygiene numbers (tool use, **tool args ok**, schema validity, tokens);
+  latency and median time-to-first-token, and the harness hygiene numbers (tool use, **tool args
+  ok**, schema validity, tokens); below it, once three of the four modes have run, the **tools ×
+  schema 2×2** with the effect of each axis and their interaction;
 - a **live cell grid** fills in trial by trial in execution order, so you can see what is running,
   what passed and what is queued; a run can be cancelled mid-flight;
 - the task × model matrix is a **dumbbell chart**: no-harness and harness rates on one track per
@@ -96,9 +102,15 @@ node src/cli.js show <run-id> --table   # one saved run: per-mode stats, deltas 
 node src/cli.js export <run-id>         # every trial as CSV (--cells for the task × model × mode cells, --out file.csv)
 ```
 
-`--temperature T` and `--seed S` are sent as-is with every request and recorded in the run's config
-(the determinism knobs; some models reject a non-default temperature, which then shows as an error
-row). Every run also records the bench version, git commit and node version under `versions`.
+`--temperature T`, `--seed S` and `--model-param key=value` (repeatable; e.g. `think=false`,
+`max_tokens=600`) are sent as-is with every request and recorded in the run's config (the
+determinism knobs; some models reject a non-default temperature, which then shows as an error row).
+Every run also records the bench version, git commit and node version under `versions`.
+
+Requests stream by default, which is how the bench measures **time to first token**: each trial
+records `ttftMs` (first token of any kind, reasoning included) and `ttfaMs` (first answer token —
+content or a tool call); the report and the UI show their medians. `BENCH_TIMEOUT_MS` sets the
+per-request timeout.
 
 ## Providers
 
@@ -107,19 +119,49 @@ Multiple providers behind a single OpenAI-compatible client (no SDKs):
 - **OpenAI** — `gpt-4o-mini`, `gpt-4.1-mini`, `gpt-5-mini`
 - **Anthropic** — `claude-opus-5`, `claude-sonnet-5`, `claude-haiku-4-5`, via Anthropic's OpenAI-compatible route
 - **Groq** — `llama-3.3-70b-versatile`, `gemma2-9b-it`
+- **DeepSeek** — `deepseek-chat`, `deepseek-reasoner`
 - **Local (Ollama)** — no key needed; whatever the daemon reports from `/v1/models`
 
 To add one, add an entry to `PROVIDERS` in `src/providers/index.js` and a label to
 `MODEL_LABELS`. Values in `.env` (`*_API_KEY`, `OLLAMA_BASE_URL`, `SUT_PORT`, `RESULTS_DIR`) are loaded
 at startup; real environment variables win.
 
-## A real harness as the arm: Thoth (experimental)
+## Real harnesses as the arm (experimental)
 
-The synthetic harness is not the only harness the bench can run. `thoth:default` is a client that
-hands the task's plain-language **goal** to [Thoth](https://github.com/MacCracken) one-shot
-(`thoth --events`), lets Thoth bring its own tools and model, and scores its final message exactly
-like a synthetic harness trial. It runs structured modes only; the free-form baseline for the same
-model comes from the synthetic client.
+The synthetic harness is not the only harness the bench can run. A real agent harness can be the
+harness arm: it gets the task's plain-language **goal**, brings its own tools and model, and its final
+message is scored exactly like a synthetic harness trial. Arms run structured modes only; the
+free-form baseline for the same model comes from the synthetic client.
+
+Arms are scored against what the webserver actually served: each arm brackets its run with
+timestamps and asks `GET /api/recent` for the replies in that window (merged with anything it can
+read out of the harness's own tool output), so `lookup`, `chain` and `transform` score the same way
+as for the synthetic harness. Run arm trials one process at a time against a given webserver, since
+the window is by time, not by caller.
+
+- **`claude-code:<model>`** — `claude -p --bare` with Bash only and permissions bypassed. Needs
+  `ANTHROPIC_API_KEY`; `CLAUDE_CODE_CMD` overrides the binary.
+
+```bash
+node src/bench.js --task health,lookup,chain --modes harness --clients claude-code:claude-haiku-4-5 --count 4
+```
+
+- **`pi:<provider>/<model>`** — Pi (`pi --mode json -p`) with its `bash` tool, no session, no context
+  files. The bench passes the key for the model's provider (`OPENAI_API_KEY` for `pi:openai/…`) with
+  `--api-key`. `PI_CMD` overrides the binary.
+- **`codex:<model>`** — Codex CLI (`codex exec --json --ephemeral`), sandbox relaxed through
+  `CODEX_SANDBOX_ARGS` (default `--dangerously-bypass-approvals-and-sandbox`, the documented no-prompt
+  mode). Codex authenticates through its own `codex login`; until then every trial is an error row
+  that names the 401. `CODEX_CMD` overrides the binary.
+- **`thoth:default`** — see below.
+
+```bash
+node src/bench.js --task health,lookup,chain --modes harness --clients pi:openai/gpt-4o-mini,claude-code:claude-haiku-4-5 --count 4
+```
+
+### Thoth
+
+`thoth:default` hands the goal to Thoth one-shot (`thoth --events`).
 
 ```bash
 # Thoth on another host: reverse-tunnel the webserver (and Ollama, if Thoth's gateway routes to it)
@@ -147,7 +189,7 @@ Tasks carry an `eval` block with:
   separate signal from correctness: a model can reach the right answer by hand after firing the
   wrong tool, or fire the right tool and misreport.
 
-All six tasks use automated ground-truth scoring. Scorers judge content, not wrappers: a list
+All seven tasks use automated ground-truth scoring. Scorers judge content, not wrappers: a list
 returned under `results`, `data` or the schema's own `items` key scores the same as a bare array,
 while `schemaValid` still records whether the shape matched exactly.
 

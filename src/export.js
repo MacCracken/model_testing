@@ -3,13 +3,13 @@
 
 const ROW_COLUMNS = [
   "run", "task", "mode", "client", "model", "index", "correct", "reason", "error",
-  "toolCalls", "toolUseOk", "toolUseReason", "schemaValid", "latencyMs",
+  "toolCalls", "toolUseOk", "toolUseReason", "schemaValid", "latencyMs", "ttftMs", "ttfaMs",
   "promptTokens", "completionTokens", "totalTokens", "rounds", "finishReason", "startedAt",
 ];
 
 const CELL_COLUMNS = [
   "run", "task", "client", "mode", "runs", "correct", "correctPct", "toolUsePct", "toolArgsOkPct",
-  "schemaValidPct", "errorPct", "avgLatencyMs", "latencyP50Ms", "latencyP95Ms", "totalTokens",
+  "schemaValidPct", "errorPct", "avgLatencyMs", "latencyP50Ms", "latencyP95Ms", "ttftP50Ms", "ttfaP50Ms", "totalTokens",
 ];
 
 function csvField(v) {
@@ -38,6 +38,8 @@ export function rowsToCsv(run) {
     toolUseReason: r.toolUseReason ?? "",
     schemaValid: r.schemaValid ?? null,
     latencyMs: r.latencyMs,
+    ttftMs: r.ttftMs ?? null,
+    ttfaMs: r.ttfaMs ?? null,
     promptTokens: r.usage?.prompt_tokens ?? null,
     completionTokens: r.usage?.completion_tokens ?? null,
     totalTokens: r.usage?.total_tokens ?? null,

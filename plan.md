@@ -207,13 +207,49 @@ calls is a name split as "car ol".
 Per-task deltas now reach significance on their own where the floor is real (`lookup`, `chain`,
 `health` on haiku and ornith, `reason` on gpt-4o-mini).
 
-**qwen3.5:9b-mlx** was started as the second local model and stopped after three trials: its
-free-form `health` answers ran 104 s and twice past the 120 s request timeout (a thinking-heavy
-model writing at length). `BENCH_TIMEOUT_MS` now raises the per-request timeout; the run should be
-repeated with it set to 300000 and, ideally, with thinking disabled through the model params. The new `chain` task behaves as designed: 0/10
+**qwen3.5:9b-mlx** was tried twice as the second local model and is parked: its free-form answers
+reason for minutes (104 s to well past the 120 s timeout), and `think=false` through Ollama's
+OpenAI route does not suppress the reasoning — with a 600-token cap the whole budget went to
+reasoning and no answer arrived. It needs Ollama's native API (or a real reasoning-effort knob) to be
+benchmarkable at ten trials per cell in reasonable time. The new `chain` task behaves as designed: 0/10
 without a tool in both free-form and schema-only, 10/10 with one. gpt-4o-mini's free-form `reason`
 is 0/10 — it writes 10 for the marbles question every single time in prose and 8 every time in
 JSON. The local runs at this size are recorded below when they finish.
+
+
+### Same model, different harness (2026-09-04, four trials per cell, harness mode)
+
+Two real arms next to the synthetic harness on the same model, on the four tool tasks (the
+synthetic free-form baselines in the same run: gpt-4o-mini 4/16 · 1.5 s · 218 tok, haiku
+1/16 · 2.5 s · 280 tok). Pi's `lookup` / `chain` / `transform` columns are from a
+rerun after the scoring fix described below; everything else is one run.
+
+| task | synthetic · gpt-4o-mini | Pi · gpt-4o-mini | synthetic · haiku 4.5 | Claude Code · haiku 4.5 |
+|---|---|---|---|---|
+| health | 4/4 · 1.0 s · 522 tok | 4/4 · 1.8 s · 1,479 tok | 4/4 · 1.6 s · 1,664 tok | 4/4 · 3.6 s · 5,048 tok |
+| lookup | 4/4 · 2.2 s · 912 tok | 4/4 · 4.1 s · 1,807 tok | 4/4 · 1.7 s · 2,018 tok | 4/4 · 7.0 s · 10,292 tok |
+| chain | 4/4 · 2.3 s · 1,210 tok | 3/4 · 4.2 s · 2,556 tok | 4/4 · 2.6 s · 3,187 tok | 4/4 · 5.8 s · 9,028 tok |
+| transform | 4/4 · 2.0 s · 959 tok | 4/4 · 4.4 s · 2,601 tok | 4/4 · 1.9 s · 2,186 tok | 4/4 · 5.8 s · 6,762 tok |
+| **all** | **16/16 · 1.9 s · 901 tok** | **15/16 · 3.6 s · 2,110 tok** | **16/16 · 1.9 s · 2,264 tok** | **16/16 · 5.6 s · 7,782 tok** |
+
+What it says:
+
+- **Correctness is the same story everywhere**: every arm reaches (or nearly reaches) 100% on tasks
+  where the free-form baseline is 0%. Pi's one miss is a real one — on `chain` it reported the first
+  greeting instead of the second. Harness choice did not change *whether* these models could do the
+  jobs.
+- **Cost and latency are where the harnesses differ**, exactly as the literature predicted:
+  per trial on the same model, Pi used about 2.5× the tokens and 2× the wall-clock of the synthetic
+  harness, and Claude Code about 3.5× the tokens and 3× the wall-clock (its system prompt is the
+  bulk of it). Those are now headline numbers in every run record.
+- **How the arm is scored matters as much as what it does.** The first Pi pass came out 8/16 only
+  because the arm was being scored from its own tool output: Pi's model pipes curl through `jq`
+  and reshapes the reply, so the raw `{message, id}` never appeared. Scoring against what the
+  webserver actually served (`GET /api/recent`) fixed it, and it is now how every arm is scored,
+  including Thoth, whose events carry no tool output at all. Run arm trials one process at a time
+  against a given webserver: the window is by time, not by caller.
+- The bench's tool-use judge does not apply to arms (they bring their own tools); "tool args ok"
+  stays null for them by design.
 
 ### What is genuinely done
 
@@ -246,40 +282,49 @@ JSON. The local runs at this size are recorded below when they finish.
 - **[3] Decide the 2×2.** **Specs DONE:** `health`, `hello`, `lookup` and `regex` carry hand-written
   `schemaOnly` / `toolOnly` specs (not derived: a free-form prompt says "without any tools" and a
   harness prompt says "call the X tool and return JSON", so a derived spec would contradict itself).
-  Still open: a dedicated 2×2 panel in the UI (today the dumbbell draws hollow markers for the two
-  extra modes and the headline shows a column per mode).
+  **2×2 panel DONE** (2026-09-04): `twoByTwo` in the runner reads the tools effect, the schema
+  effect and their interaction off the four modes; the report prints the grid and the UI shows it
+  under the headline once three of the four modes have rows.
 
 ### Tier 2 — Methodology / task diversity
 
-- **[4] Multi-step tasks.** **DONE** for the dependent-call case: `chain` greets alice, then must
-  greet the random id that came back and report the second greeting; ground truth and the tool-use
-  verdict both come from the trial's own tool results, so firing both calls up front cannot pass.
-  Still open: an extract-and-transform task (fetch, then reshape).
+- **[4] Multi-step and extract-and-transform tasks.** **DONE.** `chain` greets alice, then must greet
+  the random id that came back and report the second greeting; `transform` (2026-09-04) fetches three
+  greetings and must report each name with the first 8 characters of its id and the greeting in
+  upper case — tool-essential plus two reshapings of what came back. Both read their truth from the
+  trial's own tool results.
 - **[5] LLM-as-judge** for open-ended tasks (`eval.judge`), still pluggable and still unbuilt.
 - **[6] Determinism knobs.** **DONE.** `--temperature` / `--seed` on the CLI and two fields in the
   recipe flow into every request as-is and are recorded in `run.config.modelParams` (shown in the
-  headline). Models that reject a non-default temperature (the gpt-5 family) surface as error rows.
+  headline). `--model-param key=value` (repeatable, JSON-parsed) covers anything else a provider
+  accepts, e.g. `think=false` or `max_tokens=600` for Ollama. Models that reject a non-default
+  temperature (the gpt-5 family) surface as error rows.
 
 ### Tier 3 — Data / output
 
 - **[7] CSV export.** **DONE.** `node src/cli.js export <id> [--cells]`, `GET /api/runs/<id>/csv`
   (`?cells=1`), and an "export csv" link on every finished run.
-- **[8] Latency distribution.** p50 / p95 / max **DONE** (per mode and per cell, in the report, the
-  CSV and the headline). **TTFT still open** — it needs the streaming client, and assembling
-  streamed tool-call deltas differs per provider.
+- **[8] Latency distribution.** p50 / p95 / max **DONE**, and **TTFT DONE** (2026-09-04): the client
+  streams by default, reassembles tool-call deltas by index, and records two timings per trial —
+  `ttftMs` (first token of any kind, reasoning included) and `ttfaMs` (first answer token: content or
+  a tool call). Validated live on OpenAI, Anthropic's compatible route and Ollama; usage still arrives
+  in the trailing chunk. The two timings separate cleanly on thinking models: ornith's free-form
+  health answer showed first token at 2.6 s and first answer token at 15.5 s.
 - **[9] Per-cell significance in the CLI.** **DONE.** `summary.delta.byTaskClient`, printed by the
   report when there is more than one cell.
 
 ### Tier 4 — Architecture
 
-- **[10] Provider breadth.** Cerebras / DeepSeek / Together drop in via `PROVIDERS`.
+- **[10] Provider breadth.** DeepSeek added (`deepseek-chat`, `deepseek-reasoner`; greyed out until
+  `DEEPSEEK_API_KEY` exists). Cerebras / Together drop in the same way once someone has a key to verify
+  their model ids against.
 - **[11] `schema.js` coverage.** **DONE.** `additionalProperties` (false or a schema), `const`,
   string bounds / `pattern` / `format` (date-time, date, uuid, email, uri), numeric bounds and
   `multipleOf`, `maxItems` / `uniqueItems`, type unions. Unknown formats stay annotations.
 - **[12] Version pinning.** **DONE.** Every run records `versions` (bench version, git commit, node,
   harness kind) next to its config.
 
-### Tier 5 — Real harnesses as the harness arm (STARTED — Thoth arm plumbed, see below)
+### Tier 5 — Real harnesses as the harness arm (STARTED — Thoth, Claude Code, Pi and Codex arms, see below)
 
 ---
 
@@ -358,6 +403,30 @@ the bench with `THOTH_CMD="ssh -n arch cd ~/.agnos-stack && ~/.local/bin/thoth"`
 So the arm is plumbed: spawn over ssh, events folded into calls/results, routed model and tokens
 recorded, scored by the unchanged runner. What it still cannot do is reach the webserver, which is
 the operator decision above (shell tool or a `web_fetch` allowance for the bench's address).
+
+**Claude Code arm (2026-09-04).** `claude-code:<model>` runs `claude -p --bare --output-format json
+--allowedTools Bash --permission-mode bypassPermissions` on the task's goal. Its JSON transcript
+carries the tool outputs, so the arm recovers the webserver's replies from Bash output and
+re-expresses them as the bench tools' results (`harness/util.js`), which makes `lookup` and `chain`
+scorable exactly as for the synthetic harness. Live at one trial each on `claude-haiku-4-5`:
+`health`, `lookup` and `chain` all passed, 3.7–7.5 s per trial, about a cent each. Two arm-specific
+details worth knowing: the first curl usually fails on zsh globbing the `?` in the URL and the model
+retries with quotes (a genuine harness behaviour, recorded in the tool calls), and the bench's
+tool-use judge stays null for arms because it is written against the bench's own tools.
+
+**Pi and Codex arms (2026-09-04).** Both CLIs turned out to be installed here (pi 0.85.0, codex-cli
+0.153.2). `pi:<provider>/<model>` runs `pi --mode json -p --no-session -nc --tools bash` with the
+bench's key for that provider passed as `--api-key` (Pi does not read `OPENAI_API_KEY` from the
+environment); its `message_end` events carry tool calls, tool outputs, usage and a cost, so every
+task is scorable. Live at one trial each on `openai/gpt-4o-mini`: `health`, `lookup` and `chain`
+all passed in 3–5 s. `codex:<model>` runs `codex exec --json --ephemeral` with the sandbox relaxed
+through `CODEX_SANDBOX_ARGS`; Codex is **not logged in** on this machine, so the arm is built from
+the documented item shapes and every trial currently ends as an error row naming the 401 —
+`codex login` (or `codex login --with-api-key`) is the one step left, and it is the operator's.
+
+Arms run structured modes only; `planMatrix` skips their free-form pairs and says so, so a mixed
+run of synthetic and arm clients yields the baseline from the synthetic client and the harness rows
+from every arm in one record.
 
 Practical shape of a Thoth arm from this machine: `ssh -R 3000:localhost:3000 arch thoth --events
 '<goal>'`, so Thoth's tools reach the webserver under test through the reverse tunnel; parse the
@@ -440,6 +509,8 @@ underneath it, and those were wrong until today.
 ### Decisions needed
 
 1. Same tools for every arm (local MCP server + Pi extension) or bring-your-own — or both, labelled?
+   Data so far says bring-your-own is enough for these tasks: three arms with only a shell reached
+   the synthetic harness's correctness, and the interesting differences were tokens and time.
 2. Model set: Ollama-only for the cross-harness matrix, with hosted models only where the arm supports
    them natively?
 3. For the Thoth arm: which tools does `/var/tmp/tron-deleg.toml` allow non-interactively, and should
