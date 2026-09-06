@@ -29,7 +29,13 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
   aggregates the matrix, and owns the statistics. Every surface (CLI and web) goes through this so
   they can't disagree — the web server serves it to the browser as `/lib/runner.js`, so it must
   stay free of Node-specific imports.
-- `src/results.js` — run persistence (`results/runs/<id>.json`).
+- `src/results.js` — run persistence (`results/runs/<id>.json`); `onRunSaved` lets the store index
+  every save without the saver knowing about it.
+- `src/store.js` — a SQLite index (`node:sqlite`, `results/index.sqlite`) over the run files for
+  cross-run questions: `runs` / `trials` / `cells` tables, incremental `indexRuns` from file mtimes,
+  canned queries (`queryRuns`, `trend`, `cellHistory`, `worstCells`), read-only `rawQuery`, and
+  `compactRuns` retention. The files stay the source of truth; the index is rebuildable and
+  best-effort, so nothing waits on it.
 - `src/json.js` / `src/schema.js` — tolerant JSON extraction + a minimal schema validator.
 - `src/env.js` — loads `.env` into `process.env` (never overriding real env vars). Imported first
   by every entry point and by `providers/index.js`.
@@ -57,7 +63,8 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
   Tasks expose a `goal` (plain job statement, endpoint described, no bench tool names) for arms;
   `runTrial` passes `task` and `mode` to `runWithTools` so an arm can build its own prompt.
 - `src/web/` — the control plane: `server.js` (node:http, zero deps) + `public/` (the UI).
-- `src/cli.js` — entry point (`list` / `show` / `export` / `serve` / `bench` / `aggregate`).
+- `src/cli.js` — entry point (`list` / `show` / `export` / `index` / `query` / `compact` / `serve` /
+  `bench` / `aggregate`).
 - `test/` — `npm test` (node:test, no deps). Scorers are tested with synthetic ground values, the
   runner with a fake client; nothing in the suite needs a model or the webserver.
 
@@ -126,6 +133,7 @@ node src/cli.js serve                       # web UI on http://127.0.0.1:4000
 node src/cli.js list                        # tasks/providers, with key status
 node src/cli.js show <run-id> --table       # review a saved run without the UI
 node src/cli.js export <run-id> --cells     # CSV of the cells (or of every trial without --cells)
+node src/cli.js query cell --task chain --client openai:gpt-4o-mini   # one cell across every run (index, query, compact: see README)
 node src/bench.js --task chain --modes harness --clients local:ornith-1.5:9b --count 4 --temperature 0 --seed 7
 node src/bench.js --task all --modes harness --clients openai:gpt-4o-mini
 node src/aggregate.js --tasks health,hello --modes noHarness,harness --clients local

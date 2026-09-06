@@ -8,6 +8,7 @@
 // Dependency-free (node:http), consistent with the rest of the project.
 
 import "../env.js";
+import { indexRuns, queryRuns, cellHistory } from "../store.js";
 import { createServer } from "node:http";
 import { readFile, stat } from "node:fs/promises";
 import { extname, join, normalize, dirname, resolve } from "node:path";
@@ -212,7 +213,31 @@ async function handle(req, res) {
   }
 
   if (req.method === "GET" && path === "/api/runs") {
+    const filters = ["q", "task", "client", "mode", "since"].filter((k) => url.searchParams.get(k));
+    if (filters.length) {
+      // Filtered listings come from the index (kept current on every save); the plain listing stays
+      // file-based so it never depends on the index existing.
+      try {
+        indexRuns();
+        const opts = Object.fromEntries(filters.map((k) => [k, url.searchParams.get(k)]));
+        return sendJSON(res, 200, { runs: queryRuns({ ...opts, limit: 100 }), indexed: true });
+      } catch (err) {
+        return sendJSON(res, 200, { runs: listRuns({ limit: 100 }), indexed: false, error: err?.message });
+      }
+    }
     return sendJSON(res, 200, { runs: listRuns({ limit: 100 }) });
+  }
+
+  // One task × client × mode cell across every run.
+  if (req.method === "GET" && path === "/api/cells") {
+    const task = url.searchParams.get("task"), client = url.searchParams.get("client"), mode = url.searchParams.get("mode") ?? "harness";
+    if (!task || !client) return sendJSON(res, 400, { error: "task and client are required" });
+    try {
+      indexRuns();
+      return sendJSON(res, 200, cellHistory({ task, client, mode }));
+    } catch (err) {
+      return sendJSON(res, 500, { error: err?.message ?? "index unavailable" });
+    }
   }
 
   if (req.method === "POST" && path === "/api/runs") {

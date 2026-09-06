@@ -131,6 +131,7 @@ function wire() {
   $("#count").addEventListener("input", updatePlan);
   $("#judge").addEventListener("change", updatePlan);
   $("#history").addEventListener("change", (e) => { if (e.target.value) openRun(e.target.value); });
+  $("#history-filter").addEventListener("input", () => { clearTimeout(historyTimer); historyTimer = setTimeout(() => refreshHistory().catch(() => {}), 200); });
   $("#delete-run").addEventListener("click", removeRun);
   $("#detail-close").addEventListener("click", closeDetail);
   $("#detail-prev").addEventListener("click", () => stepDetail(-1));
@@ -521,11 +522,14 @@ async function removeRun() {
   await refreshHistory();
 }
 
+let historyTimer = null;
+
 async function refreshHistory() {
-  const { runs } = await getJSON("/api/runs");
+  const q = $("#history-filter")?.value.trim() ?? "";
+  const { runs } = await getJSON(q ? `/api/runs?q=${encodeURIComponent(q)}` : "/api/runs");
   const sel = $("#history");
   const current = state.run?.id ?? sel.value;
-  sel.replaceChildren(el("option", { value: "" }, runs.length ? "past runs…" : "no past runs"));
+  sel.replaceChildren(el("option", { value: "" }, runs.length ? (q ? `${plural(runs.length, "matching run")}…` : "past runs…") : (q ? "no matching runs" : "no past runs")));
   for (const r of runs) {
     const when = new Date(r.createdAt).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
     const tasks = r.config?.tasks ?? [];
@@ -899,6 +903,19 @@ function renderDetail() {
   if (r.schemaErrors?.length) {
     body.append(el("div", { className: "eyebrow" }, "Schema errors"), el("pre", { className: "bad-pre" }, r.schemaErrors.join("\n")));
   }
+
+  // The same task × model × mode cell across every saved run, from the index.
+  const across = el("div", { className: "hint" }, "across runs: …");
+  body.append(el("div", { className: "eyebrow" }, "Across runs"), across);
+  const key = `${r.task}|${r.client}|${r.mode}`;
+  getJSON(`/api/cells?task=${encodeURIComponent(r.task)}&client=${encodeURIComponent(r.client)}&mode=${encodeURIComponent(r.mode)}`)
+    .then((c) => {
+      if (!across.isConnected || `${r.task}|${r.client}|${r.mode}` !== key) return;
+      across.textContent = c.trials
+        ? `${c.correct}/${c.trials} correct across ${plural(c.runs, "run")} (${fmtPct(c.correctPct)}), ${String(c.first).slice(0, 10)} → ${String(c.last).slice(0, 10)}`
+        : "no other runs of this cell yet";
+    })
+    .catch(() => { across.textContent = "index unavailable"; });
   $("#detail").scrollTop = 0;
 }
 

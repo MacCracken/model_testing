@@ -390,27 +390,38 @@ What these add to the earlier picture:
   health answer showed first token at 2.6 s and first answer token at 15.5 s.
 - **[9] Per-cell significance in the CLI.** **DONE.** `summary.delta.byTaskClient`, printed by the
   report when there is more than one cell.
-- **[13] Long-term storage and cross-run queries.** **OPEN** (added 2026-09-06). Today a run is one
-  JSON file under `results/runs/` (33 files, 4.2 MB after a week; a 230-trial run is ~630 KB) and
-  every surface reads the directory back. That is durable, portable and diffable, and it has no
-  cross-run query: "every trial of task X across runs", "did model M's harness delta move since the
-  schema wording changed", or a trend line all mean reading every file. Plan when it starts to hurt
-  (hundreds of runs, or the first cross-run question):
-  - A **SQLite index over the same files**, not a replacement store — the JSON stays the source of
-    truth, so nothing already saved is migrated or lost. `node:sqlite` ships with Node 22+, so it
-    keeps the zero-dependency rule.
-  - Tables: `runs` (header + config + versions, one row per file), `trials` (one row per trial with
-    the scalar columns the CSV already has, plus a foreign key to the run and the file's mtime), and
-    `cells` (task × client × mode aggregates). Prompts, tool transcripts and ground truth stay in
-    the files; the index holds what queries need and a pointer back.
-  - A `node src/cli.js index` command that (re)builds incrementally from file mtimes, run
-    automatically after `saveRun`, plus `query` with a few canned reports (per-task trend by model
-    over time, best/worst cells, runs touching a task) and a raw `--sql` escape hatch.
-  - The web history dropdown filters by task, model, arm and date from the index instead of listing
-    every file, and a run detail can show "this cell across all runs".
-  - Retention: keep every run file, but allow `index --compact <days>` to strip prompts and tool
-    transcripts from old files while keeping their scalar rows, so the directory does not grow
-    without bound once runs number in the thousands.
+- **[13] Long-term storage and cross-run queries.** **DONE** (added and built 2026-09-06). A run is
+  still one JSON file under `results/runs/` (durable, portable, diffable, nothing migrated), and a
+  **SQLite index over those files** — `results/index.sqlite`, built with Node's own `node:sqlite`, so
+  the zero-dependency rule holds — answers the cross-run questions the directory could not.
+  - `src/store.js`: tables `runs` (header, config, versions, warnings, row count, file mtime),
+    `trials` (the scalar columns the CSV has: task, mode, client, model, harness, correct, reason,
+    error, tool calls, tool-use and schema flags, judge score, latency / TTFT / TTFA, tokens) and
+    `cells` (task × client × mode aggregates from the same `summarize` every surface uses). Prompts,
+    transcripts and ground truth stay in the files; each row points back at its run.
+  - Kept current two ways: `saveRun` fires an `onRunSaved` hook the store listens on (a header row
+    while a web run is live, trials and cells once it finishes; an index failure never blocks a
+    save), and `node src/cli.js index [--full]` reconciles from file mtimes — changed files are
+    re-read, vanished files drop out, and the stray non-run file in the directory is skipped by the
+    same `isRun` guard `loadRun` uses.
+  - `node src/cli.js query runs|trend|cell|worst` (`--task`, `--client`, `--mode`, `--q`, `--since`,
+    `--limit`) plus a read-only `--sql` escape hatch. Web: the header's "find a run" box filters the
+    history through `GET /api/runs?q=|task=|client=|mode=|since=` (the unfiltered listing stays
+    file-based, so the UI never depends on the index), and every trial drawer ends with an
+    "Across runs" line from `GET /api/cells` — the same task × model × mode cell pooled over every
+    saved run with its date span.
+  - Retention: `node src/cli.js compact --older-than <days>` (dry run; `--yes` writes) strips
+    prompts, final messages and tool-result contents from old runs while keeping every scalar, marks
+    the file `compacted` and re-indexes it; a compacted run is never compacted again.
+  - First pass over the existing directory: 32 runs indexed into a 520 KB index; the pooled
+    picture across every run so far is harness 91.3 % correct over 550 trials, noHarness 42.0 % over
+    369, schemaOnly 49.7 % over 290, toolOnly 99.1 % over 223. `query worst` puts the four
+    `openai:gpt-6-astra` harness cells at 0/4 on top — the chat-completions-refuses-tools case from
+    the three-harness table, now visible without opening a file. A dry-run compaction of everything
+    older than three days would trim 17 files by 610 KB (roughly 60 % of each).
+  - Tests: `test/store.test.js` runs against a scratch `RESULTS_DIR` (indexing on save, filters,
+    trend and pooled cell, incremental reindex on mtime change and file removal, compaction dry run
+    versus apply).
 
 ### Tier 4 — Architecture
 

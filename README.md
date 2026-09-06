@@ -101,11 +101,21 @@ tool-use, schema-validity, latency). Every run — CLI or web — is saved under
 shows up in the web UI's history. `--json` prints the whole run record; `--no-save` skips
 writing it.
 
+The JSON files are the source of truth; a SQLite index over them (`results/index.sqlite`, built with
+Node's own `node:sqlite`, refreshed on every save) answers cross-run questions: filter the history
+by task, model or date, follow one task × model × mode cell across runs, or run raw SQL. Old runs
+can be compacted (prompts and transcripts stripped, every scalar kept) without losing their rows.
+
 ```bash
 node src/cli.js list                    # tasks (with the modes each declares) and providers, with key status
 node src/cli.js show                    # recent saved runs
 node src/cli.js show <run-id> --table   # one saved run: per-mode stats, deltas with significance, a task × mode table
 node src/cli.js export <run-id>         # every trial as CSV (--cells for the task × model × mode cells, --out file.csv)
+node src/cli.js index [--full]          # (re)build the SQLite index over results/runs from file mtimes
+node src/cli.js query runs --task chain --client codex:gpt-5.4-mini --since 2026-09-01
+node src/cli.js query cell --task chain --client openai:gpt-4o-mini   # one cell pooled across runs, with its history
+node src/cli.js query worst --limit 10  # lowest pooled correctness (trend: one cell over time; --sql "select …" for anything else)
+node src/cli.js compact --older-than 30 # dry run; --yes strips prompts/transcripts from runs older than 30 days
 ```
 
 `--temperature T`, `--seed S` and `--model-param key=value` (repeatable; e.g. `think=false`,

@@ -8,6 +8,7 @@
 // Prints per-mode and per-cell breakdowns plus the harness delta.
 
 import "./env.js";
+import "./store.js";
 import { resolveClients } from "./providers/index.js";
 import { resolveTasks, resolveModes, describeSkipped, modelParamsFrom, resolveJudge } from "./bench.js";
 import { benchVersions } from "./version.js";

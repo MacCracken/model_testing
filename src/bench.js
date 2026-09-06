@@ -9,6 +9,7 @@
 // the rows to stdout, --no-save skips persistence.
 
 import "./env.js";
+import "./store.js";
 import { getTask, tasks as allTasks } from "./tasks/registry.js";
 import { resolveClients } from "./providers/index.js";
 import { runMatrix, planMatrix, isStructuredMode, describeSignificance, MODE_NAMES, DEFAULT_MODES } from "./runner.js";

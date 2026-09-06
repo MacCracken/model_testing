@@ -134,6 +134,7 @@ pre { margin: 0; font: inherit; }
 .status.down .dot { background: var(--fail); }
 .status.down { color: var(--ink-3); }
 
+#history-filter { width: 150px; flex: 0 0 150px; padding: 5px 8px; font-size: 11px; }
 #history {
   font-size: 11px; color: var(--ink); background: var(--surface);
   border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; max-width: 260px;

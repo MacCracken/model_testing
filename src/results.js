@@ -18,6 +18,17 @@ export function runsDir() {
   return RUNS_DIR;
 }
 
+export function resultsRoot() {
+  return ROOT;
+}
+
+// Listeners run after every successful save (the SQLite index registers one). A listener that
+// throws never affects the save.
+const saveListeners = [];
+export function onRunSaved(fn) {
+  saveListeners.push(fn);
+}
+
 // Sortable, human-readable id: 20260829T174512-3f9a
 export function newRunId(now = new Date()) {
   const stamp = now.toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "");
@@ -30,7 +41,11 @@ function pathFor(id) {
 }
 
 export function saveRun(run) {
-  writeFileSync(pathFor(run.id), JSON.stringify(run, null, 2));
+  const p = pathFor(run.id);
+  writeFileSync(p, JSON.stringify(run, null, 2));
+  for (const fn of saveListeners) {
+    try { fn(run, p); } catch { /* an index must never block a save */ }
+  }
   return run;
 }
 
