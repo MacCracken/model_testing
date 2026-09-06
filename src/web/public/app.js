@@ -63,6 +63,8 @@ const state = {
   stream: null,
   filter: "all",     // all | failures | harness
   detail: -1,        // index into filteredRows(), -1 = closed
+  filterText: "",    // the setup panel's filter box
+  openGroups: new Map(), // provider group open/closed states the user has toggled
 };
 
 // ---- theme -----------------------------------------------------------------------------------
@@ -111,12 +113,14 @@ async function init() {
   applyTheme(readTheme());
 
   state.meta = await getJSON("/api/meta");
+  for (const t of state.meta.tasks) state.tasks.add(t.name);
   renderStatus();
   renderTasks();
   renderModes();
   renderClients();
   await refreshHistory();
   wire();
+  setSetupCollapsed(readSetupCollapsed());
   updatePlan();
   setInterval(pollStatus, 20_000);
 }
@@ -138,9 +142,15 @@ function wire() {
     else if (e.key === "ArrowLeft") stepDetail(-1);
     else if (e.key === "ArrowRight") stepDetail(1);
   });
-  for (const btn of document.querySelectorAll("[data-all]")) {
-    btn.addEventListener("click", () => selectAll(btn.dataset.all));
+  for (const btn of document.querySelectorAll("[data-all]")) btn.addEventListener("click", () => setAll(btn.dataset.all, true));
+  for (const btn of document.querySelectorAll("[data-none]")) btn.addEventListener("click", () => setAll(btn.dataset.none, false));
+  for (const btn of document.querySelectorAll("[data-modes]")) {
+    btn.addEventListener("click", () => setModes(btn.dataset.modes === "pair" ? ["noHarness", "harness"] : MODE_ORDER.filter(modeSupported)));
   }
+  $("#setup-filter").addEventListener("input", (e) => { state.filterText = e.target.value; renderTasks(); renderClients(); });
+  $("#setup-toggle").addEventListener("click", () => setSetupCollapsed(!document.body.classList.contains("setup-collapsed")));
+  $("#setup-rail").addEventListener("click", () => setSetupCollapsed(false));
+  $("#setup-rail").addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSetupCollapsed(false); } });
 }
 
 // ---- header status ---------------------------------------------------------------------------
@@ -178,7 +188,29 @@ async function pollStatus() {
   } catch { /* transient */ }
 }
 
-// ---- recipe ------------------------------------------------------------------------------------
+// ---- new run (the setup panel) ---------------------------------------------------------------
+
+const SETUP_KEY = "hb-setup-collapsed";
+const CATEGORY_LABEL = {
+  "api-call": "API calls",
+  "pure-reasoning": "Reasoning · control",
+  "tool-reasoning": "Tool reasoning",
+  "multi-step": "Multi-step",
+  "extract-transform": "Extract & transform",
+  "open-ended": "Open-ended · judged",
+};
+
+// The panel folds to a rail; the choice is remembered per browser.
+function setSetupCollapsed(collapsed) {
+  document.body.classList.toggle("setup-collapsed", collapsed);
+  $("#setup").setAttribute("aria-expanded", String(!collapsed));
+  $("#setup-toggle").title = collapsed ? "Expand the run setup" : "Collapse the run setup";
+  try { localStorage.setItem(SETUP_KEY, collapsed ? "1" : "0"); } catch { /* per-viewer convenience only */ }
+}
+
+function readSetupCollapsed() {
+  try { return localStorage.getItem(SETUP_KEY) === "1"; } catch { return false; }
+}
 
 function chip({ label, on, title, disabled, onToggle }) {
   const b = el("button", { type: "button", className: "chip", title: title ?? "", disabled: !!disabled });
@@ -196,19 +228,62 @@ function taskMeta(name) {
   return state.meta.tasks.find((t) => t.name === name);
 }
 
+function matchesFilter(text) {
+  const q = state.filterText.trim().toLowerCase();
+  return !q || String(text).toLowerCase().includes(q);
+}
+
+// A link-styled button that never bubbles (it lives inside clickable group headers).
+function linkButton(label, onClick, title) {
+  const b = el("button", { type: "button", className: "link", title: title ?? "" }, label);
+  b.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); onClick(); });
+  return b;
+}
+
+function groupTools({ selected, total, onAll, onNone }) {
+  const tools = el("span", { className: "group-tools" }, el("span", { className: "group-count" }, `${selected}/${total}`));
+  if (onAll) tools.append(linkButton("all", onAll));
+  if (onNone) tools.append(linkButton("none", onNone));
+  return tools;
+}
+
+// Tasks, grouped by category. The list is re-rendered on every change so the counts stay right.
 function renderTasks() {
   const box = $("#tasks");
   box.replaceChildren();
+  const byCategory = new Map();
   for (const t of state.meta.tasks) {
-    state.tasks.add(t.name);
-    box.append(chip({
-      label: t.needsJudge ? `${t.name} ⚖` : t.name,
-      on: true,
-      title: `${t.description}\nmodes: ${t.modes.map((m) => MODE_LABEL[m] ?? m).join(", ")}${t.tools.length ? `\ntools: ${t.tools.join(", ")}` : ""}${t.needsJudge ? "\nneeds a judge model (pick one below)" : ""}`,
-      onToggle: (on) => { on ? state.tasks.add(t.name) : state.tasks.delete(t.name); renderModes(); updatePlan(); },
-    }));
+    if (!byCategory.has(t.category)) byCategory.set(t.category, []);
+    byCategory.get(t.category).push(t);
   }
+  for (const [category, list] of byCategory) {
+    const visible = list.filter((t) => matchesFilter(`${t.name} ${t.description} ${category}`));
+    if (!visible.length) continue;
+    const selected = list.filter((t) => state.tasks.has(t.name)).length;
+    const group = el("div", { className: "group" },
+      el("div", { className: "group-head" },
+        el("span", { className: "group-name" }, CATEGORY_LABEL[category] ?? category),
+        groupTools({
+          selected, total: list.length,
+          onAll: () => { for (const t of list) state.tasks.add(t.name); afterTaskChange(); },
+          onNone: () => { for (const t of list) state.tasks.delete(t.name); afterTaskChange(); },
+        })));
+    const chips = el("div", { className: "chips" });
+    for (const t of visible) {
+      chips.append(chip({
+        label: t.needsJudge ? `${t.name} ⚖` : t.name,
+        on: state.tasks.has(t.name),
+        title: `${t.description}\nmodes: ${t.modes.map((m) => MODE_LABEL[m] ?? m).join(", ")}${t.tools.length ? `\ntools: ${t.tools.join(", ")}` : ""}${t.needsJudge ? "\nneeds a judge model (pick one under Settings)" : ""}`,
+        onToggle: (on) => { on ? state.tasks.add(t.name) : state.tasks.delete(t.name); afterTaskChange(); },
+      }));
+    }
+    group.append(chips);
+    box.append(group);
+  }
+  if (!box.children.length) box.append(el("div", { className: "hint" }, "no tasks match the filter"));
 }
+
+function afterTaskChange() { renderTasks(); renderModes(); updatePlan(); }
 
 // A mode is offered when at least one selected task declares a spec for it.
 function modeSupported(mode) {
@@ -230,6 +305,12 @@ function renderModes() {
   }
 }
 
+function setModes(names) {
+  state.modes = new Set(names);
+  renderModes();
+  updatePlan();
+}
+
 function renderJudgeOptions() {
   const sel = $("#judge");
   const current = sel.value;
@@ -241,49 +322,81 @@ function renderJudgeOptions() {
   if ([...sel.options].some((o) => o.value === current)) sel.value = current;
 }
 
+function providerTag(p) {
+  if (p.kind === "harness") return p.hasKey ? "arm" : "arm · no key";
+  if (!p.needsKey) return p.live ? `live · ${p.models.length}` : "offline";
+  return p.hasKey ? "key set" : `${p.name.toUpperCase()}_API_KEY missing`;
+}
+
+// Models and harness arms: one collapsible group per provider, with a status tag, the selected
+// count and all/none. Groups open when usable and small, or when something in them is selected,
+// or when a filter is active; a group the user toggled keeps that state.
 function renderClients() {
   renderJudgeOptions();
-  const box = $("#clients");
-  box.replaceChildren();
+  const models = $("#clients");
+  const arms = $("#arms");
+  models.replaceChildren();
+  arms.replaceChildren();
+  const filtering = state.filterText.trim() !== "";
   for (const p of state.meta.providers) {
     const usable = p.hasKey && p.live !== false;
-    const tag = p.kind === "harness"
-      ? "harness arm"
-      : !p.needsKey
-        ? (p.live ? `live · ${p.models.length}` : "offline")
-        : (p.hasKey ? "key set" : `${p.name.toUpperCase()}_API_KEY missing`);
-    const group = el("div", { className: `provider${usable ? "" : " unusable"}`, dataset: { provider: p.name } },
-      el("div", { className: "provider-head" }, el("span", {}, p.name), el("span", { className: `tag ${usable ? "ok" : "no"}` }, tag)));
-    for (const m of p.models) {
+    const target = p.kind === "harness" ? arms : models;
+    const visible = p.models.filter((m) => matchesFilter(`${p.name} ${m.client} ${m.label}`));
+    if (filtering && !visible.length) continue;
+    const selected = p.models.filter((m) => state.clients.has(m.client)).length;
+    const open = state.openGroups.has(p.name)
+      ? state.openGroups.get(p.name)
+      : (usable && (selected > 0 || filtering || p.models.length <= 4));
+    const details = el("details", { className: `provider${usable ? "" : " unusable"}`, open });
+    details.addEventListener("toggle", () => state.openGroups.set(p.name, details.open));
+    details.append(el("summary", {},
+      el("span", { className: "group-name" }, p.name),
+      el("span", { className: `tag ${usable ? "ok" : "no"}` }, providerTag(p)),
+      groupTools({
+        selected, total: p.models.length,
+        onAll: usable ? () => { for (const m of p.models) state.clients.add(m.client); afterClientChange(); } : null,
+        onNone: usable ? () => { for (const m of p.models) state.clients.delete(m.client); afterClientChange(); } : null,
+      })));
+    const rows = el("div", { className: "rows" });
+    for (const m of visible) {
       const input = el("input", { type: "checkbox", disabled: !usable, value: m.client, checked: state.clients.has(m.client) });
-      input.addEventListener("change", () => { input.checked ? state.clients.add(m.client) : state.clients.delete(m.client); updatePlan(); });
-      group.append(el("label", { className: "model", title: m.label !== m.id ? m.label : "" }, input, el("i", { className: "box" }), el("span", {}, m.id)));
+      input.addEventListener("change", () => { input.checked ? state.clients.add(m.client) : state.clients.delete(m.client); afterClientChange(); });
+      rows.append(el("label", { className: "model", title: m.label !== m.id ? m.label : "" }, input, el("i", { className: "box" }), el("span", {}, m.id)));
     }
-    box.append(group);
+    details.append(rows);
+    target.append(details);
   }
+  if (!models.children.length) models.append(el("div", { className: "hint" }, filtering ? "no models match the filter" : "no model providers configured"));
+  if (!arms.children.length) arms.append(el("div", { className: "hint" }, filtering ? "no arms match the filter" : "no harness arms configured"));
 }
 
-function selectAll(kind) {
+function afterClientChange() { renderClients(); updatePlan(); }
+
+// all / none for a whole section: tasks, models (non-arm providers) or arms.
+function setAll(kind, on) {
   if (kind === "tasks") {
-    const chips = [...$("#tasks").querySelectorAll(".chip")];
-    const turnOn = chips.some((c) => c.getAttribute("aria-pressed") !== "true");
-    for (const c of chips) if ((c.getAttribute("aria-pressed") === "true") !== turnOn) c.click();
+    for (const t of state.meta.tasks) on ? state.tasks.add(t.name) : state.tasks.delete(t.name);
+    afterTaskChange();
     return;
   }
-  const boxes = [...$("#clients").querySelectorAll("input:not(:disabled)")];
-  const turnOn = boxes.some((b) => !b.checked);
-  for (const b of boxes) {
-    if (b.checked !== turnOn) { b.checked = turnOn; b.dispatchEvent(new Event("change")); }
+  for (const p of state.meta.providers) {
+    if ((kind === "arms") !== (p.kind === "harness")) continue;
+    if (!(p.hasKey && p.live !== false)) continue;
+    for (const m of p.models) on ? state.clients.add(m.client) : state.clients.delete(m.client);
   }
+  afterClientChange();
 }
 
-// What the current recipe would actually run: (task, mode) pairs the task declares, × models × count.
+function armClientSet() {
+  return new Set((state.meta?.providers ?? []).filter((p) => p.kind === "harness").flatMap((p) => p.models.map((m) => m.client)));
+}
+
+// What the current setup would actually run: (task, mode) pairs the task declares × runners × count.
+// A harness arm runs structured modes only; the server skips its free-form pairs, so the count does too.
 function plan() {
   const count = Math.max(1, Math.min(20, Number($("#count").value) || 1));
   const modes = [...state.modes].filter(modeSupported);
-  // A harness arm runs structured modes only; the server skips its free-form pairs, so the recipe
-  // counts them the same way.
-  const arms = new Set((state.meta?.providers ?? []).filter((p) => p.kind === "harness").flatMap((p) => p.models.map((m) => m.client)));
+  const arms = armClientSet();
   const clientsFor = (m) => [...state.clients].filter((c) => !(arms.has(c) && !isStructuredMode(m))).length;
   let cells = 0;
   const skipped = [];
@@ -294,7 +407,8 @@ function plan() {
       else skipped.push(`${name}/${MODE_LABEL[m] ?? m}`);
     }
   }
-  return { count, modes, total: cells * count, skipped };
+  const armsN = [...state.clients].filter((c) => arms.has(c)).length;
+  return { count, modes, total: cells * count, skipped, modelsN: state.clients.size - armsN, armsN };
 }
 
 function updatePlan() {
@@ -303,20 +417,24 @@ function updatePlan() {
   const node = $("#plan");
   node.replaceChildren();
   if (!p.total) {
-    node.append("Select at least one task, a mode it declares, and one model.");
+    node.append(el("div", {}, "Pick at least one task, a mode it declares, and a model or arm."));
   } else {
+    const runners = [p.modelsN ? plural(p.modelsN, "model") : "", p.armsN ? plural(p.armsN, "arm") : ""].filter(Boolean).join(" + ");
     node.append(
-      `${plural(state.tasks.size, "task")} × ${plural(p.modes.length, "mode")} × ${plural(state.clients.size, "model")} × ${p.count} = `,
-      el("b", {}, plural(p.total, "trial")),
+      el("div", {}, `${plural(state.tasks.size, "task")} × ${plural(p.modes.length, "mode")} × ${runners} × ${p.count} = `, el("b", {}, plural(p.total, "trial"))),
+      el("div", { className: "summary" },
+        el("span", {}, [...state.tasks].join(" ")),
+        el("span", {}, p.modes.map((m) => MODE_LABEL[m] ?? m).join(" + "))),
     );
-    if (p.skipped.length) node.append(el("span", { className: "hint" }, `skips ${p.skipped.join(", ")} — not declared by that task`));
+    if (p.skipped.length) node.append(el("div", { className: "hint" }, `skips ${p.skipped.join(", ")} — not declared by that task`));
   }
   const judged = [...state.tasks].filter((name) => taskMeta(name)?.needsJudge);
-  if (p.total && judged.length && !$("#judge").value) node.append(el("span", { className: "hint" }, `${judged.join(", ")} needs a judge — pick one below or its trials will error`));
+  if (p.total && judged.length && !$("#judge").value) node.append(el("div", { className: "hint" }, `${judged.join(", ")} needs a judge — pick one under Settings or its trials will error`));
   $("#run").disabled = !p.total || busy;
   $("#mode-hint").textContent = state.modes.has("noHarness") && state.modes.has("harness")
     ? "no harness + harness → delta"
     : "select no harness and harness to get a delta";
+  $("#setup-rail-summary").textContent = p.total ? plural(p.total, "trial") : "nothing selected";
 }
 
 function showLaunchError(msg) {

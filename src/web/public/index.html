@@ -38,64 +38,85 @@
   </header>
 
   <div class="layout">
-    <!-- ============ recipe ============ -->
-    <aside class="recipe" aria-labelledby="recipe-h">
-      <h2 id="recipe-h" class="serif-title">Recipe</h2>
-
-      <section class="field">
-        <div class="field-head"><span class="eyebrow">Tasks</span><button type="button" class="link" data-all="tasks">all</button></div>
-        <div id="tasks" class="chips"></div>
-      </section>
-
-      <section class="field">
-        <div class="field-head"><span class="eyebrow">Modes</span></div>
-        <div id="modes" class="chips modes"></div>
-        <p id="mode-hint" class="hint">no harness + harness &rarr; delta</p>
-      </section>
-
-      <section class="field">
-        <div class="field-head"><span class="eyebrow">Models</span><button type="button" class="link" data-all="clients">all available</button></div>
-        <div id="clients" class="providers"></div>
-      </section>
-
-      <div class="field row">
-        <label for="count">trials / cell</label>
-        <input id="count" type="number" min="1" max="20" value="1" />
+    <!-- ============ new run (setup) ============ -->
+    <aside id="setup" class="setup" aria-labelledby="setup-h" aria-expanded="true">
+      <div class="setup-head">
+        <h2 id="setup-h" class="serif-title">New run</h2>
+        <button id="setup-toggle" type="button" class="ghost icon" title="Collapse the run setup" aria-controls="setup-body">&#x27E8;</button>
       </div>
-      <div class="field row">
-        <label for="temperature" title="Sent as-is with every request. Blank keeps the provider default; some models reject non-default values.">temperature</label>
-        <input id="temperature" type="number" step="0.1" min="0" max="2" placeholder="default" />
-      </div>
-      <div class="field row">
-        <label for="seed" title="Sent as-is with every request where the provider supports it (OpenAI, Ollama).">seed</label>
-        <input id="seed" type="number" step="1" placeholder="none" />
-      </div>
-      <div class="field row">
-        <label for="judge" title="The model that grades open-ended tasks (explain). Recorded in the run.">judge</label>
-        <select id="judge"><option value="">none</option></select>
+      <div id="setup-rail" class="setup-rail" role="button" tabindex="0" title="Expand the run setup">
+        <span class="rail-arrow" aria-hidden="true">&#x27E9;</span>
+        <span class="rail-label">New run</span>
+        <span id="setup-rail-summary" class="rail-summary"></span>
       </div>
 
-      <div class="launch">
-        <p id="plan" class="plan"></p>
-        <button id="run" type="button" class="primary" disabled>Run benchmark</button>
-        <button id="cancel" type="button" class="danger" hidden>Cancel run</button>
-        <p id="launch-error" class="error" hidden></p>
+      <div id="setup-body" class="setup-body">
+        <input id="setup-filter" type="search" class="filter" placeholder="filter tasks, models, arms&hellip;" aria-label="Filter tasks, models and arms" autocomplete="off" />
+
+        <section class="field">
+          <div class="field-head">
+            <span class="eyebrow">Tasks</span>
+            <span class="field-tools"><button type="button" class="link" data-all="tasks">all</button><button type="button" class="link" data-none="tasks">none</button></span>
+          </div>
+          <div id="tasks" class="groups"></div>
+        </section>
+
+        <section class="field">
+          <div class="field-head">
+            <span class="eyebrow">Modes</span>
+            <span class="field-tools"><button type="button" class="link" data-modes="pair" title="no harness + harness: the headline delta">pair</button><button type="button" class="link" data-modes="all" title="all four modes: the tools × schema 2×2">all four</button></span>
+          </div>
+          <div id="modes" class="chips modes"></div>
+          <p id="mode-hint" class="hint">no harness + harness &rarr; delta</p>
+        </section>
+
+        <section class="field">
+          <div class="field-head">
+            <span class="eyebrow">Models</span>
+            <span class="field-tools"><button type="button" class="link" data-all="clients">all</button><button type="button" class="link" data-none="clients">none</button></span>
+          </div>
+          <div id="clients" class="groups"></div>
+        </section>
+
+        <section class="field">
+          <div class="field-head">
+            <span class="eyebrow">Harness arms</span>
+            <span class="field-tools"><button type="button" class="link" data-all="arms">all</button><button type="button" class="link" data-none="arms">none</button></span>
+          </div>
+          <div id="arms" class="groups"></div>
+          <p class="hint">A real harness brings its own tools and model, runs the structured modes only, and is scored against the same webserver.</p>
+        </section>
+
+        <section class="field settings">
+          <div class="field-head"><span class="eyebrow">Settings</span></div>
+          <div class="setting"><label for="count">trials / cell</label><input id="count" type="number" min="1" max="20" value="1" /></div>
+          <div class="setting"><label for="temperature" title="Sent as-is with every request. Blank keeps the provider default; some models reject non-default values.">temperature</label><input id="temperature" type="number" step="0.1" min="0" max="2" placeholder="default" /></div>
+          <div class="setting"><label for="seed" title="Sent as-is with every request where the provider supports it (OpenAI, Ollama).">seed</label><input id="seed" type="number" step="1" placeholder="none" /></div>
+          <div class="setting"><label for="judge" title="The model that grades open-ended tasks (explain). Recorded in the run.">judge</label><select id="judge"><option value="">none</option></select></div>
+        </section>
+
+        <div class="launch">
+          <div id="plan" class="plan"></div>
+          <button id="run" type="button" class="primary" disabled>Run benchmark</button>
+          <button id="cancel" type="button" class="danger" hidden>Cancel run</button>
+          <p id="launch-error" class="error" hidden></p>
+        </div>
       </div>
     </aside>
 
     <!-- ============ results ============ -->
     <main class="results">
-      <div id="empty" class="empty">
+      <div id="empty" class="empty panel">
         <p class="serif">No run selected.</p>
-        <p class="hint">Launch one from the recipe, or pick a past run from the header.</p>
+        <p class="hint">Set one up in <b>New run</b>, or pick a past run from the header.</p>
       </div>
 
       <div id="report" hidden>
         <div id="warnings" class="warn" hidden></div>
 
-        <section id="headline" class="headline" aria-label="Headline numbers"></section>
+        <section id="headline" class="headline panel" aria-label="Headline numbers"></section>
 
-        <section id="grid2x2" class="block" hidden>
+        <section id="grid2x2" class="block panel" hidden>
           <div class="block-head">
             <h3 class="serif-title">Tools &times; schema</h3>
             <div id="grid2x2-effects" class="legend"></div>
@@ -103,7 +124,7 @@
           <div id="grid2x2-body" class="two-by-two"></div>
         </section>
 
-        <section class="block">
+        <section class="block panel">
           <div class="block-head">
             <h3 id="live-title" class="serif-title">Trials</h3>
             <div class="legend">
@@ -114,7 +135,7 @@
           <div id="live" class="live"></div>
         </section>
 
-        <section class="block">
+        <section class="block panel">
           <div class="block-head">
             <h3 class="serif-title">Correctness by task &times; model</h3>
             <div id="matrix-legend" class="legend"></div>
@@ -122,7 +143,7 @@
           <div id="matrix" class="matrix"></div>
         </section>
 
-        <section class="block">
+        <section class="block panel">
           <div class="block-head">
             <h3 class="serif-title">Trial log</h3>
             <div class="block-tools">

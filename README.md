@@ -55,11 +55,15 @@ The fastest way to launch runs and read the results:
 node src/cli.js serve
 ```
 
-Then open <http://127.0.0.1:4000>. The page is a recipe on the left and the results on the right:
+Then open <http://127.0.0.1:4000>. The page is a **New run** panel on the left and the results on
+the right; the panel folds to a slim rail (the button in its header) and remembers that choice:
 
-- pick **tasks**, **modes** and **models** as chips (a mode greys out when no selected task declares
-  it; providers without a key, or an offline Ollama, are greyed out) and set trials per cell — the
-  recipe sentence shows exactly how many trials will run and which pairs are skipped;
+- pick **tasks** (grouped by category, all/none per group), **modes** (chips, with *pair* and *all
+  four* presets; a mode greys out when no selected task declares it), **models** and **harness arms**
+  (one collapsible group per provider with its status, selected count and all/none; providers
+  without a key, or an offline Ollama, are greyed out), filter all of them from one box, and set
+  trials per cell and the knobs under Settings — the summary at the bottom shows exactly how many
+  trials will run and which pairs are skipped;
 - the headline is the **harness delta** with its significance line, the per-mode rates with p50/p95
   latency and median time-to-first-token, and the harness hygiene numbers (tool use, **tool args
   ok**, schema validity, tokens); below it, once three of the four modes have run, the **tools ×
@@ -74,7 +78,8 @@ Then open <http://127.0.0.1:4000>. The page is a recipe on the left and the resu
   any schema errors. ← / → step between trials, esc closes;
 - reopen any past run from the header dropdown, including runs launched from the CLI;
 - **light / dark / system** theme switch in the header, remembered per browser;
-- optional **temperature** and **seed** in the recipe, and an **export csv** link on every finished run.
+- optional **temperature**, **seed** and **judge** under Settings, and an **export csv** link on every
+  finished run.
 
 Useful flags: `--port 4000`, `--host 127.0.0.1`, `--open`.
 
