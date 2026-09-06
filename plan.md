@@ -265,6 +265,66 @@ What it says:
 - The bench's tool-use judge does not apply to arms (they bring their own tools); "tool args ok"
   stays null for them by design.
 
+
+### Same model, three harnesses (2026-09-06, four trials per cell, harness mode)
+
+**gpt-5.4-mini** — the one model the synthetic client, Pi and Codex can all run with tools. Free-form
+baseline in the same run: 2/16 · 1.1 s (answer 0.6 s) · 165 tok.
+
+| task | synthetic | Pi | Codex |
+|---|---|---|---|
+| health | 4/4 · 1.4 s (answer 0.6 s) · 699 tok | 4/4 · 2.8 s (answer 2.8 s) · 1,611 tok | 4/4 · 3.2 s (answer 3.0 s) · 31,663 tok |
+| lookup | 4/4 · 1.9 s (answer 0.8 s) · 1,084 tok | 4/4 · 3.7 s (answer 3.7 s) · 2,303 tok | 4/4 · 3.8 s (answer 3.6 s) · 34,270 tok |
+| chain | 4/4 · 2.6 s (answer 0.5 s) · 1,488 tok | 2/4 · 6.4 s (answer 6.4 s) · 3,554 tok | 3/4 · 4.9 s (answer 4.7 s) · 54,441 tok |
+| transform | 4/4 · 1.8 s (answer 0.7 s) · 1,184 tok | 4/4 · 3.8 s (answer 3.8 s) · 2,367 tok | 4/4 · 3.9 s (answer 3.7 s) · 32,092 tok |
+| **all** | **16/16 · 1.9 s (answer 0.7 s) · 1,114 tok** | **14/16 · 4.2 s (answer 4.2 s) · 2,459 tok** | **15/16 · 4.0 s (answer 3.7 s) · 38,117 tok** |
+
+Deltas against that baseline: synthetic +87.5pp (significant · p<0.001 · 16 vs 16 trials); Pi +75.0pp (significant · p<0.001 · 16 vs 16 trials); Codex +81.3pp (significant · p<0.001 · 16 vs 16 trials).
+
+**claude-haiku-4-5** (same run) — baseline 2/16 · 2.5 s (answer 0.5 s) · 274 tok:
+
+| task | synthetic | Claude Code |
+|---|---|---|
+| health | 4/4 · 1.5 s (answer 0.7 s) · 1,662 tok | 4/4 · 4.7 s (answer 4.1 s) · 4,697 tok |
+| lookup | 4/4 · 2.5 s (answer 0.8 s) · 2,019 tok | 4/4 · 6.2 s (answer 5.8 s) · 5,156 tok |
+| chain | 4/4 · 3.3 s (answer 0.5 s) · 3,177 tok | 4/4 · 8.3 s (answer 7.8 s) · 9,125 tok |
+| transform | 4/4 · 1.7 s (answer 0.6 s) · 2,185 tok | 4/4 · 9.5 s (answer 9.0 s) · 7,958 tok |
+| **all** | **16/16 · 2.3 s (answer 0.6 s) · 2,261 tok** | **16/16 · 7.2 s (answer 6.7 s) · 6,734 tok** |
+
+Deltas: synthetic +87.5pp (significant · p<0.001 · 16 vs 16 trials); Claude Code +87.5pp (significant · p<0.001 · 16 vs 16 trials).
+
+**gpt-6-astra** (Codex's default) — arms versus raw only, because chat completions refuses function
+tools on this model, so the synthetic harness column is not runnable there (its rows are API
+errors, excluded here). Baseline 0/16 · 2.5 s (answer 1.9 s) · 166 tok:
+
+| task | Pi | Codex |
+|---|---|---|
+| health | 4/4 · 3.0 s (answer 3.0 s) · 1,505 tok | 4/4 · 4.3 s (answer 4.1 s) · 36,376 tok |
+| lookup | 4/4 · 5.6 s (answer 5.5 s) · 1,869 tok | 4/4 · 6.1 s (answer 5.9 s) · 36,840 tok |
+| chain | 4/4 · 9.0 s (answer 9.0 s) · 1,828 tok | 4/4 · 6.3 s (answer 6.1 s) · 36,760 tok |
+| transform | 4/4 · 5.2 s (answer 5.2 s) · 1,979 tok | 4/4 · 5.7 s (answer 5.5 s) · 36,969 tok |
+| **all** | **16/16 · 5.7 s (answer 5.7 s) · 1,795 tok** | **16/16 · 5.6 s (answer 5.4 s) · 36,736 tok** |
+
+Deltas: Pi +100.0pp (significant · p<0.001 · 16 vs 16 trials); Codex +100.0pp (significant · p<0.001 · 16 vs 16 trials).
+
+"Answer" is the event-level time to the final answer for arms (first-token timing for the synthetic
+client is in the run record).
+
+What these add to the earlier picture:
+
+- **The first harness-attributable correctness difference.** On `gpt-5.4-mini`, the synthetic tool
+  loop chained `chain` 4/4 while Pi did 2/4 and Codex 3/4, each miss being "the id was never
+  greeted — the second call did not use the first result": inside those harnesses the same model
+  fetched alice and then answered without making the dependent second call. Small numbers, but the
+  scorer names the mechanism, and it did not happen to that model in the bench's own loop.
+- **Codex's cost is in a different league**: ~38k tokens per trial against ~1.1k for the synthetic
+  harness and ~2.5k for Pi on the same model — its ~12k-token context is resent every turn. On
+  correctness all three are within a trial of each other.
+- `gpt-6-astra` raw is 0/16 on these tasks and both arms take it to 16/16, so the full harness
+  effect is visible even where the synthetic harness cannot run.
+- Everything else was model behaviour, not scoring: free-form health hedges and one Pi `chain` report
+  of the first greeting instead of the second in the earlier run.
+
 ### What is genuinely done
 
 - Baseline benchmark (tasks × modes × clients), CLI + web, per-mode / per-cell breakdowns, saved runs.
@@ -438,9 +498,13 @@ bench's key for that provider passed as `--api-key` (Pi does not read `OPENAI_AP
 environment); its `message_end` events carry tool calls, tool outputs, usage and a cost, so every
 task is scorable. Live at one trial each on `openai/gpt-4o-mini`: `health`, `lookup` and `chain`
 all passed in 3–5 s. `codex:<model>` runs `codex exec --json --ephemeral` with the sandbox relaxed
-through `CODEX_SANDBOX_ARGS`; Codex is **not logged in** on this machine, so the arm is built from
-the documented item shapes and every trial currently ends as an error row naming the 401 —
-`codex login` (or `codex login --with-api-key`) is the one step left, and it is the operator's.
+through `CODEX_SANDBOX_ARGS`. Once logged in (2026-09-06, API-key login), the arm ran live on its
+default model `gpt-6-astra`: `health`, `lookup`, `chain` and `transform` all passed at one trial
+each, 5–7 s per trial, with `--json` items exactly as documented. Two facts learned on the way:
+Codex's default model exists on the plain API but **chat completions refuses function tools on it**
+(it wants the Responses API), so a synthetic-harness baseline on `gpt-6-astra` is not possible and
+that model is compared arms-versus-raw only; and Codex sends ~12k system-prompt tokens per turn.
+`gpt-5.4-mini` runs everywhere (synthetic, Pi, Codex), so it is the model for the three-way.
 
 Arms run structured modes only; `planMatrix` skips their free-form pairs and says so, so a mixed
 run of synthetic and arm clients yields the baseline from the synthetic client and the harness rows
@@ -450,6 +514,11 @@ from every arm in one record.
 against the free-form baseline of the same model from the synthetic client in the same run
 (matched on the model id, provider prefix stripped); the report, the headline and the matrix show
 it. "Harness X on model M vs raw M" is now a number the run computes, not a table someone assembles.
+
+**Arm timings (2026-09-06).** Every arm's output lines are timestamped as they arrive, and each
+arm reports `ttftMs` as the arrival of its first visible action and `ttfaMs` as its final answer
+(event-level; Claude Code now runs with `stream-json`). One health trial each: Pi first action at
+1.0 s, answer 2.0 s; Claude Code 1.9 s / 3.8 s; Codex 3.3 s / 4.2 s.
 
 Practical shape of a Thoth arm from this machine: `ssh -R 3000:localhost:3000 arch thoth --events
 '<goal>'`, so Thoth's tools reach the webserver under test through the reverse tunnel; parse the

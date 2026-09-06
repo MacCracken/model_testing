@@ -51,6 +51,9 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
   needs `codex login`). `thoth.js` spawns `thoth --events` (stdin closed, task quoted for ssh) and
   folds its NDJSON (no tool-result contents). Arms report the routed model, run structured modes only
   (`structuredOnly`; the planner skips the rest), and the bench's tool-use judge stays null for them.
+  `runChild` timestamps every output line; `eventTimings` turns that into the arm's `ttftMs` (first
+  visible action) and `ttfaMs` (final answer) — event-level, coarser than the synthetic client's
+  token-level timings. Claude Code therefore runs with `--output-format stream-json --verbose`.
   Tasks expose a `goal` (plain job statement, endpoint described, no bench tool names) for arms;
   `runTrial` passes `task` and `mode` to `runWithTools` so an arm can build its own prompt.
 - `src/web/` — the control plane: `server.js` (node:http, zero deps) + `public/` (the UI).

@@ -110,7 +110,9 @@ Every run also records the bench version, git commit and node version under `ver
 
 Requests stream by default, which is how the bench measures **time to first token**: each trial
 records `ttftMs` (first token of any kind, reasoning included) and `ttfaMs` (first answer token —
-content or a tool call); the report and the UI show their medians. `BENCH_TIMEOUT_MS` sets the
+content or a tool call); the report and the UI show their medians. For real-harness arms the same two
+fields are **event-level**: the arrival of the harness's first visible action (a message or tool
+call) and of its final answer, read off its streamed output. `BENCH_TIMEOUT_MS` sets the
 per-request timeout.
 
 ## Providers

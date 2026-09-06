@@ -16,7 +16,7 @@
 // because Codex was not logged in on this machine when it was written.
 
 import { parseJSONLoose } from "../json.js";
-import { goalPrompt, synthesizeToolResults, recentGreetings, splitCommand, runChild } from "./util.js";
+import { goalPrompt, synthesizeToolResults, recentGreetings, splitCommand, runChild, eventTimings } from "./util.js";
 import { BASE } from "../tasks/util.js";
 
 export function parseCodexEvents(ndjson) {
@@ -79,7 +79,10 @@ export class CodexClient {
     for (const k of Object.keys(env)) if (k === "CLAUDECODE" || k.startsWith("CLAUDE_CODE_")) delete env[k];
     const t0 = performance.now();
     const startedAt = new Date().toISOString();
-    const { stdout, stderr, code } = await runChild(argv, { signal, timeoutMs, env, label: "codex" });
+    const { stdout, stderr, code, lines } = await runChild(argv, { signal, timeoutMs, env, label: "codex" });
+    const timing = eventTimings(lines,
+      (l) => /"type":"item\.(started|completed)"/.test(l),
+      (l) => /"type":"item\.completed"/.test(l) && /"type":"agent_message"/.test(l));
     const endedAt = new Date().toISOString();
     const p = parseCodexEvents(stdout);
     if (p.failed) throw new Error(`codex: ${p.failed}`);
@@ -87,6 +90,8 @@ export class CodexClient {
     const served = await recentGreetings(BASE, startedAt, endedAt);
     const toolResults = [...p.toolResults, ...synthesizeToolResults(task, mode, p.toolResults.map((r) => r.content), served)];
     return {
+      ttftMs: timing.ttftMs,
+      ttfaMs: timing.ttfaMs,
       text: p.text,
       structured: parseJSONLoose(p.text),
       toolCalls: p.toolCalls,
@@ -94,8 +99,6 @@ export class CodexClient {
       rounds: 1,
       finishReason: "stop",
       usage: p.usage,
-      ttftMs: null,
-      ttfaMs: null,
       elapsedMs: Math.round(performance.now() - t0),
       harness: { kind: "codex", model: this.model, system, warnings: p.errors },
     };

@@ -19,7 +19,7 @@
 // Thoth's config routes to; the `model` reported in the events is recorded on every row.
 
 import { parseJSONLoose } from "../json.js";
-import { goalPrompt, synthesizeToolResults, recentGreetings, splitCommand, runChild } from "./util.js";
+import { goalPrompt, synthesizeToolResults, recentGreetings, splitCommand, runChild, eventTimings } from "./util.js";
 import { BASE } from "../tasks/util.js";
 
 export function parseEvents(ndjson) {
@@ -83,7 +83,10 @@ export class ThothClient {
     const argv = [...prefix, "--events", remote ? `'${taskText.replace(/'/g, "'\\''")}'` : taskText];
     const t0 = performance.now();
     const startedAt = new Date().toISOString();
-    const { stdout, stderr, code } = await runChild(argv, { signal, timeoutMs, label: "thoth" });
+    const { stdout, stderr, code, lines } = await runChild(argv, { signal, timeoutMs, label: "thoth" });
+    const timing = eventTimings(lines,
+      (l) => /"event":"(tool_call|response)"/.test(l),
+      (l) => /"event":"response"/.test(l));
     const endedAt = new Date().toISOString();
     const parsed = parseEvents(stdout);
     const text = parsed.text ?? "";
@@ -93,6 +96,8 @@ export class ThothClient {
     // Thoth's events carry no tool-result contents, so what the server served is the only truth.
     const served = await recentGreetings(BASE, startedAt, endedAt);
     return {
+      ttftMs: timing.ttftMs,
+      ttfaMs: timing.ttfaMs,
       text,
       structured: parseJSONLoose(text),
       toolCalls: parsed.toolCalls,

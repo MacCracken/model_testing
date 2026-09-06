@@ -12,7 +12,7 @@
 // that drives the synthetic arm drives Pi. Model ids are `provider/model`, as Pi spells them.
 
 import { parseJSONLoose } from "../json.js";
-import { goalPrompt, synthesizeToolResults, recentGreetings, splitCommand, runChild } from "./util.js";
+import { goalPrompt, synthesizeToolResults, recentGreetings, splitCommand, runChild, eventTimings } from "./util.js";
 import { BASE } from "../tasks/util.js";
 
 export function parsePiEvents(ndjson) {
@@ -87,7 +87,10 @@ export class PiClient {
     for (const k of Object.keys(env)) if (k === "CLAUDECODE" || k.startsWith("CLAUDE_CODE_")) delete env[k];
     const t0 = performance.now();
     const startedAt = new Date().toISOString();
-    const { stdout, stderr, code } = await runChild(argv, { signal, timeoutMs, env, label: "pi" });
+    const { stdout, stderr, code, lines } = await runChild(argv, { signal, timeoutMs, env, label: "pi" });
+    const timing = eventTimings(lines,
+      (l) => /"type":"message_update"/.test(l) || (/"type":"message_end"/.test(l) && /"role":"assistant"/.test(l)),
+      (l) => /"type":"message_end"/.test(l) && /"role":"assistant"/.test(l) && /"type":"text"/.test(l));
     const endedAt = new Date().toISOString();
     const p = parsePiEvents(stdout);
     if (p.text === null) throw new Error(`pi: ${p.error ?? (code !== 0 ? `exited ${code}: ${stderr.trim().split("\n").filter(Boolean).pop() ?? ""}` : "no assistant message")}`);
@@ -95,6 +98,8 @@ export class PiClient {
     const served = await recentGreetings(BASE, startedAt, endedAt);
     const toolResults = [...p.toolResults, ...synthesizeToolResults(task, mode, p.toolResults.map((r) => r.content), served)];
     return {
+      ttftMs: timing.ttftMs,
+      ttfaMs: timing.ttfaMs,
       text: p.text,
       structured: parseJSONLoose(p.text),
       toolCalls: p.toolCalls,
@@ -102,8 +107,6 @@ export class PiClient {
       rounds: 1,
       finishReason: "stop",
       usage: p.usage,
-      ttftMs: null,
-      ttfaMs: null,
       elapsedMs: Math.round(performance.now() - t0),
       harness: { kind: "pi", model: p.model && p.provider ? `${p.provider}/${p.model}` : p.model, provider: p.provider, costUsd: p.costUsd, system },
     };

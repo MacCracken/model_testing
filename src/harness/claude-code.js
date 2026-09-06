@@ -13,13 +13,23 @@
 // removed from the environment so the arm also works when the bench itself runs under Claude Code.
 
 import { parseJSONLoose } from "../json.js";
-import { goalPrompt, synthesizeToolResults, recentGreetings, splitCommand, runChild } from "./util.js";
+import { goalPrompt, synthesizeToolResults, recentGreetings, splitCommand, runChild, eventTimings } from "./util.js";
 import { BASE } from "../tasks/util.js";
 
 export function parseTranscript(raw) {
-  let messages;
-  try { messages = JSON.parse(raw); } catch { throw new Error(`claude-code: output was not JSON: ${String(raw).slice(0, 120)}`); }
-  if (!Array.isArray(messages)) messages = [messages];
+  // `json` output is one array; `stream-json` is one message per line. Accept both.
+  let messages = [];
+  const text = String(raw ?? "").trim();
+  if (text.startsWith("[")) {
+    try { messages = JSON.parse(text); } catch { messages = []; }
+  }
+  if (!messages.length) {
+    for (const line of text.split(/\r?\n/)) {
+      const t = line.trim();
+      if (!t.startsWith("{")) continue;
+      try { messages.push(JSON.parse(t)); } catch { /* not a message line */ }
+    }
+  }
   const toolCalls = [];
   const toolResults = [];
   let model = null;
@@ -77,7 +87,7 @@ export class ClaudeCodeClient {
   async runWithTools(prompt, _tools, system, { signal, task, mode, timeoutMs = this.timeoutMs } = {}) {
     const argv = [
       ...splitCommand(this.command), "-p", goalPrompt(task, mode, prompt),
-      "--bare", "--output-format", "json", "--model", this.model, "--no-session-persistence",
+      "--bare", "--output-format", "stream-json", "--verbose", "--model", this.model, "--no-session-persistence",
       "--allowedTools", this.tools, "--permission-mode", "bypassPermissions",
     ];
     const env = { ...process.env };
@@ -85,7 +95,10 @@ export class ClaudeCodeClient {
     if (this.apiKey) env.ANTHROPIC_API_KEY = this.apiKey;
     const t0 = performance.now();
     const startedAt = new Date().toISOString();
-    const { stdout, stderr, code } = await runChild(argv, { signal, timeoutMs, env, label: "claude-code" });
+    const { stdout, stderr, code, lines } = await runChild(argv, { signal, timeoutMs, env, label: "claude-code" });
+    const timing = eventTimings(lines,
+      (l) => /"type":"assistant"/.test(l),
+      (l) => /"type":"result"/.test(l));
     const endedAt = new Date().toISOString();
     if (code !== 0 && !stdout.trim()) throw new Error(`claude-code exited ${code}: ${stderr.trim().split("\n").pop() ?? ""}`);
     const t = parseTranscript(stdout);
@@ -95,6 +108,8 @@ export class ClaudeCodeClient {
     const served = await recentGreetings(BASE, startedAt, endedAt);
     const toolResults = [...t.toolResults, ...synthesizeToolResults(task, mode, t.toolResults.map((r) => r.content), served)];
     return {
+      ttftMs: timing.ttftMs,
+      ttfaMs: timing.ttfaMs,
       text: t.text,
       structured: parseJSONLoose(t.text),
       toolCalls: t.toolCalls,
@@ -102,8 +117,6 @@ export class ClaudeCodeClient {
       rounds: t.turns ?? 1,
       finishReason: "stop",
       usage: t.usage,
-      ttftMs: null,
-      ttfaMs: null,
       elapsedMs: Math.round(performance.now() - t0),
       harness: { kind: "claude-code", model: t.model, costUsd: t.costUsd, system },
     };

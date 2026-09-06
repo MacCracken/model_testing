@@ -98,3 +98,31 @@ test("recentGreetings is empty when the endpoint is missing or unreachable", asy
   const { recentGreetings } = await import("../src/harness/util.js");
   assert.deepEqual(await recentGreetings("http://127.0.0.1:9", "2026-01-01T00:00:00.000Z"), []);
 });
+
+test("eventTimings reads first-output and final-answer times off timestamped lines", async () => {
+  const { eventTimings } = await import("../src/harness/util.js");
+  const lines = [
+    { t: 10, line: '{"type":"system"}' },
+    { t: 250, line: '{"type":"assistant","message":{}}' },
+    { t: 900, line: '{"type":"user"}' },
+    { t: 1400, line: '{"type":"assistant","message":{}}' },
+    { t: 1500, line: '{"type":"result"}' },
+  ];
+  const t = eventTimings(lines, (l) => /"type":"assistant"/.test(l), (l) => /"type":"result"/.test(l));
+  assert.deepEqual(t, { ttftMs: 250, ttfaMs: 1500 });
+  assert.deepEqual(eventTimings([], () => true, () => true), { ttftMs: null, ttfaMs: null });
+});
+
+test("parseTranscript accepts stream-json (one message per line) as well as the json array", () => {
+  const msgs = [
+    { type: "system", subtype: "init", model: "claude-haiku-4-5" },
+    { type: "assistant", message: { content: [{ type: "tool_use", id: "t1", name: "Bash", input: { command: "curl x" } }] } },
+    { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "t1", content: "out" }] } },
+    { type: "result", result: "{\"ok\":1}", usage: { input_tokens: 10, output_tokens: 2 }, total_cost_usd: 0.001, num_turns: 2 },
+  ];
+  const fromLines = parseTranscript(msgs.map((m) => JSON.stringify(m)).join("\n"));
+  const fromArray = parseTranscript(JSON.stringify(msgs));
+  assert.equal(fromLines.text, fromArray.text);
+  assert.equal(fromLines.toolResults[0].content, "out");
+  assert.equal(fromLines.model, "claude-haiku-4-5");
+});

@@ -68,7 +68,7 @@ const PROVIDERS = {
     auth: () => "",
     needsKey: false,
     harness: "codex",
-    models: ["gpt-5-mini", "gpt-5.4-mini"],
+    models: ["gpt-6-astra", "gpt-5.4-mini"],
   },
   local: {
     baseUrl: envValue("OLLAMA_BASE_URL", "http://localhost:11434/v1/chat/completions"),
@@ -99,6 +99,8 @@ const MODEL_LABELS = {
   "gemma4:31b-mlx": "Gemma 4 31B",
   "qwen3.8:27b-mlx": "Qwen 3.8 27B",
   default: "Thoth (its own routed model)",
+  "gpt-6-astra": "GPT-6 Astra (Codex default)",
+  "gpt-5.4-mini": "GPT-5.4 mini",
 };
 
 export function labelModel(model) {

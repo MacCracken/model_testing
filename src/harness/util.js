@@ -85,14 +85,47 @@ export function runChild(argv, { signal, timeoutMs, env, label = argv[0] } = {})
   return new Promise((resolve, reject) => {
     import("node:child_process").then(({ spawn }) => {
       const child = spawn(argv[0], argv.slice(1), { stdio: ["ignore", "pipe", "pipe"], env });
-      let stdout = "", stderr = "";
+      const t0 = performance.now();
+      let stdout = "", stderr = "", partial = "";
+      // Each complete stdout line with the moment it arrived (ms since spawn) — the arms' event
+      // streams are line-delimited, so this is what makes event-level timings possible.
+      const lines = [];
+      const takeLines = (chunk) => {
+        partial += chunk;
+        let nl;
+        while ((nl = partial.indexOf("\n")) !== -1) {
+          lines.push({ t: Math.round(performance.now() - t0), line: partial.slice(0, nl) });
+          partial = partial.slice(nl + 1);
+        }
+      };
       const timer = setTimeout(() => { child.kill("SIGTERM"); reject(new Error(`${label} timed out after ${timeoutMs}ms`)); }, timeoutMs);
       const onAbort = () => { child.kill("SIGTERM"); reject(new Error("cancelled")); };
       signal?.addEventListener("abort", onAbort, { once: true });
-      child.stdout.on("data", (d) => { stdout += d; });
+      child.stdout.on("data", (d) => { const s = String(d); stdout += s; takeLines(s); });
       child.stderr.on("data", (d) => { stderr += d; });
       child.on("error", (err) => { clearTimeout(timer); reject(err); });
-      child.on("close", (code) => { clearTimeout(timer); signal?.removeEventListener("abort", onAbort); resolve({ stdout, stderr, code }); });
+      child.on("close", (code) => {
+        clearTimeout(timer);
+        signal?.removeEventListener("abort", onAbort);
+        if (partial) lines.push({ t: Math.round(performance.now() - t0), line: partial });
+        resolve({ stdout, stderr, code, lines });
+      });
     });
   });
+}
+
+// Event-level timings for an arm from its timestamped output lines: the arrival time of the first
+// line `isFirstOutput` accepts (the model's first visible action) and of the last line `isAnswer`
+// accepts (the final answer). Null when no line qualifies. These are coarser than the synthetic
+// client's token-level timings — an arm's event marks a completed message, not its first token.
+export function eventTimings(lines, isFirstOutput, isAnswer) {
+  let ttftMs = null;
+  let ttfaMs = null;
+  for (const { t, line } of lines ?? []) {
+    const s = line.trim();
+    if (!s) continue;
+    if (ttftMs === null && isFirstOutput(s)) ttftMs = t;
+    if (isAnswer(s)) ttfaMs = t;
+  }
+  return { ttftMs, ttfaMs };
 }
