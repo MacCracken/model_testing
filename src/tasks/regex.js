@@ -89,6 +89,22 @@ const YES_NO = /\b(yes|no)\b/;
 const stripMarker = (line) => line.replace(/^\s*(?:[-*•]|\(?\d{1,2}[.)])\s+/, "").trim();
 const verdictIn = (s) => s.match(YES_NO)?.[1] ?? null;
 
+// Free-form verdicts, one per listed string: labelled lines ("123-45: yes", any order) when any
+// line names a string, else bare yes/no lines read positionally. null where nothing was said.
+function verdictsFrom(out) {
+  const lines = String(out ?? "").toLowerCase().split(/\r?\n/).map(stripMarker).filter(Boolean);
+  const labelled = STRINGS.map((s) => {
+    const key = s.toLowerCase();
+    // The character after the string must not extend it, so the line for "123-456" is never
+    // read as the line for "123-45".
+    const line = lines.find((l) => l.startsWith(key) && !/[\w-]/.test(l.charAt(key.length)));
+    return line ? verdictIn(line.slice(key.length)) : null;
+  });
+  if (labelled.some((v) => v !== null)) return { verdicts: labelled, how: "" };
+  const bare = lines.map(verdictIn).filter(Boolean);
+  return { verdicts: STRINGS.map((_, i) => bare[i] ?? null), how: " (read positionally)" };
+}
+
 export const task = {
   name: "regex",
   category: "tool-reasoning",
@@ -212,21 +228,7 @@ export const task = {
     // order, list markers tolerated). If no line names a string, fall back to reading bare yes/no
     // lines positionally — one per string in order — which is the literal reading of the prompt.
     scoreNoHarness: (out, ground) => {
-      const lines = String(out ?? "").toLowerCase().split(/\r?\n/).map(stripMarker).filter(Boolean);
-      const labelled = ground.map((g) => {
-        const key = String(g.string).toLowerCase();
-        // The character after the string must not extend it, so the line for "123-456" is never
-        // read as the line for "123-45".
-        const line = lines.find((l) => l.startsWith(key) && !/[\w-]/.test(l.charAt(key.length)));
-        return line ? verdictIn(line.slice(key.length)) : null;
-      });
-      let verdicts = labelled;
-      let how = "";
-      if (!labelled.some((v) => v !== null)) {
-        const bare = lines.map(verdictIn).filter(Boolean);
-        verdicts = ground.map((_, i) => bare[i] ?? null);
-        how = " (read positionally)";
-      }
+      const { verdicts, how } = verdictsFrom(out);
       let correct = 0;
       ground.forEach((g, i) => { if (verdicts[i] === (g.matched ? "yes" : "no")) correct++; });
       return {
@@ -234,6 +236,11 @@ export const task = {
         reason: `${correct}/${ground.length} matches correct${how}`,
       };
     },
+
+    // Canonical answer for cross-trial agreement: the per-string verdicts as given.
+    canon: (out, { structured }) => (structured
+      ? (out ? resultsFrom(out).map((g) => `${String(g?.string ?? "").trim()}=${g?.matched === true ? "y" : "n"}`).sort().join("|") || "none" : "none")
+      : verdictsFrom(out).verdicts.map((v) => (v === "yes" ? "y" : v === "no" ? "n" : "?")).join("")),
   },
 };
 

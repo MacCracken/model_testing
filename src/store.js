@@ -16,14 +16,14 @@ const SCHEMA = `
 create table if not exists runs (
   id text primary key, created_at text, finished_at text, status text, source text,
   tasks text, modes text, clients text, count integer, model_params text, judge text,
-  versions text, warnings text, row_count integer, compacted text, file_mtime real, indexed_at text
+  versions text, warnings text, row_count integer, compacted text, file_mtime real, indexed_at text, parallel integer
 );
 create table if not exists trials (
   run_id text not null, idx integer not null, task text, mode text, client text, model text, harness text,
   trial_index integer, correct integer, reason text, error text, tool_calls integer, tool_use_ok integer,
   tool_use_reason text, schema_valid integer, judge_score real, judge_reason text, latency_ms integer,
   ttft_ms integer, ttfa_ms integer, prompt_tokens integer, completion_tokens integer, total_tokens integer,
-  rounds integer, finish_reason text, started_at text,
+  rounds integer, finish_reason text, started_at text, canon text,
   primary key (run_id, idx)
 );
 create index if not exists trials_by_cell on trials(task, client, mode);
@@ -31,6 +31,7 @@ create table if not exists cells (
   run_id text not null, task text, client text, mode text, runs integer, correct integer, correct_pct real,
   tool_use_pct real, tool_args_ok_pct real, schema_valid_pct real, error_pct real, avg_latency_ms integer,
   latency_p50_ms integer, latency_p95_ms integer, ttft_p50_ms integer, total_tokens integer,
+  agreement_pct real, distinct_answers integer, flaky integer,
   primary key (run_id, task, client, mode)
 );
 create index if not exists cells_by_cell on cells(task, client, mode);
@@ -47,7 +48,24 @@ export function openStore() {
   runsDir(); // ensures the results root exists
   db = new DatabaseSync(dbPath());
   db.exec(SCHEMA);
+  migrate(db);
   return db;
+}
+
+// Columns added after an index was first built. `create table if not exists` leaves an existing
+// table alone, so each new column is added here when missing; the next `index --full` fills it.
+const LATER_COLUMNS = {
+  runs: { parallel: "integer" },
+  trials: { canon: "text" },
+  cells: { agreement_pct: "real", distinct_answers: "integer", flaky: "integer" },
+};
+function migrate(d) {
+  for (const [table, cols] of Object.entries(LATER_COLUMNS)) {
+    const have = new Set(d.prepare(`pragma table_info(${table})`).all().map((c) => c.name));
+    for (const [name, type] of Object.entries(cols)) {
+      if (!have.has(name)) d.exec(`alter table ${table} add column ${name} ${type}`);
+    }
+  }
 }
 
 // For tests: forget the open handle so a new RESULTS_DIR takes effect.
@@ -69,35 +87,36 @@ export function indexRun(run, { mtime = null } = {}) {
     d.prepare("delete from trials where run_id = ?").run(run.id);
     d.prepare("delete from cells where run_id = ?").run(run.id);
     d.prepare(`insert or replace into runs
-      (id, created_at, finished_at, status, source, tasks, modes, clients, count, model_params, judge, versions, warnings, row_count, compacted, file_mtime, indexed_at)
-      values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      (id, created_at, finished_at, status, source, tasks, modes, clients, count, model_params, judge, versions, warnings, row_count, compacted, file_mtime, indexed_at, parallel)
+      values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
       run.id, run.createdAt ?? null, run.finishedAt ?? null, run.status ?? null, run.source ?? null,
       json(run.config?.tasks ?? []), json(run.config?.modes ?? []), json(run.config?.clients ?? []),
       num(run.config?.count), json(run.config?.modelParams ?? {}), run.config?.judge ?? null,
       json(run.versions ?? null), json(run.warnings ?? []), (run.rows ?? []).length, run.compacted ?? null,
-      mtime, new Date().toISOString(),
+      mtime, new Date().toISOString(), num(run.config?.parallel) ?? 1,
     );
     if (run.status !== "running") {
       const ins = d.prepare(`insert into trials
         (run_id, idx, task, mode, client, model, harness, trial_index, correct, reason, error, tool_calls, tool_use_ok, tool_use_reason,
-         schema_valid, judge_score, judge_reason, latency_ms, ttft_ms, ttfa_ms, prompt_tokens, completion_tokens, total_tokens, rounds, finish_reason, started_at)
-        values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+         schema_valid, judge_score, judge_reason, latency_ms, ttft_ms, ttfa_ms, prompt_tokens, completion_tokens, total_tokens, rounds, finish_reason, started_at, canon)
+        values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
       (run.rows ?? []).forEach((r, i) => ins.run(
         run.id, i, r.task ?? null, r.mode ?? null, r.client ?? null, r.model ?? null, r.harness ?? null,
         num(r.index), flag(!!r.correct), r.reason ?? null, r.error ?? null, (r.toolCalls ?? []).length,
         flag(r.toolUseOk === true ? true : r.toolUseOk === false ? false : null), r.toolUseReason ?? null,
         flag(r.schemaValid === true ? true : r.schemaValid === false ? false : null), num(r.judgeScore), r.judgeReason ?? null,
         num(r.latencyMs), num(r.ttftMs), num(r.ttfaMs), num(r.usage?.prompt_tokens), num(r.usage?.completion_tokens),
-        num(r.usage?.total_tokens), num(r.rounds), r.finishReason ?? null, r.startedAt ?? null,
+        num(r.usage?.total_tokens), num(r.rounds), r.finishReason ?? null, r.startedAt ?? null, typeof r.canon === "string" ? r.canon : null,
       ));
       const cell = d.prepare(`insert into cells
         (run_id, task, client, mode, runs, correct, correct_pct, tool_use_pct, tool_args_ok_pct, schema_valid_pct, error_pct,
-         avg_latency_ms, latency_p50_ms, latency_p95_ms, ttft_p50_ms, total_tokens)
-        values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+         avg_latency_ms, latency_p50_ms, latency_p95_ms, ttft_p50_ms, total_tokens, agreement_pct, distinct_answers, flaky)
+        values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
       for (const c of summarize(run.rows ?? []).cells) {
         cell.run(run.id, c.task, c.client, c.mode, c.runs, c.correct, c.correctPct, c.toolUsePct,
           c.toolArgsJudged ? c.toolArgsOkPct : null, c.schemaValidPct, c.errorPct, c.avgLatencyMs,
-          c.latencyP50Ms, c.latencyP95Ms, c.ttftP50Ms ?? null, c.totalTokens);
+          c.latencyP50Ms, c.latencyP95Ms, c.ttftP50Ms ?? null, c.totalTokens,
+          c.agreementPct ?? null, c.distinctAnswers ?? null, flag(c.flaky ?? null));
       }
     }
     d.exec("commit");
@@ -151,6 +170,7 @@ function headerOf(row) {
     warnings: JSON.parse(row.warnings ?? "[]"),
     rowCount: row.row_count,
     compacted: row.compacted,
+    parallel: row.parallel ?? 1,
   };
 }
 

@@ -158,6 +158,17 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
 
     record.correct = !!score.correct;
     record.reason = score.reason ?? "";
+
+    // A canonical form of the answer, for agreement across repeated trials of the same cell (the
+    // variance measure). Only tasks with fixed truth define one; tasks whose truth is minted per
+    // trial (random ids) leave it null and their variance is read from outcomes alone.
+    record.canon = null;
+    if (typeof task.eval.canon === "function") {
+      try {
+        const c = task.eval.canon(answer, { mode, structured });
+        record.canon = c === null || c === undefined ? null : String(c);
+      } catch { /* a canonicalizer that throws just leaves the answer uncounted */ }
+    }
     if (score.judge) {
       record.judgeScore = score.judge.score ?? null;
       record.judgeReason = score.judge.reason ?? "";
@@ -219,8 +230,9 @@ export function planMatrix({ tasks, modes, clients, count = 1 }) {
  * Run the full tasks x modes x clients matrix, `count` trials per cell.
  * `onEvent` receives { type: "start" | "trial" | "done", ... } as work completes.
  */
-export async function runMatrix({ tasks, modes, clients, count = 1, onEvent, signal, maxRounds, judge = null }) {
+export async function runMatrix({ tasks, modes, clients, count = 1, parallel = 1, onEvent, signal, maxRounds, judge = null }) {
   const { cells, skipped, total } = planMatrix({ tasks, modes, clients, count });
+  const limit = Math.max(1, Math.floor(Number(parallel)) || 1);
   const rows = [];
   let completed = 0;
 
@@ -232,18 +244,45 @@ export async function runMatrix({ tasks, modes, clients, count = 1, onEvent, sig
     modes,
     clients: clients.map((c) => c.name),
     count,
+    parallel: limit,
   });
 
-  outer:
+  // Trials in plan order (task → mode → client → index). Up to `limit` are in flight at once,
+  // with one exception: a real-harness arm is scored against the webserver's time-windowed log of
+  // what it served, so an arm trial runs alone — nothing else touches the server while it runs.
+  // Rows are collected in completion order, which is plan order when `limit` is 1.
+  const items = [];
   for (const { task, mode, client } of cells) {
-    for (let i = 0; i < count; i++) {
-      if (signal?.aborted) break outer;
-      const row = await runTrial({ task, mode, client, index: i + 1, signal, maxRounds, judge });
-      rows.push(row);
-      completed += 1;
-      onEvent?.({ type: "trial", completed, total, result: row });
+    for (let i = 0; i < count; i++) items.push({ task, mode, client, index: i + 1 });
+  }
+  const alone = (client) => !!client.structuredOnly;
+
+  const running = new Set();
+  const start = (item) => {
+    onEvent?.({ type: "trial-start", task: item.task.name, mode: item.mode, client: item.client.name, index: item.index, total });
+    const p = runTrial({ ...item, signal, maxRounds, judge })
+      .then((row) => {
+        rows.push(row);
+        completed += 1;
+        onEvent?.({ type: "trial", completed, total, result: row });
+      })
+      .finally(() => running.delete(p));
+    running.add(p);
+    return p;
+  };
+
+  for (const item of items) {
+    if (signal?.aborted) break;
+    if (alone(item.client)) {
+      await Promise.all(running);
+      if (signal?.aborted) break;
+      await start(item);
+    } else {
+      while (running.size >= limit) await Promise.race(running);
+      start(item);
     }
   }
+  await Promise.all(running);
 
   const summary = summarize(rows);
   onEvent?.({ type: "done", completed, total, summary, skipped, cancelled: !!signal?.aborted });
@@ -381,6 +420,34 @@ function statsFor(rows) {
   };
 }
 
+// Variance across repeated trials of one cell. `agreementPct` is the share of trials that gave the
+// modal canonical answer (only for tasks that define `eval.canon`); `flaky` says the cell had both
+// passes and failures. Both are null until there are two trials to compare.
+function varianceFor(rows) {
+  const canon = rows.map((r) => r.canon).filter((c) => typeof c === "string");
+  const correct = rows.filter((r) => r.correct).length;
+  let agreementPct = null;
+  if (canon.length >= 2) {
+    const counts = new Map();
+    for (const c of canon) counts.set(c, (counts.get(c) ?? 0) + 1);
+    agreementPct = (Math.max(...counts.values()) / canon.length) * 100;
+  }
+  return {
+    canonRuns: canon.length,
+    agreementPct,
+    distinctAnswers: canon.length >= 2 ? new Set(canon).size : null,
+    flaky: rows.length >= 2 ? correct > 0 && correct < rows.length : null,
+  };
+}
+
+// One phrasing of a mode's stability, shared by the CLI report and the web UI.
+export function describeStability(st) {
+  if (!st || !st.repeated) return "single trials — repeat a cell to measure variance";
+  const flaky = `${st.flaky}/${st.repeated} flaky ${st.repeated === 1 ? "cell" : "cells"}`;
+  if (st.agreementPct === null) return `${flaky} · outcome-only (no task with a canonical answer)`;
+  return `${st.agreementPct.toFixed(0)}% agreement over ${st.canonCells} ${st.canonCells === 1 ? "cell" : "cells"} · ${flaky}`;
+}
+
 function deltaFor(rows) {
   const noH = rows.filter((r) => r.mode === "noHarness");
   const withH = rows.filter((r) => r.mode === "harness");
@@ -494,9 +561,27 @@ export function summarize(rows) {
     for (const client of clientNames) {
       for (const mode of modes) {
         const sub = rows.filter((r) => r.task === task && r.client === client && r.mode === mode);
-        if (sub.length) cells.push({ task, client, mode, ...statsFor(sub) });
+        if (sub.length) cells.push({ task, client, mode, ...statsFor(sub), ...varianceFor(sub) });
       }
     }
+  }
+
+  // Stability per mode, aggregated over cells (agreement across different tasks would be
+  // meaningless): how many repeated cells were flaky, and the trial-weighted agreement over the
+  // cells whose task defines a canonical answer.
+  const stability = {};
+  for (const m of modes) {
+    const cs = cells.filter((c) => c.mode === m);
+    const repeated = cs.filter((c) => c.runs >= 2);
+    const canonCells = repeated.filter((c) => c.agreementPct !== null);
+    const weight = canonCells.reduce((a, c) => a + c.canonRuns, 0);
+    stability[m] = {
+      cells: cs.length,
+      repeated: repeated.length,
+      flaky: repeated.filter((c) => c.flaky).length,
+      canonCells: canonCells.length,
+      agreementPct: weight ? canonCells.reduce((a, c) => a + c.agreementPct * c.canonRuns, 0) / weight : null,
+    };
   }
 
   const byTask = {};
@@ -521,6 +606,7 @@ export function summarize(rows) {
     clients: clientNames,
     byMode,
     cells,
+    stability,
     delta: { overall: deltaFor(rows), byTask, byClient, byTaskClient, byArm: armDeltas(rows, clientNames, taskNames) },
   };
 }

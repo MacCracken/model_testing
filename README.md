@@ -91,6 +91,7 @@ node src/bench.js --task health --mode harness --clients openai:gpt-4o-mini
 
 # Everything, both modes, 3 trials per cell
 node src/bench.js --task all --modes noHarness,harness --clients local:ornith-1.5:9b --count 3
+node src/bench.js --task health,reason,regex --modes noHarness,harness --clients openai:gpt-4o-mini --count 8 --parallel 8
 
 # A bare provider name expands to all of its models
 node src/aggregate.js --tasks health,hello --clients local
@@ -117,6 +118,12 @@ node src/cli.js query cell --task chain --client openai:gpt-4o-mini   # one cell
 node src/cli.js query worst --limit 10  # lowest pooled correctness (trend: one cell over time; --sql "select …" for anything else)
 node src/cli.js compact --older-than 30 # dry run; --yes strips prompts/transcripts from runs older than 30 days
 ```
+
+`--parallel N` runs up to N trials at once (the web UI's "in parallel" setting does the same);
+real-harness arms always run alone because they are scored from the webserver's time-windowed log,
+and latencies measured under parallel load on a local model include queueing. Repeated cells
+report their **stability**: agreement (the share of trials giving the same canonical answer, on
+tasks with fixed truth) and whether the cell was flaky, in the report and the headline.
 
 `--temperature T`, `--seed S` and `--model-param key=value` (repeatable; e.g. `think=false`,
 `max_tokens=600`) are sent as-is with every request and recorded in the run's config (the

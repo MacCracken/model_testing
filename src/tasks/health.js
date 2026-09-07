@@ -37,6 +37,14 @@ const schema = {
   required: ["status", "uptimeSec"],
 };
 
+// What a free-form reply committed to: "ok", "down", "hedged" (both) or "none".
+function freeFormVerdict(out) {
+  const text = String(out ?? "").toLowerCase();
+  const saysDown = /\bdown\b|unreachable|not running|\b5\d\d\b/.test(text);
+  const saysOk = /\bok\b|\bup\b|healthy|running|\b200\b|available|good/.test(text);
+  return saysDown && saysOk ? "hedged" : saysDown ? "down" : saysOk ? "ok" : "none";
+}
+
 export const task = {
   name: "health",
   category: "api-call",
@@ -133,19 +141,19 @@ export const task = {
     // A reply that mentions both verdicts ("I can't tell whether it is OK or DOWN") has not reported
     // a status at all — it is scored wrong either way, but the reason says "hedged", not "DOWN".
     scoreNoHarness: (out, ground) => {
-      const text = String(out ?? "").toLowerCase();
       const healthy = String(ground.status ?? "").toLowerCase() === "ok";
-      const saysDown = /\bdown\b|unreachable|not running|\b5\d\d\b/.test(text);
-      const saysOk = /\bok\b|\bup\b|healthy|running|\b200\b|available|good/.test(text);
-      if (saysDown && saysOk) return { correct: false, reason: "hedged: mentions both OK and DOWN, no status committed" };
-      if (saysDown) {
-        return { correct: !healthy, reason: healthy ? "reported DOWN, ground is ok" : "reported DOWN, matches ground" };
-      }
-      if (saysOk) {
-        return { correct: healthy, reason: healthy ? "reported OK, matches ground" : "reported OK, ground is not ok" };
-      }
+      const said = freeFormVerdict(out);
+      if (said === "hedged") return { correct: false, reason: "hedged: mentions both OK and DOWN, no status committed" };
+      if (said === "down") return { correct: !healthy, reason: healthy ? "reported DOWN, ground is ok" : "reported DOWN, matches ground" };
+      if (said === "ok") return { correct: healthy, reason: healthy ? "reported OK, matches ground" : "reported OK, ground is not ok" };
       return { correct: false, reason: "no status indicated" };
     },
+
+    // Canonical answer for cross-trial agreement: the status the model committed to. Uptime moves
+    // every trial, so it is not part of the answer's identity.
+    canon: (out, { structured }) => (structured
+      ? (out && typeof out === "object" && !Array.isArray(out) ? `status=${String(out.status ?? "").trim().toLowerCase() || "(missing)"}` : "none")
+      : freeFormVerdict(out)),
   },
 };
 

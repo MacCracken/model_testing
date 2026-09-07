@@ -55,7 +55,7 @@ function broadcast(id, event) {
   }
 }
 
-function startRun({ tasks, modes, clients, count, modelParams = {}, judge: judgeSpec = null }) {
+function startRun({ tasks, modes, clients, count, parallel = 1, modelParams = {}, judge: judgeSpec = null }) {
   const taskObjs = tasks.map(getTask);
   const clientObjs = resolveClients(clients, { modelParams });
   const judge = resolveJudge(judgeSpec);
@@ -70,7 +70,7 @@ function startRun({ tasks, modes, clients, count, modelParams = {}, judge: judge
     finishedAt: null,
     status: "running",
     source: "web",
-    config: { tasks, modes, clients: clientObjs.map((c) => c.name), count, modelParams, judge: judge?.name ?? null },
+    config: { tasks, modes, clients: clientObjs.map((c) => c.name), count, parallel, modelParams, judge: judge?.name ?? null },
     versions: benchVersions(),
     warnings: missing.length ? [`skipped (no API key or unknown provider): ${missing.join(", ")}`] : [],
     // The real total arrives with the runner's "start" event, once undeclared (task, mode) pairs
@@ -90,6 +90,7 @@ function startRun({ tasks, modes, clients, count, modelParams = {}, judge: judge
         modes,
         clients: clientObjs,
         count,
+        parallel,
         judge,
         signal: controller.signal,
         onEvent: (ev) => {
@@ -97,6 +98,8 @@ function startRun({ tasks, modes, clients, count, modelParams = {}, judge: judge
             run.progress = { completed: 0, total: ev.total };
             run.warnings.push(...describeSkipped(ev.skipped));
             saveRun(run);
+          } else if (ev.type === "trial-start") {
+            broadcast(run.id, { type: "trial-start", key: `${ev.task}|${ev.mode}|${ev.client}|${ev.index}` });
           } else if (ev.type === "trial") {
             run.rows.push(ev.result);
             run.progress = { completed: ev.completed, total: ev.total };
@@ -180,6 +183,7 @@ function validateLaunch(body) {
   const modes = Array.isArray(body.modes) ? body.modes.filter((m) => MODE_NAMES.includes(m)) : [];
   const clients = Array.isArray(body.clients) ? body.clients.filter(Boolean) : [];
   const count = Math.max(1, Math.min(20, Number(body.count) || 1));
+  const parallel = Math.max(1, Math.min(16, Math.floor(Number(body.parallel)) || 1));
 
   if (!tasks.length) throw new Error("select at least one task");
   if (!modes.length) throw new Error("select at least one mode");
@@ -196,7 +200,7 @@ function validateLaunch(body) {
     modelParams[key] = n;
   }
   const judgeSpec = typeof body.judge === "string" && body.judge.trim() ? body.judge.trim() : null;
-  return { tasks, modes, clients, count, modelParams, judge: judgeSpec };
+  return { tasks, modes, clients, count, parallel, modelParams, judge: judgeSpec };
 }
 
 async function handle(req, res) {

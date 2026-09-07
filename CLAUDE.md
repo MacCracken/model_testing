@@ -28,7 +28,9 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
 - `src/runner.js` — **the execution core**: runs one (task, mode, client) trial, scores it,
   aggregates the matrix, and owns the statistics. Every surface (CLI and web) goes through this so
   they can't disagree — the web server serves it to the browser as `/lib/runner.js`, so it must
-  stay free of Node-specific imports.
+  stay free of Node-specific imports. `runMatrix` runs up to `parallel` trials at once; a
+  `structuredOnly` client (a real-harness arm) always runs alone, because arms are scored from the
+  webserver's time-windowed log and a concurrent trial would pollute it.
 - `src/results.js` — run persistence (`results/runs/<id>.json`); `onRunSaved` lets the store index
   every save without the saver knowing about it.
 - `src/store.js` — a SQLite index (`node:sqlite`, `results/index.sqlite`) over the run files for
@@ -86,6 +88,8 @@ export const task = {
     scoreNoHarness, // (freeText, ground, { judge, mode })         => { correct, reason, judge? }
     toolUse,        // optional: ({ toolCalls, toolResults }) => { ok, reason } — right tool, right args
     needsJudge,     // optional: true when the scorers grade through the judge (explain)
+    canon,          // optional: (answer, { mode, structured }) => string — the answer's canonical form, for
+                    //   agreement across repeated trials; only tasks with fixed truth define one
   },
 };
 ```
@@ -112,6 +116,11 @@ schema's own `items` key scores the same as a bare array.
 own (a real-harness arm), its delta against the free-form rows of the same model from any other
 client in the run, matched on the model id with any `provider/` prefix stripped.
 
+`summarize` also reports `stability` per mode from repeated cells: `flaky` (both passes and
+failures) and `agreementPct` (share of trials giving the modal canonical answer, over cells whose
+task defines `eval.canon`). `describeStability` is the one phrasing for it. Agreement separates a
+systematic miss (wrong the same way every time) from noise, which a correctness percentage cannot.
+
 The headline delta carries a two-sided **Fisher exact** p-value (`fisherExact` in `runner.js`),
 exact at the handful of trials this bench actually runs; the z-test and Wilson intervals are kept
 as helpers. `describeSignificance` is the one phrasing every surface prints — including
@@ -136,6 +145,7 @@ node src/cli.js export <run-id> --cells     # CSV of the cells (or of every tria
 node src/cli.js query cell --task chain --client openai:gpt-4o-mini   # one cell across every run (index, query, compact: see README)
 node src/bench.js --task chain --modes harness --clients local:ornith-1.5:9b --count 4 --temperature 0 --seed 7
 node src/bench.js --task all --modes harness --clients openai:gpt-4o-mini
+node src/bench.js --task health,reason,regex --modes noHarness,harness --clients openai:gpt-4o-mini --count 8 --parallel 8
 node src/aggregate.js --tasks health,hello --modes noHarness,harness --clients local
 ```
 

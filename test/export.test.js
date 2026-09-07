@@ -27,8 +27,8 @@ test("cellsToCsv writes the summary cells; whole-number percentages stay whole, 
   const lines = csv.trimEnd().split("\n");
   assert.equal(lines[0], CELL_COLUMNS.join(","));
   assert.equal(lines.length, 3);
-  assert.match(lines[1], /^run1,health,openai:gpt-4o-mini,harness,2,1,50,100,100,100,0,1617,1234,2000,,,30$/);
-  assert.match(lines[2], /^run1,health,openai:gpt-4o-mini,noHarness,1,1,100,0,,0,0,1234,1234,1234,,,15$/);
+  assert.match(lines[1], /^run1,health,openai:gpt-4o-mini,harness,2,1,50,100,100,100,0,1617,1234,2000,,,30,,,true$/);
+  assert.match(lines[2], /^run1,health,openai:gpt-4o-mini,noHarness,1,1,100,0,,0,0,1234,1234,1234,,,15,,,$/);
   const thirds = cellsToCsv("r", summarize([row(), row({ index: 2, correct: false }), row({ index: 3, correct: false })]));
   assert.match(thirds, /,3,1,33\.33,/);
 });

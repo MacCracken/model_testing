@@ -1,7 +1,7 @@
 // report.js — print a run summary the same way everywhere (aggregate.js after a run, `cli show`
 // for a saved one). Pure formatting over the runner's summary shape.
 
-import { describeSignificance, twoByTwo } from "./runner.js";
+import { describeSignificance, twoByTwo, describeStability } from "./runner.js";
 
 const fmtDelta = (d) => d
   ? `${d.noHarnessPct.toFixed(1)}% -> ${d.harnessPct.toFixed(1)}% (${d.deltaPp >= 0 ? "+" : ""}${d.deltaPp.toFixed(1)}pp)  [${describeSignificance(d)}]`
@@ -19,6 +19,7 @@ export function printSummary(summary, { log = console.log } = {}) {
     log(`   latency:      avg ${s.avgLatencyMs}ms · p50 ${s.latencyP50Ms}ms · p95 ${s.latencyP95Ms}ms · max ${s.latencyMaxMs}ms`);
     if (s.ttftP50Ms !== null) log(`   first token:  p50 ${s.ttftP50Ms}ms (any) · ${s.ttfaP50Ms ?? "—"}ms (answer)`);
     if (s.judged) log(`   judge:        mean score ${s.judgeMeanScore.toFixed(2)} over ${s.judged} judged`);
+    if (summary.stability?.[mode]?.repeated) log(`   stability:    ${describeStability(summary.stability[mode])}`);
   }
 
   log("\n-- per task x mode x client");

@@ -23,6 +23,7 @@ export async function main() {
   const taskList = resolveTasks(args.task);
   const modeList = resolveModes(args.mode);
   const count = args.count ?? 1;
+  const parallel = Math.max(1, Math.floor(args.parallel ?? 1) || 1);
 
   const modelParams = modelParamsFrom(args);
   const clients = resolveClients(args.clients, { modelParams });
@@ -42,6 +43,7 @@ export async function main() {
     modes: modeList,
     clients,
     count,
+    parallel,
     judge,
     onEvent: (ev) => {
       if (ev.type !== "trial") return;
@@ -65,7 +67,7 @@ export async function main() {
     finishedAt: new Date().toISOString(),
     status: "done",
     source: "aggregate",
-    config: { tasks: taskList.map((t) => t.name), modes: modeList, clients: clients.map((c) => c.name), count, modelParams, judge: judge?.name ?? null },
+    config: { tasks: taskList.map((t) => t.name), modes: modeList, clients: clients.map((c) => c.name), count, parallel, modelParams, judge: judge?.name ?? null },
     versions: benchVersions(),
     warnings: describeSkipped(skipped),
     progress: { completed: rows.length, total: rows.length },

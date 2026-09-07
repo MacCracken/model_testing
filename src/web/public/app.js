@@ -3,7 +3,7 @@
 // Summaries come from the runner itself (served as /lib/runner.js), so a run in flight, a run
 // loaded from history, and the CLI all report the same numbers through the same code.
 
-import { summarize, deltaFor, describeSignificance, isStructuredMode, twoByTwo, DEFAULT_MODES } from "/lib/runner.js";
+import { summarize, deltaFor, describeSignificance, isStructuredMode, twoByTwo, DEFAULT_MODES, describeStability } from "/lib/runner.js";
 
 // ---- tiny DOM + format helpers -------------------------------------------------------------
 
@@ -55,6 +55,7 @@ const MODE_DESC = {
 const TOOL_MODES = new Set(["harness", "toolOnly"]);
 
 const state = {
+  inFlight: new Set(), // trial keys started but not finished (task|mode|client|index), for the live view
   meta: null,
   tasks: new Set(),
   modes: new Set(DEFAULT_MODES),
@@ -126,6 +127,7 @@ async function init() {
 }
 
 function wire() {
+  $("#parallel").addEventListener("input", updatePlan);
   $("#run").addEventListener("click", launch);
   $("#cancel").addEventListener("click", cancel);
   $("#count").addEventListener("input", updatePlan);
@@ -428,6 +430,8 @@ function updatePlan() {
         el("span", {}, p.modes.map((m) => MODE_LABEL[m] ?? m).join(" + "))),
     );
     if (p.skipped.length) node.append(el("div", { className: "hint" }, `skips ${p.skipped.join(", ")} — not declared by that task`));
+    const par = Math.max(1, Math.min(16, Number($("#parallel").value) || 1));
+    if (par > 1) node.append(el("div", { className: "hint" }, `${par} trials in flight at once · arms still run alone · latencies include queueing`));
   }
   const judged = [...state.tasks].filter((name) => taskMeta(name)?.needsJudge);
   if (p.total && judged.length && !$("#judge").value) node.append(el("div", { className: "hint" }, `${judged.join(", ")} needs a judge — pick one under Settings or its trials will error`));
@@ -453,6 +457,7 @@ async function launch() {
     modes: [...state.modes],
     clients: [...state.clients],
     count: plan().count,
+    parallel: Math.max(1, Math.min(16, Number($("#parallel").value) || 1)),
   };
   for (const key of ["temperature", "seed"]) {
     const raw = $(`#${key}`).value;
@@ -490,15 +495,22 @@ async function openRun(id) {
     const msg = JSON.parse(ev.data);
     if (msg.type === "snapshot") {
       state.run = msg.run;
+      state.inFlight = new Set();
       state.filter = "all";
       closeDetail();
       setBusy(msg.run.status === "running");
       renderReport();
+    } else if (msg.type === "trial-start") {
+      state.inFlight.add(msg.key);
+      renderLive();
     } else if (msg.type === "trial") {
-      state.run.rows.push(msg.result);
+      const r = msg.result;
+      state.inFlight.delete(`${r.task}|${r.mode}|${r.client}|${r.index}`);
+      state.run.rows.push(r);
       state.run.progress = { completed: msg.completed, total: msg.total };
       renderReport();
     } else if (msg.type === "done") {
+      state.inFlight = new Set();
       Object.assign(state.run, msg.run);
       setBusy(false);
       renderReport();
@@ -572,7 +584,10 @@ function renderHeadline(s) {
 
   const done = run.rows.length;
   const total = run.progress?.total ?? done;
-  const knobs = Object.entries(run.config?.modelParams ?? {}).map(([k, v]) => `${k} ${v}`).join(" · ");
+  const knobs = [
+    ...Object.entries(run.config?.modelParams ?? {}).map(([k, v]) => `${k} ${v}`),
+    (run.config?.parallel ?? 1) > 1 ? `${run.config.parallel} in parallel` : "",
+  ].filter(Boolean).join(" · ");
   const progress = (run.status === "running" ? `${done} of ${total} trials · running` : `${plural(done, "trial")} · ${run.status}`) + (knobs ? ` · ${knobs}` : "");
 
   const d = s.delta.overall;
@@ -609,6 +624,7 @@ function renderHeadline(s) {
       el("div", { className: "num" }, fmtPct(st.correctPct)),
       el("div", { className: "sub", title: `avg ${fmtMs(st.avgLatencyMs)} · max ${fmtMs(st.latencyMaxMs)}` }, `${st.correct}/${st.runs} · p50 ${fmtMs(st.latencyP50Ms)} · p95 ${fmtMs(st.latencyP95Ms)}`),
       st.ttftP50Ms !== null && st.ttftP50Ms !== undefined ? el("div", { className: "sub", title: "median time to the first token of any kind, and to the first answer token" }, `first token ${fmtMs(st.ttftP50Ms)} · answer ${fmtMs(st.ttfaP50Ms ?? st.ttftP50Ms)}`) : null,
+      s.stability?.[m]?.repeated ? el("div", { className: "sub", title: "agreement: share of a cell's repeated trials that gave the same canonical answer (tasks with fixed truth: health, reason, regex) · flaky: repeated cells with both passes and failures" }, describeStability(s.stability[m])) : null,
       el("div", { className: "bar" }, el("i", { className: m === "noHarness" ? "grey" : "", style: { width: `${st.correctPct}%` } })),
     ));
   }
@@ -686,15 +702,18 @@ function renderLive() {
     if (!order.some((c) => c.row === r)) order.push({ task: r.task, mode: r.mode, client: r.client, index: r.index, row: r });
   }
 
-  const running = run.status === "running" ? order.find((c) => !c.row) : null;
+  // Cells in flight come from the server's trial-start events; before the first one arrives (or
+  // for a run reopened mid-flight) the first unfinished cell stands in.
+  const firstQueued = run.status === "running" ? order.find((c) => !c.row) : null;
+  const isRunning = (c) => run.status === "running" && (state.inFlight.size ? state.inFlight.has(`${c.task}|${c.mode}|${c.client}|${c.index}`) : c === firstQueued);
   $("#live-title").textContent = run.status === "running" ? `Live · ${run.rows.length} / ${order.length}` : `Trials · ${run.rows.length}`;
 
   for (const mode of MODE_ORDER.filter((m) => order.some((c) => c.mode === m))) {
     const cells = order.filter((c) => c.mode === mode);
     const grid = el("div", { className: "cells", style: { "--n": String(cells.length) } });
     for (const c of cells) {
-      const cls = c.row ? (c.row.correct ? "pass" : "fail") : c === running ? "running" : "queued";
-      const status = c.row ? `${c.row.correct ? "pass" : "fail"} · ${c.row.error ?? c.row.reason}` : c === running ? "running" : "queued";
+      const cls = c.row ? (c.row.correct ? "pass" : "fail") : isRunning(c) ? "running" : "queued";
+      const status = c.row ? `${c.row.correct ? "pass" : "fail"} · ${c.row.error ?? c.row.reason}` : isRunning(c) ? "running" : "queued";
       const cell = el("span", { className: `cell ${cls}`, title: `${c.task} · ${MODE_LABEL[c.mode] ?? c.mode} · ${c.client} #${c.index} · ${status}` });
       if (c.row) cell.addEventListener("click", () => openDetailFor(c.row));
       grid.append(cell);

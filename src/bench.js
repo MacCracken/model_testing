@@ -3,6 +3,7 @@
 // Usage:
 //   node src/bench.js --task health --mode harness --clients openai:gpt-4o-mini
 //   node src/bench.js --task all --modes noHarness,harness --clients local:ornith-1.5:9b --count 3
+//   node src/bench.js --task health,reason,regex --modes noHarness,harness --clients openai:gpt-4o-mini --count 8 --parallel 8
 //   node src/bench.js --task hello --clients local            # every local model
 //
 // Every run is saved under results/runs/ (so the web UI can review it too); --json also prints
@@ -93,6 +94,7 @@ async function main() {
   }
 
   const count = args.count ?? 1;
+  const parallel = Math.max(1, Math.floor(args.parallel ?? 1) || 1);
 
   // --clients takes precedence over --provider/--model.
   const modelParams = modelParamsFrom(args);
@@ -118,6 +120,7 @@ async function main() {
     modes: modeList,
     clients,
     count,
+    parallel,
     judge,
     onEvent: quiet ? undefined : (ev) => {
       if (ev.type !== "trial") return;
@@ -142,6 +145,7 @@ async function main() {
       modes: modeList,
       clients: clients.map((c) => c.name),
       count,
+      parallel,
       modelParams,
       judge: judge?.name ?? null,
     },

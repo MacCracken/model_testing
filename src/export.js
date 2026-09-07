@@ -4,12 +4,13 @@
 const ROW_COLUMNS = [
   "run", "task", "mode", "client", "model", "index", "correct", "reason", "error",
   "toolCalls", "toolUseOk", "toolUseReason", "schemaValid", "judgeScore", "judgeReason", "latencyMs", "ttftMs", "ttfaMs",
-  "promptTokens", "completionTokens", "totalTokens", "rounds", "finishReason", "startedAt",
+  "promptTokens", "completionTokens", "totalTokens", "rounds", "finishReason", "startedAt", "canon",
 ];
 
 const CELL_COLUMNS = [
   "run", "task", "client", "mode", "runs", "correct", "correctPct", "toolUsePct", "toolArgsOkPct",
   "schemaValidPct", "errorPct", "avgLatencyMs", "latencyP50Ms", "latencyP95Ms", "ttftP50Ms", "ttfaP50Ms", "totalTokens",
+  "agreementPct", "distinctAnswers", "flaky",
 ];
 
 function csvField(v) {
@@ -48,6 +49,7 @@ export function rowsToCsv(run) {
     rounds: r.rounds ?? null,
     finishReason: r.finishReason ?? null,
     startedAt: r.startedAt,
+    canon: r.canon ?? null,
   })));
 }
 

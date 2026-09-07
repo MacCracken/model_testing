@@ -62,6 +62,15 @@ const structuredSpec = {
   extract: "structured",
 };
 
+// The answers in a structured reply — { question, answer } objects or bare strings — as
+// normalized strings.
+function answersFrom(out) {
+  return unwrapList(out, ["answers"], (o) => o.answer !== undefined)
+    .flatMap((a) => (typeof a === "string" ? [a] : [a?.answer ?? ""]))
+    .map((a) => String(a).trim().toLowerCase())
+    .filter(Boolean);
+}
+
 export const task = {
   name: "reason",
   category: "pure-reasoning",
@@ -93,12 +102,7 @@ export const task = {
     // Harness: every ground answer must appear in the structured answer.
     scoreHarness: (out, ground) => {
       if (out === null || out === undefined) return { correct: false, reason: "no structured output" };
-      const answers = unwrapList(out, ["answers"], (o) => o.answer !== undefined);
-      // Each answer is an object { question, answer } or a bare string; flatten to the string.
-      const got = answers
-        .flatMap((a) => (typeof a === "string" ? [a] : [a?.answer ?? ""]))
-        .map((a) => String(a).trim().toLowerCase())
-        .filter(Boolean);
+      const got = answersFrom(out);
       if (!got.length) return { correct: false, reason: "structured answer contained no answers" };
       const missing = ground.filter((a) => !got.includes(a.trim().toLowerCase()));
       return {
@@ -116,6 +120,12 @@ export const task = {
         reason: `${present.length}/${ground.length} answers present`,
       };
     },
+
+    // Canonical answer for cross-trial agreement: the answers given (structured, sorted), or which
+    // of the ground answers the text contains (free-form, one digit per question).
+    canon: (out, { structured }) => (structured
+      ? (out === null || out === undefined ? "none" : [...answersFrom(out)].sort().join("|") || "none")
+      : PROBLEMS.map((p) => (String(out ?? "").replace(/["*`]/g, "").toLowerCase().includes(p.answer.trim().toLowerCase()) ? "1" : "0")).join("")),
   },
 };
 

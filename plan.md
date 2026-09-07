@@ -438,6 +438,77 @@ What these add to the earlier picture:
 
 ---
 
+### Tier 6 — Model variance via parallel requests (STARTED 2026-09-07 — scheduler and stability metrics built)
+
+The bench has always asked "is the harness delta real?" with a p-value. This tier asks the companion
+question — "how noisy is the model itself, and does the harness change that?" — and makes the answer
+cheap to get by running repeated trials in parallel instead of one after another.
+
+- **[14] Parallel trials.** **DONE** (2026-09-07). `--parallel N` (CLI) / "in parallel" (web
+  settings) runs up to N trials at once; `runMatrix` launches in plan order and collects rows as they
+  finish (plan order when N is 1). One rule: a real-harness arm always runs **alone** — arms are
+  scored against the webserver's time-windowed `/api/recent` log, so nothing else may touch the
+  server while an arm trial is in flight (`structuredOnly` clients drain the pool before they start
+  and hold it until they finish). The run records `parallel`, the report and headline print
+  "N in parallel", and the live view marks every in-flight cell from the runner's new `trial-start`
+  events. Measured on gpt-4o-mini (health, reason, regex × noHarness, harness): 24 trials serial in
+  36 s; 48 trials at parallel 8 in 8 s — about 9× the throughput, with p50 latency unchanged (650 →
+  642 ms free-form, 1,250 → 1,329 ms harness), so OpenAI does not queue at this depth. Local Ollama
+  will: it serves `OLLAMA_NUM_PARALLEL` requests at once and queues the rest, so latency columns from
+  a parallel local run include queueing (the UI hint says so; compare latencies serial-to-serial).
+- **[15] Stability metrics.** **DONE** (2026-09-07). Per cell: `agreementPct` (share of the repeated
+  trials that gave the modal *canonical* answer), `distinctAnswers`, and `flaky` (both passes and
+  failures). Per mode: `summary.stability` (repeated cells, flaky count, trial-weighted agreement),
+  phrased once by `describeStability` for the report and the headline. Canonical answers come from
+  `eval.canon(answer, { mode, structured })` on tasks with fixed truth — `health` (status only;
+  uptime moves), `reason` (sorted answers / per-question presence pattern), `regex` (per-string
+  verdicts). Tasks whose truth is minted per trial (`hello`, `lookup`, `chain`, `transform`) are
+  outcome-only; `explain` is judged. Rows carry `canon`; the CSV and the SQLite index carry the new
+  columns (`index --full` backfilled 36 runs; the store migrates older indexes in place).
+  First readings: the serial run caught health free-form at 3/4 with **75 % agreement** ("ok" ×3,
+  "down" ×1) while its harness cell sat at 100 %; `reason` free-form is 0/12 at **100 % agreement**
+  — the model misses the same question every time (presence pattern `101`), a systematic error,
+  not noise. That distinction is what agreement adds to a correctness percentage: the harness delta
+  on `reason` is a fix for a stable failure, the one on `health` free-form is a fix for flakiness.
+- **[16] Variance across runs and settings.** **OPEN.** With the index the next questions are cheap:
+  agreement at temperature 0 versus the default; a model's flake rate over its last N runs (`query
+  --sql` over `cells.flaky`); canonical answers for `transform` (the SHOUT half is deterministic)
+  and `chain` (the greeting's shape). Arms could join the parallel pool if each trial greeted a
+  unique name (a nonce in the goal prompt) and `recentGreetings` matched on it instead of on the
+  time window.
+
+### Tier 7 — Agents: harder tasks, sub-agents, skills (OPEN — added 2026-09-07)
+
+Everything so far is one goal, one or two tool calls, one answer. The next capability question is
+what a harness buys on **harder** work, where the axes belong to the agent rather than the prompt:
+
+- **[17] Multi-step tasks.** Goals that need several dependent calls with state carried between
+  them — `chain` was the first, and Pi and Codex already failed it by skipping the dependent second
+  call. Grow the SUT by a few endpoints (list, create, update, verify) so a task can read "find every
+  X, change the ones that Y, confirm" and be scored on the **server's end state**, not only the final
+  message. Step count is a knob (3, 6, 12) so success-versus-length can be drawn per harness.
+- **[18] Sub-agents.** Offloading work: the same multi-step goal with delegation available versus
+  without. In the synthetic harness a `delegate(goal)` tool runs a fresh model turn with its own
+  tools and returns its answer; the arms use their native mechanism (Claude Code's Agent tool, Pi and
+  Codex sub-agents, Thoth's delegation under its tron policy). Score correctness, wall time, tokens,
+  and whether the parent actually delegated (a tool-use verdict). This is where the arms should
+  separate most, and where token cost will diverge fastest.
+- **[19] Skills.** A skill is a packaged procedure the model can load on demand — a markdown playbook
+  with steps, pitfalls and the endpoint's quirks. Treatment: the same task with and without its skill
+  file. First in the synthetic harness (`skills/<task>.md`, offered through a `load_skill` tool or
+  pre-loaded into the system prompt, both as modes), then through each arm's own mechanism (Claude
+  Code skills, Pi skills, Codex `AGENTS.md`, Thoth's). Questions: does a written procedure
+  substitute for a stronger model, does it help the small local models most, and does it cut
+  variance (Tier 6's agreement) more than it raises correctness?
+- **[20] Other stressors.** Distractor tools and endpoints (`regex` already carries a decoy),
+  tool results that fail or come back partial so the model must retry, a long log to search (context
+  length), and a budget of calls (time pressure). Each is an axis on an existing task rather than a
+  new task, so the deltas stay comparable with what is already measured.
+- **Decide first: which of [17]–[19] leads.** Recommendation: [17] with a small SUT extension,
+  because the four arms exist and `chain` already shows the signal; [19] next, because it is cheap
+  in the synthetic harness and reuses [17]'s tasks; [18] last, because it needs each arm's delegation
+  driven and observed.
+
 ## Proposal: real harnesses (Pi, Claude Code, Codex, Thoth) and local tools
 
 ### The question changes
