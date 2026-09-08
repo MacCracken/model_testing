@@ -34,6 +34,8 @@ export function parseArgs(argv) {
       case "--q": args.q = next(); break;
       case "--since": args.since = next(); break;
       case "--client": args.client = next(); break;
+      case "--a": args.a = next(); break;
+      case "--b": args.b = next(); break;
       case "--cells": args.cells = true; break;
       case "--out": args.out = next(); break;
       default: args._.push(a);

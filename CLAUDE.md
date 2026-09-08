@@ -103,8 +103,8 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
   pools adherence next to the correctness delta. Both `chat` and `runWithTools` receive
   `{ task, mode, ctx, seed }`, so wrappers behave the same on the free-form path.
 - `src/web/` — the control plane: `server.js` (node:http, zero deps) + `public/` (the UI).
-- `src/cli.js` — entry point (`list` / `show` / `export` / `index` / `query` / `compact` / `serve` /
-  `bench` / `aggregate`).
+- `src/cli.js` — entry point (`list` / `show` / `export` / `index` / `query` / `scorecard` /
+  `compare` / `compact` / `serve` / `bench` / `aggregate`).
 - `test/` — `npm test` (node:test, no deps). Scorers are tested with synthetic ground values, the
   runner with a fake client; nothing in the suite needs a model or the webserver.
 
@@ -178,6 +178,14 @@ pooled, the same shape as the harness delta (`deltaBetween` is the shared baseli
 failures) and `agreementPct` (share of trials giving the modal canonical answer, over cells whose
 task defines `eval.canon`). `describeStability` is the one phrasing for it. Agreement separates a
 systematic miss (wrong the same way every time) from noise, which a correctness percentage cannot.
+
+When both sides of a comparison ran the same instances (same task and index; for generated tasks
+the same seed), `deltaBetween` pairs them (`pairRows`) and adds `paired`: McNemar's exact test on the
+discordant pairs (`mcnemarExact`), a seeded bootstrap band (`bootstrapDelta`), phrased by
+`describePaired`. `sampleSizeFor` / `describePower` give the "run about n per side" guidance,
+`multipleComparisons` the Bonferroni count over a run's cells, `compareRows` the two-client or
+two-run comparison behind `cli compare`, and `capabilityStats` the scorecard behind `summarize`'s
+`capabilities`, `cli scorecard` and `/api/scorecard`.
 
 The headline delta carries a two-sided **Fisher exact** p-value (`fisherExact` in `runner.js`),
 exact at the handful of trials this bench actually runs; the z-test and Wilson intervals are kept

@@ -1,7 +1,7 @@
 // report.js — print a run summary the same way everywhere (aggregate.js after a run, `cli show`
 // for a saved one). Pure formatting over the runner's summary shape.
 
-import { describeSignificance, twoByTwo, describeStability } from "./runner.js";
+import { describeSignificance, twoByTwo, describeStability, describePaired, describePower } from "./runner.js";
 
 const fmtDelta = (d) => d
   ? `${d.noHarnessPct.toFixed(1)}% -> ${d.harnessPct.toFixed(1)}% (${d.deltaPp >= 0 ? "+" : ""}${d.deltaPp.toFixed(1)}pp)  [${describeSignificance(d)}]`
@@ -40,8 +40,22 @@ export function printSummary(summary, { log = console.log } = {}) {
 
   log("\n-- harness delta (correctness)");
   log(`   overall:      ${fmtDelta(summary.delta.overall)}`);
+  if (summary.delta.overall?.paired) log(`   paired:       ${describePaired(summary.delta.overall.paired)}`);
+  if (summary.delta.overall && !summary.delta.overall.significant) { const p = describePower(summary.delta.overall); if (p) log(`   power:        ${p}`); }
+  if (summary.multiple) log(`   comparisons:  ${summary.multiple.comparisons} task × model cells · ${summary.multiple.significantRaw} significant at 0.05, ${summary.multiple.significantBonferroni} after Bonferroni (α=${summary.multiple.bonferroniAlpha.toFixed(4)}; ~${summary.multiple.expectedFalsePositives.toFixed(1)} false positives expected by chance)`);
   for (const [task, d] of Object.entries(summary.delta.byTask)) log(`   ${task.padEnd(13)} ${fmtDelta(d)}`);
   for (const [client, d] of Object.entries(summary.delta.byClient)) log(`   ${client.padEnd(13)} ${fmtDelta(d)}`);
+
+  if (summary.capabilities && Object.keys(summary.capabilities).length) {
+    log("\n-- capability scorecard (harness · raw · delta per model)");
+    for (const [cap, c] of Object.entries(summary.capabilities)) {
+      for (const [client, st] of Object.entries(c.byClient)) {
+        const h = st.byMode.harness, r = st.byMode.noHarness;
+        const cell = (m) => (m ? `${m.correct}/${m.runs} (${m.correctPct.toFixed(0)}%, ${(m.wilson.low * 100).toFixed(0)}–${(m.wilson.high * 100).toFixed(0)})` : "—");
+        log(`   ${cap.padEnd(22)} ${client.padEnd(30)} harness ${cell(h).padEnd(24)} raw ${cell(r).padEnd(24)} ${st.delta ? `${st.delta.deltaPp >= 0 ? "+" : ""}${st.delta.deltaPp.toFixed(0)}pp` : ""}`);
+      }
+    }
+  }
 
   if (summary.delta.skill) {
     log("\n-- skill delta (same task, mode and model: without → with the playbook)");

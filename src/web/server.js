@@ -252,6 +252,23 @@ async function handle(req, res) {
     return sendJSON(res, 200, { runs: listRuns({ limit: 100 }) });
   }
 
+  // A client's capability scorecard pooled over the index.
+  if (req.method === "GET" && path === "/api/scorecard") {
+    const client = url.searchParams.get("client");
+    if (!client) return sendJSON(res, 400, { error: "client is required" });
+    try {
+      indexRuns();
+      const { rawQuery } = await import("../store.js");
+      const { capabilityStats } = await import("../runner.js");
+      const since = url.searchParams.get("since");
+      const q = (s) => s.replace(/'/g, "''");
+      const rows = rawQuery(`select t.task, t.mode, t.client, t.trial_index as "index", t.correct from trials t join runs r on r.id = t.run_id where t.client = '${q(client)}' and t.error is null${since ? ` and r.created_at >= '${q(since)}'` : ""}`).map((r) => ({ ...r, correct: !!r.correct }));
+      return sendJSON(res, 200, { client, trials: rows.length, capabilities: capabilityStats(rows, Object.fromEntries(listTasks().map((t) => [t.name, t.capabilities]))) });
+    } catch (err) {
+      return sendJSON(res, 500, { error: err?.message ?? "index unavailable" });
+    }
+  }
+
   // One task × client × mode cell across every run.
   if (req.method === "GET" && path === "/api/cells") {
     const task = url.searchParams.get("task"), client = url.searchParams.get("client"), mode = url.searchParams.get("mode") ?? "harness";

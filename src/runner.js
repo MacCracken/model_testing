@@ -8,7 +8,7 @@
 // `/lib/runner.js`, so the UI summarizes runs with this exact code instead of a copy that drifts.
 
 import { validateSchema, schemaHint } from "./schema.js";
-import { seedFor } from "./tasks/gen.js";
+import { seedFor, rng } from "./tasks/gen.js";
 
 // Every mode the benchmark knows. `noHarness` vs `harness` is the headline pair; `schemaOnly` and
 // `toolOnly` are the two axes the bundle decomposes into. A task supports a mode by carrying a spec
@@ -321,7 +321,7 @@ export async function runMatrix({ tasks, modes, clients, count = 1, parallel = 1
   }
   await Promise.all(running);
 
-  const summary = summarize(rows);
+  const summary = summarize(rows, { capabilitiesOf: Object.fromEntries(tasks.map((t) => [t.name, t.capabilities ?? []])) });
   onEvent?.({ type: "done", completed, total, summary, skipped, cancelled: !!signal?.aborted, instanceSeed: runSeed });
   return { rows, summary, skipped, instanceSeed: runSeed };
 }
@@ -494,8 +494,10 @@ function deltaFor(rows) {
 // delta when it is by client variant. Field names keep the historical noHarness*/harness* spelling
 // (baseline/treatment) so every consumer, describeSignificance included, reads both the same way;
 // the base*/treat* aliases say the same without the mode connotation.
-export function deltaBetween(noH, withH) {
+export function deltaBetween(noH, withH, { bootstrap = true } = {}) {
   if (!noH.length || !withH.length) return null;
+  const pairs = pairRows(noH, withH);
+  const paired = pairs.length ? { ...pairedOutcome(pairs), bootstrap: bootstrap ? bootstrapDelta(pairs) : null } : null;
   const n = noH.length;
   const m = withH.length;
   const x1 = noH.filter((r) => r.correct).length;
@@ -529,7 +531,110 @@ export function deltaBetween(noH, withH) {
     treatPct: b,
     baseRuns: n,
     treatRuns: m,
+    // The same comparison on paired instances, when both sides ran them (null otherwise).
+    paired,
   };
+}
+
+// ---- paired statistics -----------------------------------------------------------------------
+//
+// When both sides of a comparison ran the same instances — same task and trial index, which for a
+// generated task means the same seed and therefore the same problem — outcomes can be paired.
+// McNemar's exact test then looks only at the discordant pairs, which has far more power than two
+// independent proportions at the sample sizes this bench runs; a percentile bootstrap over the
+// pairs gives a band on the delta itself.
+
+// Two-sided exact McNemar: b = right only on the baseline side, c = right only on the treatment side.
+export function mcnemarExact(b, c) {
+  const n = b + c;
+  if (!n) return 1;
+  const k = Math.min(b, c);
+  let p = 0;
+  for (let i = 0; i <= k; i++) p += Math.exp(logChoose(n, i) - n * Math.LN2);
+  return Math.min(1, 2 * p);
+}
+
+// Pair rows across two sides by task and index (and client when both sides share clients; the
+// variants — a skilled client against its base — drop the client). Empty when nothing pairs.
+export function pairRows(base, treat) {
+  const key = (r, withClient) => `${r.task}|${withClient ? r.client : ""}|${r.index}`;
+  const attempt = (withClient) => {
+    const a = new Map();
+    const b = new Map();
+    for (const r of base) { const k = key(r, withClient); if (a.has(k)) return null; a.set(k, r); }
+    for (const r of treat) { const k = key(r, withClient); if (b.has(k)) return null; b.set(k, r); }
+    const pairs = [];
+    for (const [k, r] of a) if (b.has(k)) pairs.push([r, b.get(k)]);
+    return pairs.length ? pairs : null;
+  };
+  return attempt(true) ?? attempt(false) ?? [];
+}
+
+export function pairedOutcome(pairs) {
+  let both = 0, onlyBase = 0, onlyTreat = 0, neither = 0;
+  for (const [a, b] of pairs) {
+    if (a.correct && b.correct) both++;
+    else if (a.correct) onlyBase++;
+    else if (b.correct) onlyTreat++;
+    else neither++;
+  }
+  const pValue = mcnemarExact(onlyBase, onlyTreat);
+  return { n: pairs.length, both, onlyBase, onlyTreat, neither, pValue, significant: pValue < 0.05, test: "mcnemar-exact" };
+}
+
+// Percentile bootstrap on the paired delta (resampling pairs), seeded so a report is reproducible.
+export function bootstrapDelta(pairs, { iterations = 1000, seed = 7 } = {}) {
+  if (pairs.length < 2) return null;
+  const rand = rng(seed);
+  const deltas = new Array(iterations);
+  for (let it = 0; it < iterations; it++) {
+    let a = 0, b = 0;
+    for (let i = 0; i < pairs.length; i++) {
+      const p = pairs[Math.floor(rand() * pairs.length)];
+      if (p[0].correct) a++;
+      if (p[1].correct) b++;
+    }
+    deltas[it] = ((b - a) / pairs.length) * 100;
+  }
+  deltas.sort((x, y) => x - y);
+  const q = (f) => deltas[Math.min(iterations - 1, Math.floor(f * iterations))];
+  return { low: q(0.025), high: q(0.975), iterations };
+}
+
+// Trials per side an unpaired two-proportion comparison needs to see a given delta at the usual
+// two-sided α = 0.05 — the "run more" guidance when a gap is not significant.
+export function sampleSizeFor({ baselinePct, deltaPp, power = 0.8 }) {
+  const clamp = (p) => Math.min(0.995, Math.max(0.005, p));
+  const p1 = clamp(baselinePct / 100);
+  const p2 = clamp((baselinePct + deltaPp) / 100);
+  if (p1 === p2) return Infinity;
+  const za = 1.959963984540054;
+  const zb = power >= 0.9 ? 1.2815515655446004 : 0.8416212335729143;
+  const pbar = (p1 + p2) / 2;
+  return Math.ceil((za * Math.sqrt(2 * pbar * (1 - pbar)) + zb * Math.sqrt(p1 * (1 - p1) + p2 * (1 - p2))) ** 2 / (p2 - p1) ** 2);
+}
+
+export function describePaired(p) {
+  if (!p) return "unpaired";
+  const pv = p.pValue < 0.001 ? "p<0.001" : `p=${p.pValue.toFixed(2)}`;
+  const band = p.bootstrap ? ` · 95% band ${p.bootstrap.low >= 0 ? "+" : ""}${p.bootstrap.low.toFixed(0)} to ${p.bootstrap.high >= 0 ? "+" : ""}${p.bootstrap.high.toFixed(0)} pp` : "";
+  return `paired ${p.n}: ${p.onlyTreat} up · ${p.onlyBase} down · McNemar ${pv}${band}`;
+}
+
+export function describePower(d) {
+  if (!d) return "";
+  const target = Math.abs(d.deltaPp) >= 5 ? Math.abs(d.deltaPp) : 10;
+  const n = sampleSizeFor({ baselinePct: d.noHarnessPct, deltaPp: target });
+  return Number.isFinite(n) ? `to see a ${target.toFixed(0)} pp gap from ${d.noHarnessPct.toFixed(0)}% at 80% power, run about ${n} per side` : "";
+}
+
+// When a run asks many questions at once, some will look significant by chance. Bonferroni is
+// conservative but honest: the number of cells that survive α / k is the number to believe.
+export function multipleComparisons(deltas) {
+  const ds = Object.values(deltas ?? {}).filter(Boolean);
+  if (ds.length < 2) return null;
+  const alpha = 0.05 / ds.length;
+  return { comparisons: ds.length, bonferroniAlpha: alpha, expectedFalsePositives: ds.length * 0.05, significantRaw: ds.filter((d) => d.pValue < 0.05).length, significantBonferroni: ds.filter((d) => d.pValue < alpha).length };
 }
 
 // One phrasing of "is this gap real?" shared by the CLI, the aggregator and the web UI.
@@ -597,6 +702,21 @@ function armDeltas(rows, clientNames, taskNames) {
   return byArm;
 }
 
+// Two sets of rows on the same instances — two clients in one run, or two runs on the same
+// instance seed — compared pairwise, per task and overall. The checkpoint-versus-parent question.
+export function compareRows(a, b, { mode = null } = {}) {
+  const fa = mode ? a.filter((r) => r.mode === mode) : a;
+  const fb = mode ? b.filter((r) => r.mode === mode) : b;
+  const pairs = pairRows(fa, fb);
+  const byTask = {};
+  for (const task of [...new Set(pairs.map(([r]) => r.task))]) {
+    const ps = pairs.filter(([r]) => r.task === task);
+    byTask[task] = { ...pairedOutcome(ps), aPct: (ps.filter(([r]) => r.correct).length / ps.length) * 100, bPct: (ps.filter(([, r]) => r.correct).length / ps.length) * 100 };
+  }
+  const overall = pairs.length ? { ...pairedOutcome(pairs), aPct: (pairs.filter(([r]) => r.correct).length / pairs.length) * 100, bPct: (pairs.filter(([, r]) => r.correct).length / pairs.length) * 100, bootstrap: bootstrapDelta(pairs) } : null;
+  return { pairs: pairs.length, unpairedA: fa.length - pairs.length, unpairedB: fb.length - pairs.length, byTask, overall };
+}
+
 // A treated variant of a client ("<client>@skill:<how>", "<client>@agents:<how>") is paired with its
 // base client on the same task and mode; the difference is the treatment's. `kind` names the row
 // field the treatment writes (`skill` or `agents`). Keyed "task|mode|<variant client>"; `pooled`
@@ -637,7 +757,26 @@ function variantDeltas(rows, kind) {
   return { by, pooled: Object.keys(pooled).length ? pooled : null };
 }
 
-export function summarize(rows) {
+// Per capability: every row whose task is tagged with it, per mode, with a Wilson band and the
+// harness delta. `capabilitiesOf` maps task name → tags (from the registry, or the UI's meta).
+export function capabilityStats(rows, capabilitiesOf = {}) {
+  const out = {};
+  const caps = [...new Set(Object.values(capabilitiesOf).flat())];
+  for (const cap of caps) {
+    const sub = rows.filter((r) => (capabilitiesOf[r.task] ?? []).includes(cap));
+    if (!sub.length) continue;
+    const byMode = {};
+    for (const m of [...new Set(sub.map((r) => r.mode))]) {
+      const ms = sub.filter((r) => r.mode === m);
+      const correct = ms.filter((r) => r.correct).length;
+      byMode[m] = { runs: ms.length, correct, correctPct: (correct / ms.length) * 100, wilson: wilsonInterval(correct, ms.length) };
+    }
+    out[cap] = { tasks: [...new Set(sub.map((r) => r.task))], byMode, delta: deltaFor(sub) };
+  }
+  return out;
+}
+
+export function summarize(rows, { capabilitiesOf = null } = {}) {
   const modes = [...new Set(rows.map((r) => r.mode))];
   const taskNames = [...new Set(rows.map((r) => r.task))];
   const clientNames = [...new Set(rows.map((r) => r.client))];
@@ -684,7 +823,18 @@ export function summarize(rows) {
   for (const t of taskNames) {
     for (const c of clientNames) {
       const sub = rows.filter((r) => r.task === t && r.client === c);
-      if (sub.length) byTaskClient[`${t}|${c}`] = deltaFor(sub);
+      if (sub.length) byTaskClient[`${t}|${c}`] = deltaBetween(sub.filter((r) => r.mode === "noHarness"), sub.filter((r) => r.mode === "harness"), { bootstrap: false });
+    }
+  }
+
+  // The capability scorecard for this run, per client (only when the caller knows the tags).
+  const capabilities = {};
+  if (capabilitiesOf && Object.keys(capabilitiesOf).length) {
+    for (const c of clientNames) {
+      const stats = capabilityStats(rows.filter((r) => r.client === c), capabilitiesOf);
+      for (const [cap, st] of Object.entries(stats)) {
+        (capabilities[cap] ??= { tasks: st.tasks, byClient: {} }).byClient[c] = { byMode: st.byMode, delta: st.delta };
+      }
     }
   }
 
@@ -701,6 +851,8 @@ export function summarize(rows) {
     byMode,
     cells,
     stability,
+    capabilities,
+    multiple: multipleComparisons(byTaskClient),
     delta: {
       overall: deltaFor(rows),
       byTask,

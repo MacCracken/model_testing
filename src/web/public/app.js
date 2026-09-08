@@ -3,7 +3,7 @@
 // Summaries come from the runner itself (served as /lib/runner.js), so a run in flight, a run
 // loaded from history, and the CLI all report the same numbers through the same code.
 
-import { summarize, deltaFor, describeSignificance, isStructuredMode, twoByTwo, DEFAULT_MODES, describeStability } from "/lib/runner.js";
+import { summarize, deltaFor, describeSignificance, isStructuredMode, twoByTwo, DEFAULT_MODES, describeStability, describePaired, describePower } from "/lib/runner.js";
 
 // ---- tiny DOM + format helpers -------------------------------------------------------------
 
@@ -613,9 +613,10 @@ function renderReport() {
   warn.hidden = !run.warnings?.length;
   warn.replaceChildren(...(run.warnings ?? []).map((w) => el("div", {}, w)));
 
-  const s = summarize(run.rows);
+  const s = summarize(run.rows, { capabilitiesOf: Object.fromEntries((state.meta?.tasks ?? []).map((t) => [t.name, t.capabilities ?? []])) });
   renderHeadline(s);
   renderTwoByTwo(s);
+  renderScorecard(s);
   renderLive();
   renderMatrix(s);
   renderTrials();
@@ -644,6 +645,9 @@ function renderHeadline(s) {
       el("div", { className: "sub" }, `${fmtPct(d.noHarnessPct)} → ${fmtPct(d.harnessPct)} correct · ${progress}`),
       el("div", { className: `sig${d.significant ? " yes" : ""}` }, describeSignificance(d)),
     );
+    if (d.paired) col.append(el("div", { className: `sig${d.paired.significant ? " yes" : ""}`, title: "the same instances in both modes, compared pairwise: McNemar's exact test on the discordant pairs, and a bootstrap band on the delta" }, describePaired(d.paired)));
+    if (!d.significant) { const pw = describePower(d); if (pw) col.append(el("div", { className: "sub", title: "unpaired two-proportion power calculation at α = 0.05" }, pw)); }
+    if (s.multiple) col.append(el("div", { className: "sub", title: "with many task × model cells some look significant by chance; Bonferroni divides α by the number of comparisons" }, `${s.multiple.comparisons} cells · ${s.multiple.significantRaw} significant · ${s.multiple.significantBonferroni} after Bonferroni`));
   }
   for (const [client, a] of Object.entries(s.delta.byArm ?? {})) {
     if (!a.overall) continue;
@@ -797,6 +801,36 @@ function renderLive() {
       grid.append(cell);
     }
     box.append(el("div", { className: "live-row" }, el("div", { className: "live-label" }, MODE_LABEL[mode] ?? mode), grid));
+  }
+}
+
+// The run's capability scorecard: per tag, each client's harness rate with its Wilson band, the raw
+// rate and the delta, pooled over the run's tasks that carry the tag.
+function renderScorecard(s) {
+  const block = $("#scorecard-block");
+  const box = $("#scorecard");
+  box.replaceChildren();
+  const caps = Object.entries(s.capabilities ?? {}).sort(([a], [b]) => a.localeCompare(b));
+  block.hidden = !caps.length;
+  if (!caps.length) return;
+  const clients = s.clients;
+  $("#scorecard-legend").replaceChildren(el("span", {}, "harness % with its 95% band · raw % · delta — pooled over the run's tasks carrying the tag"));
+  box.style.gridTemplateColumns = `170px repeat(${clients.length}, minmax(150px, 1fr))`;
+  box.append(el("div", { className: "mh" }, "capability"), ...clients.map((c) => el("div", { className: "mh ellipsis", title: c }, c)));
+  for (const [cap, c] of caps) {
+    box.append(el("div", { className: "cap", title: c.tasks.join(", ") }, cap, el("small", {}, ` · ${plural(c.tasks.length, "task")}`)));
+    for (const client of clients) {
+      const st = c.byClient[client];
+      const h = st?.byMode.harness;
+      const r = st?.byMode.noHarness;
+      const primary = h ?? r ?? Object.values(st?.byMode ?? {})[0];
+      if (!primary) { box.append(el("div", { className: "faint" }, "—")); continue; }
+      const band = (m) => `${fmtPct(m.correctPct)} [${(m.wilson.low * 100).toFixed(0)}–${(m.wilson.high * 100).toFixed(0)}]`;
+      box.append(el("div", { className: "sc" },
+        el("div", { className: "bar" }, el("i", { style: { width: `${primary.correctPct}%` } })),
+        el("div", { className: "sub" }, [h ? `harness ${band(h)}` : "", r ? `raw ${band(r)}` : "", st.delta ? signedPp(st.delta.deltaPp, 0) : ""].filter(Boolean).join(" · ")),
+      ));
+    }
   }
 }
 

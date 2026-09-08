@@ -66,7 +66,8 @@ async function main() {
       console.log("");
       // Summaries are recomputed from the rows, so a run saved before a scorer's *reporting* changed
       // still prints with today's aggregation; the verdicts themselves are whatever was recorded.
-      const summary = summarize(run.rows);
+      const { listTasks: tasksForTags } = await import("./tasks/registry.js");
+      const summary = summarize(run.rows, { capabilitiesOf: Object.fromEntries(tasksForTags().map((t) => [t.name, t.capabilities])) });
       printSummary(summary);
       if (args.table) console.log(`\n${summaryTable(summary)}`);
       break;
@@ -106,6 +107,56 @@ async function main() {
         console.error("usage: node src/cli.js query runs|trend|cell|worst [--task] [--client] [--mode] [--q] [--since] [--limit] | --sql \"select …\"");
         process.exit(1);
       }
+      break;
+    }
+
+    // A model's capability scorecard pooled over every saved run in the index.
+    case "scorecard": {
+      const args = parseArgs(rest);
+      const client = args._[0];
+      if (!client) { console.error("usage: node src/cli.js scorecard <client> [--since YYYY-MM-DD] [--json]"); process.exit(1); }
+      const { indexRuns, rawQuery } = await import("./store.js");
+      const { capabilityStats } = await import("./runner.js");
+      const { listTasks } = await import("./tasks/registry.js");
+      indexRuns();
+      const q = (s) => s.replace(/'/g, "''");
+      const rows = rawQuery(`select t.task, t.mode, t.client, t.idx as trialIndex, t.trial_index as "index", t.correct, r.created_at as createdAt from trials t join runs r on r.id = t.run_id where t.client = '${q(client)}' and t.error is null${args.since ? ` and r.created_at >= '${q(args.since)}'` : ""}`)
+        .map((r) => ({ ...r, correct: !!r.correct }));
+      if (!rows.length) { console.log(`no trials for ${client}${args.since ? ` since ${args.since}` : ""}`); break; }
+      const card = capabilityStats(rows, Object.fromEntries(listTasks().map((t) => [t.name, t.capabilities])));
+      if (args.json) { console.log(JSON.stringify({ client, trials: rows.length, since: args.since ?? null, capabilities: card }, null, 2)); break; }
+      console.log(`${client} — ${rows.length} scored trials${args.since ? ` since ${args.since}` : ""}, ${Object.keys(card).length} capabilities\n`);
+      const cell = (m) => (m ? `${String(m.correct).padStart(3)}/${String(m.runs).padEnd(4)} ${m.correctPct.toFixed(0).padStart(3)}%  [${(m.wilson.low * 100).toFixed(0)}–${(m.wilson.high * 100).toFixed(0)}]`.padEnd(24) : "—".padEnd(24));
+      console.log(`${"capability".padEnd(22)} ${"harness".padEnd(24)} ${"raw (no harness)".padEnd(24)} ${"delta".padEnd(14)} tasks`);
+      for (const [cap, st] of Object.entries(card).sort((a, b) => (b[1].byMode.harness?.correctPct ?? -1) - (a[1].byMode.harness?.correctPct ?? -1))) {
+        console.log(`${cap.padEnd(22)} ${cell(st.byMode.harness)} ${cell(st.byMode.noHarness)} ${(st.delta ? `${st.delta.deltaPp >= 0 ? "+" : ""}${st.delta.deltaPp.toFixed(0)}pp ${st.delta.significant ? "*" : ""}` : "—").padEnd(14)} ${st.tasks.join(",")}`);
+      }
+      console.log("\nbands are 95% Wilson intervals; * = Fisher p < 0.05 for the harness delta");
+      break;
+    }
+
+    // Paired comparison: two clients in one run, or two runs on the same instance seed.
+    case "compare": {
+      const args = parseArgs(rest);
+      const { loadRun } = await import("./results.js");
+      const { compareRows, describePaired } = await import("./runner.js");
+      const [runA, runB] = args._;
+      if (!runA) { console.error("usage: node src/cli.js compare <run-id> --a <client> --b <client> [--mode harness]\n       node src/cli.js compare <run-id-A> <run-id-B> [--mode harness]   # same instance seed"); process.exit(1); }
+      const A = loadRun(runA); if (!A) { console.error(`unknown run ${runA}`); process.exit(1); }
+      let rowsA, rowsB, labelA, labelB;
+      if (runB) {
+        const B = loadRun(runB); if (!B) { console.error(`unknown run ${runB}`); process.exit(1); }
+        if (A.config?.instanceSeed !== B.config?.instanceSeed) console.log(`note: instance seeds differ (${A.config?.instanceSeed} vs ${B.config?.instanceSeed}) — generated tasks are not the same problems`);
+        rowsA = A.rows; rowsB = B.rows; labelA = runA; labelB = runB;
+      } else {
+        if (!args.a || !args.b) { console.error("compare within a run needs --a <client> --b <client>"); process.exit(1); }
+        rowsA = A.rows.filter((r) => r.client === args.a); rowsB = A.rows.filter((r) => r.client === args.b); labelA = args.a; labelB = args.b;
+      }
+      const c = compareRows(rowsA, rowsB, { mode: args.mode ?? null });
+      console.log(`A = ${labelA}\nB = ${labelB}\n${c.pairs} paired trials${args.mode ? ` in ${args.mode}` : ""} (${c.unpairedA} A-only, ${c.unpairedB} B-only)\n`);
+      console.log(`${"task".padEnd(12)} ${"A".padEnd(7)} ${"B".padEnd(7)} both  A-only  B-only  neither  McNemar`);
+      for (const [task, d] of Object.entries(c.byTask)) console.log(`${task.padEnd(12)} ${(d.aPct.toFixed(0) + "%").padEnd(7)} ${(d.bPct.toFixed(0) + "%").padEnd(7)} ${String(d.both).padStart(4)}  ${String(d.onlyBase).padStart(6)}  ${String(d.onlyTreat).padStart(6)}  ${String(d.neither).padStart(7)}  p=${d.pValue.toFixed(3)}${d.significant ? " *" : ""}`);
+      if (c.overall) console.log(`\noverall: A ${c.overall.aPct.toFixed(1)}% → B ${c.overall.bPct.toFixed(1)}% · ${describePaired(c.overall)}`);
       break;
     }
 
@@ -159,6 +210,8 @@ async function main() {
       console.log("  node src/cli.js index [--full]                        # rebuild the SQLite index over results/runs");
       console.log("  node src/cli.js query runs|trend|cell|worst [...]    # cross-run questions (or --sql)");
       console.log("  node src/cli.js compact --older-than <days> [--yes]  # strip prompts/transcripts from old runs");
+      console.log("  node src/cli.js scorecard <client> [--since D]       # capability scorecard pooled over the index");
+      console.log("  node src/cli.js compare <run> --a <c1> --b <c2> | compare <runA> <runB>   # paired comparison (McNemar)");
       console.log("  node src/cli.js serve [--port 4000] [--host 127.0.0.1] [--open]");
       console.log("  node src/cli.js bench --task <name|all> --modes noHarness,harness,schemaOnly,toolOnly --clients <p:model,...> [--count N] [--temperature T] [--seed S] [--model-param k=v]... [--json]");
       console.log("  node src/cli.js aggregate [--tasks <name,...>] [--modes ...] [--clients ...] [--count N]");

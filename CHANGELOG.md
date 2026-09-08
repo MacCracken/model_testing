@@ -4,6 +4,38 @@ What shipped, by date. Full measurement tables live in [docs/results.md](docs/re
 forward roadmap is [plan.md](plan.md). Dates are the commit dates; item numbers ([1]–[20]) are the
 roadmap tiers as they were numbered while being built.
 
+## 2026-09-08 (later) — capability scorecard and paired statistics
+
+### Added
+- **Paired statistics** ([33]): when both sides of a comparison ran the same instances (same task
+  and trial index — for generated tasks, the same seed and problem), `deltaBetween` pairs them and
+  reports **McNemar's exact test** on the discordant pairs plus a seeded percentile **bootstrap band**
+  on the delta (`paired` on every delta; per-cell deltas skip the bootstrap). Every delta the bench
+  reports — harness, skill, sub-agents, stress, constraints — gains the paired view for free. Also:
+  `sampleSizeFor` / `describePower` ("to see a 20 pp gap from 50 % at 80 % power, run about 93 per
+  side", shown when a delta is not significant) and `multipleComparisons` (Bonferroni over the
+  run's task × model cells, with the expected number of chance positives). Report and headline
+  carry all three.
+- **Capability scorecard** ([31]): `capabilityStats(rows, capabilitiesOf)` pools every row whose
+  task carries a tag — per mode, with Wilson bands and the harness delta. `summarize` reports it per
+  client when given the tags (the runner, `cli show` and the UI all pass them); the UI has a
+  "Capability scorecard" panel per run; `node src/cli.js scorecard <client> [--since]` and
+  `GET /api/scorecard?client=` pool it over every saved run in the index.
+- **`node src/cli.js compare`**: two clients in one run (`--a`/`--b`) or two runs on the same
+  instance seed, paired per task and overall with McNemar and a bootstrap band — the
+  checkpoint-versus-parent question, answerable today.
+
+### Measured (on runs already saved)
+- The answer-only → `work`-field re-run of the generated families, compared across the two runs as
+  a paired design: 26 up, 2 down of 48 in schema-only mode, McNemar p < 0.001, 95 % band +33 to
+  +67 pp — where the unpaired reading had been two percentages.
+- gpt-4o-mini versus Haiku on the same 36 harness instances of the generated families: 9 up, 1
+  down, McNemar p = 0.02, band +8 to +39 pp.
+- gpt-4o-mini's scorecard over 949 scored trials in the index: extraction, tool selection,
+  counting, parallel calls, irrelevance detection 100 % harnessed; arithmetic 90 %, dependent calls
+  88 %, deduction 86 %, tool use 81 %; calendar 67 %, multi-step 54 %, **planning and state 16 %**
+  (the restock family). One line per capability is the profile the roadmap asked for.
+
 ## 2026-09-08 — tool-use breadth and prompt injection
 
 ### Added

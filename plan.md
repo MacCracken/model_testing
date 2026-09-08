@@ -37,12 +37,12 @@ rebuildable. One learned this week: a structured schema for a task that needs th
 | Models | OpenAI, Anthropic, Groq, DeepSeek, Ollama (live-probed); real-harness arms Thoth, Claude Code, Pi, Codex |
 | Treatments | client variants paired against their base: `@skill:preload/ondemand/native`, `@agents:available/required`, `@stress:flaky/budget/haystack/distractors`, `@constraints:light/medium/heavy`; stress adds `injected` (prompt injection through tool output) |
 | Scoring | deterministic scorers per task; truth from the trial (tool results) or the server's end state; tool-use verdicts; one judged task |
-| Statistics | Fisher exact with the "inconclusive" floor, Wilson bands, 2×2 decomposition, per-arm and per-variant paired deltas, stability (agreement, flaky cells) |
+| Statistics | Fisher exact with the "inconclusive" floor, Wilson bands, 2×2 decomposition, per-arm and per-variant deltas, McNemar + bootstrap on paired instances, power guidance, Bonferroni over cells, stability (agreement, flaky cells), a capability scorecard per run and over the index |
 | Throughput | parallel trials (arms run alone), 48 trials in 8 s on a hosted model |
 | Data | one JSON per run, SQLite index (`index`, `query`, `--sql`, `compact`), CSV, versions on every run, cross-run cell history |
 | UI | Ledger design, live grid, dumbbell matrix, trial drawer with transcript and children, history filter |
 | SUT | the webserver: hello/health, the `/api/recent` log, inventory scenarios with tickets, confirm rules, stress profiles, op log |
-| Tests | 217, none needing a model; the webserver runs in-process |
+| Tests | 227, none needing a model; the webserver runs in-process |
 
 ## What the field measures that we do not
 
@@ -70,7 +70,7 @@ with a priority for the stated purpose:
 | Instruction following | IFEval (verifiable constraints), LiveBench IF | `@constraints` variants: eleven requirement families checked by code on any task, adherence beside correctness | more families (sentences, language), requirements across turns, a `@format` variant | low (was high) |
 | Long context | RULER / needle-in-a-haystack (multi-key, multi-value, aggregation) at 4 k–1 M | haystack of 60 items (a few k tokens) | generated logs at 8 k–128 k, position sweeps, aggregation, a search tool as the harness axis | high |
 | Structured extraction | LiveBench data analysis, enterprise extraction evals | `transform`, schema modes | generated documents with exact truth, joins across two sources | medium |
-| Statistics & reproducibility | HELM CIs, Inspect logs, lm-eval fixed prompts and versions | Fisher, Wilson, seeds, versions, canonical answers, index | paired designs across checkpoints, bootstrap CIs on aggregates, power guidance, multiple-comparison flags | **high** (for own models) |
+| Statistics & reproducibility | HELM CIs, Inspect logs, lm-eval fixed prompts and versions | Fisher, Wilson, seeds, versions, canonical answers, index, McNemar + bootstrap on paired instances, power guidance, Bonferroni, `cli compare` | lineage-aware pooling, regression alerts over time ([34]) | medium (was high) |
 | Own-model workflow | lm-eval HF/vLLM backends; W&B / MLflow tracking; per-checkpoint scoreboards | Ollama through the OpenAI route | serving recipes, model lineage, checkpoint compare, suites and gates, contamination policy | **high** |
 | Coding | HumanEval → LiveCodeBench → SWE-bench | none | sandboxed execution of generated specs with hidden tests | medium (needs a sandbox decision) |
 | Calibration & abstention | HELM calibration (ECE); "answer or abstain" splits | hedge detection in one scorer | confidence elicitation, Brier/ECE per cell, unanswerable variants | medium |
@@ -130,15 +130,14 @@ declares the capability it measures and runs in the four modes where they mean s
 
 ### Tier 9 — Scorecards and the statistics of judgment
 
-- **[31] Capability map and scorecard.** Every task and family tagged with the capabilities it
-  measures; per-capability aggregates with Wilson or bootstrap bands; one scorecard per model in the
-  UI and `node src/cli.js scorecard <model>` pooling the index across runs.
+- **[31] Capability map and scorecard.** Shipped 2026-09-08 (see the changelog): tags on every
+  task, `capabilityStats`, the per-run panel, `cli scorecard` and `/api/scorecard` over the index.
+  Left for later: a radar per model in the UI, and pooling by model lineage once [36] exists.
 - **[32] Difficulty curves.** Success versus the family's knob; a model's *breaking point* is the
   first difficulty where the band's upper bound falls under 50 %.
-- **[33] Paired comparisons.** The same seeds against two models or two checkpoints → McNemar's test
-  on paired outcomes (far more power than two independent proportions), bootstrap intervals on
-  aggregate deltas, power guidance ("to see Δ = 20 pp at 80 % power run n ≈ …"), and a
-  multiple-comparisons flag when a run has many cells.
+- **[33] Paired comparisons.** Shipped 2026-09-08 (see the changelog): McNemar's exact test and a
+  bootstrap band on every paired delta, power guidance, Bonferroni over a run's cells, and
+  `cli compare` for two clients or two runs on the same seed.
 - **[34] Trend and regression detection.** Per capability per model over time from the index; an
   alert when a checkpoint falls below its parent by more than the band.
 
@@ -182,9 +181,10 @@ declares the capability it measures and runs in the four modes where they mean s
 
 ## Decisions needed
 
-1. **Order for the next month.** [21], [22] and [25] are done; recommendation for the rest:
-   [31]/[33] scorecards and paired statistics, then [35]/[36] own-model plumbing before the first
-   trained checkpoint exists, then [23] long context.
+1. **Order for the next month.** [21], [22], [25], [31] and [33] are done; recommendation for the
+   rest: [35]/[36] own-model plumbing (serving recipes, lineage, the compare view on top of `cli
+   compare`) before the first trained checkpoint exists, then [23] long context, then [32]/[34]
+   difficulty curves and regression detection over the index.
 2. **Code sandbox.** Worker-thread isolation keeps the zero-dependency rule but is weaker; Docker is
    stronger and a dependency. This gates [27].
 3. **Scope of knowledge and safety.** Exclude closed-book knowledge as an axis? Include tool-result

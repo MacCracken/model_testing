@@ -132,7 +132,16 @@ node src/cli.js query runs --task chain --client codex:gpt-5.4-mini --since 2026
 node src/cli.js query cell --task chain --client openai:gpt-4o-mini   # one cell pooled across runs, with its history
 node src/cli.js query worst --limit 10  # lowest pooled correctness (trend: one cell over time; --sql "select …" for anything else)
 node src/cli.js compact --older-than 30 # dry run; --yes strips prompts/transcripts from runs older than 30 days
+node src/cli.js scorecard openai:gpt-4o-mini            # capability scorecard pooled over every saved run (Wilson bands, harness delta)
+node src/cli.js compare <run> --a <client> --b <client> --mode harness   # paired: McNemar + bootstrap band per task
+node src/cli.js compare <run-A> <run-B> --mode schemaOnly               # two runs on the same instance seed
 ```
+
+Every delta also carries a **paired** reading when both sides ran the same instances (McNemar's
+exact test on the discordant pairs and a bootstrap band on the delta), power guidance when a gap is
+not significant, and a Bonferroni count over the run's task × model cells. The **capability
+scorecard** pools each run's tasks by the capabilities they carry (tool use, multi-step, arithmetic,
+deduction, planning, …) per model, and `cli scorecard` does the same over every saved run.
 
 `--instance-seed N` fixes the seed the generated families mint their problems from: every mode
 and model in the run sees the same instances (a paired design), and the same seed on another day
