@@ -32,17 +32,17 @@ rebuildable. One learned this week: a structured schema for a task that needs th
 
 | Dimension | What exists today |
 |---|---|
-| Tasks | 21: `health`, `hello`, `reason`, `lookup`, `regex`, `chain`, `transform`, `explain` (judged), `restock3/6/12/30` (stateful, end-state scored), and the generated `wordmath2/4/6`, `datecalc1/3`, `logicgrid3/4`, `tally20/60` (minted per trial from the run's instance seed) |
+| Tasks | 26: `health`, `hello`, `reason`, `lookup`, `regex`, `chain`, `transform`, `explain` (judged), `restock3/6/12/30` (stateful, end-state scored), the generated `wordmath2/4/6`, `datecalc1/3`, `logicgrid3/4`, `tally20/60`, and the scenario-backed `fanout4/8`, `follow3/6`, `norelevant` (all minted per trial from the run's instance seed) |
 | Modes | `noHarness`, `harness`, `schemaOnly`, `toolOnly` — the tools × schema 2×2 |
 | Models | OpenAI, Anthropic, Groq, DeepSeek, Ollama (live-probed); real-harness arms Thoth, Claude Code, Pi, Codex |
-| Treatments | client variants paired against their base: `@skill:preload/ondemand/native`, `@agents:available/required`, `@stress:flaky/budget/haystack/distractors`, `@constraints:light/medium/heavy` |
+| Treatments | client variants paired against their base: `@skill:preload/ondemand/native`, `@agents:available/required`, `@stress:flaky/budget/haystack/distractors`, `@constraints:light/medium/heavy`; stress adds `injected` (prompt injection through tool output) |
 | Scoring | deterministic scorers per task; truth from the trial (tool results) or the server's end state; tool-use verdicts; one judged task |
 | Statistics | Fisher exact with the "inconclusive" floor, Wilson bands, 2×2 decomposition, per-arm and per-variant paired deltas, stability (agreement, flaky cells) |
 | Throughput | parallel trials (arms run alone), 48 trials in 8 s on a hosted model |
 | Data | one JSON per run, SQLite index (`index`, `query`, `--sql`, `compact`), CSV, versions on every run, cross-run cell history |
 | UI | Ledger design, live grid, dumbbell matrix, trial drawer with transcript and children, history filter |
 | SUT | the webserver: hello/health, the `/api/recent` log, inventory scenarios with tickets, confirm rules, stress profiles, op log |
-| Tests | 211, none needing a model; the webserver runs in-process |
+| Tests | 217, none needing a model; the webserver runs in-process |
 
 ## What the field measures that we do not
 
@@ -64,7 +64,7 @@ with a priority for the stated purpose:
 
 | Capability area | What the field runs | What we have | Gap | Priority |
 |---|---|---|---|---|
-| Tool use / function calling | BFCL v4 (AST + executable checks, parallel calls, irrelevance detection, 200 multi-turn trajectories), τ²-bench, MCP-Bench | six tool tasks, decoys, restock, stress profiles | parallel-call correctness at scale, irrelevance ("no tool fits") detection, nested chains of length k, tool-result injection | **high** |
+| Tool use / function calling | BFCL v4 (AST + executable checks, parallel calls, irrelevance detection, 200 multi-turn trajectories), τ²-bench, MCP-Bench | six tool tasks, decoys, restock, stress profiles, `fanout` (parallel calls), `follow` (dependency chains), `norelevant` (irrelevance), the `injected` profile | argument-type strictness, harder near-miss irrelevance, partial-result recovery, multi-turn trajectories | medium (was high) |
 | Agentic multi-step | SWE-bench Verified, Terminal-Bench, GAIA, BrowseComp, OSWorld | restock family (3–30 steps), four real arms | other domains (files, terminal, scheduling), longer horizons, policy constraints | **high** |
 | Reasoning / math | GPQA Diamond, HLE, ARC-AGI-2, FrontierMath, LiveBench math | `reason` plus the generated `wordmath`, `datecalc`, `logicgrid`, `tally` families with a calculator / date / query tool as the harness axis | harder tiers, unit conversions, spatial and ordering puzzles | medium (was high) |
 | Instruction following | IFEval (verifiable constraints), LiveBench IF | `@constraints` variants: eleven requirement families checked by code on any task, adherence beside correctness | more families (sentences, language), requirements across turns, a `@format` variant | low (was high) |
@@ -109,11 +109,12 @@ declares the capability it measures and runs in the four modes where they mean s
   harness delta on long context is its own number.
 - **[24] Structured extraction from generated documents.** Invoices, tickets and tables with known
   truth → JSON under a schema; joins across two documents; tolerance rules for numbers and dates.
-- **[25] Tool-use breadth.** Within our own stack, the BFCL axes: parallel-call correctness (N
-  independent calls in one turn), irrelevance detection (no tool fits — the model must say so),
-  dependency chains of length k, argument-type strictness, error recovery beyond `flaky`, and
-  **tool-result prompt injection** as a stress profile (instructions embedded in a tool's output; the
-  AgentDojo threat, and the one that matters most for agents we deploy).
+- **[25] Tool-use breadth.** Shipped 2026-09-08 (see the changelog): `fanout4/8` (parallel-call
+  correctness, with the verdict reading rounds), `follow3/6` (dependency chains), `norelevant`
+  (irrelevance detection with an answerable half), and the `injected` stress profile (instructions
+  inside tool output, scored as a hijack). Left for later: argument-type strictness (a tool whose
+  server rejects wrong types), a harder irrelevance set (near-miss questions about fields that
+  almost exist), and recovery from partial results.
 - **[26] Multi-turn with a scripted user.** The SUT plays the user from a scenario script —
   information revealed over turns, a change of mind mid-job — with τ²-style policy constraints
   ("never restock above target") whose violations are scored.
@@ -181,9 +182,9 @@ declares the capability it measures and runs in the four modes where they mean s
 
 ## Decisions needed
 
-1. **Order for the next month.** [21] and [22] are done; recommendation for the rest: [25] tool-use
-   breadth with injection, then [31]/[33] scorecards and paired statistics, and [35]/[36] own-model
-   plumbing before the first trained checkpoint exists.
+1. **Order for the next month.** [21], [22] and [25] are done; recommendation for the rest:
+   [31]/[33] scorecards and paired statistics, then [35]/[36] own-model plumbing before the first
+   trained checkpoint exists, then [23] long context.
 2. **Code sandbox.** Worker-thread isolation keeps the zero-dependency rule but is weaker; Docker is
    stronger and a dependency. This gates [27].
 3. **Scope of knowledge and safety.** Exclude closed-book knowledge as an axis? Include tool-result

@@ -23,7 +23,8 @@ test("listTasks advertises exactly the modes each task declares", () => {
 const generators = { wordmath: (t) => wordmathGen(1, Number(t.name.replace("wordmath", ""))), datecalc: (t) => datecalcGen(1, Number(t.name.replace("datecalc", ""))), logicgrid: (t) => logicgridGen(1, Number(t.name.replace("logicgrid", ""))), tally: (t) => tallyGen(1, Number(t.name.replace("tally", ""))) };
 function sampleCtx(t) {
   const fam = Object.keys(generators).find((k) => t.name.startsWith(k));
-  return fam ? generators[fam](t) : { scenario: "scn-test", items: [], low: 3, size: 8 };
+  if (fam) return generators[fam](t);
+  return { scenario: "scn-test", items: [], low: 3, size: 8, ids: ["sku-1001", "sku-1002"], start: "sku-1001", hops: 3, question: "What is the qty of item sku-1001?" };
 }
 
 test("every declared spec is well-formed for its mode", () => {

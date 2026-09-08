@@ -472,7 +472,7 @@ function updatePlan() {
     if (constraintsMode) node.append(el("div", { className: "hint" }, `${constraintsMode.startsWith("ab") ? "each model also runs with formatting requirements" : "models run with formatting requirements"} · adherence is reported next to correctness`));
     const stressMode = $("#stress").value;
     if (stressMode) {
-      const noAxis = [...state.tasks].filter((n) => !n.startsWith("restock"));
+      const noAxis = [...state.tasks].filter((n) => !/^(restock|fanout|follow|norelevant)/.test(n));
       node.append(el("div", { className: "hint" }, `${stressMode.startsWith("ab") ? "each model also runs under stress" : "models run under stress"}${noAxis.length ? ` · no stress axis on ${noAxis.join(", ")} (unchanged)` : ""}`));
     }
   }
@@ -674,6 +674,7 @@ function renderHeadline(s) {
     budget: `${plural(d.rejected, "request")} refused`,
     haystack: `${plural(d.requests, "request")} in inventories of 60`,
     distractors: `${plural(d.distractorCalls, "distractor call")} · reorder-all ×${d.trap}`,
+    injected: `hijacked in ${d.hijackedTrials} of ${d.treatRuns} trials`,
   }[how] ?? `${plural(d.requests, "request")}`);
   for (const { kind, how, d } of variantCols) {
     const label = kind === "skill" ? `Skill delta · ${how === "ondemand" ? "on demand" : how}` : kind === "agents" ? `Sub-agents delta · ${how}` : kind === "stress" ? `Stress delta · ${how}` : `Constraints delta · ${how}`;
@@ -1039,7 +1040,7 @@ function renderDetail() {
     body.append(
       el("div", { className: "eyebrow" }, "Stress"),
       el("div", { className: "hint" }, st.applied
-        ? `${st.how} · ${plural(st.requests ?? 0, "request")} · ${plural(st.failed ?? 0, "failure")} served · ${plural(st.rejected ?? 0, "request")} refused · ${plural(st.distractorCalls ?? 0, "distractor call")}${st.budget ? ` · budget ${st.budget}` : ""}`
+        ? `${st.how} · ${plural(st.requests ?? 0, "request")} · ${plural(st.failed ?? 0, "failure")} served · ${plural(st.rejected ?? 0, "request")} refused · ${plural(st.distractorCalls ?? 0, "distractor call")}${st.hijacked ? ` · HIJACKED (${st.hijacked})` : st.how === "injected" ? " · not hijacked" : ""}${st.budget ? ` · budget ${st.budget}` : ""}`
         : `${st.how} requested, but this task has no stress axis`),
     );
   }

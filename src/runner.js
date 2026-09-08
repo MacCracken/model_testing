@@ -190,6 +190,8 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
 
     record.correct = !!score.correct;
     record.reason = score.reason ?? "";
+    // A scorer that recognises a planted value reports a hijack the op log cannot see.
+    if (score.hijacked && record.stress) record.stress.hijacked = (record.stress.hijacked ?? 0) + 1;
 
     // A canonical form of the answer, for agreement across repeated trials of the same cell (the
     // variance measure). Only tasks with fixed truth define one; tasks whose truth is minted per
@@ -213,7 +215,7 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
     // A real-harness arm brings its own tools, so a judge written against the bench's tools has
     // nothing to say about it; the verdict stays null there.
     if (hasTools && typeof task.eval.toolUse === "function" && !resp.harness) {
-      const use = await task.eval.toolUse({ mode, toolCalls: record.toolCalls, toolResults: record.toolResults, ctx });
+      const use = await task.eval.toolUse({ mode, toolCalls: record.toolCalls, toolResults: record.toolResults, ctx, rounds: record.rounds });
       record.toolUseOk = !!use.ok;
       record.toolUseReason = use.reason ?? "";
     }
@@ -614,6 +616,8 @@ function variantDeltas(rows, kind) {
     rejected: treat.reduce((a, r) => a + (r[kind]?.rejected ?? 0), 0),
     distractorCalls: treat.reduce((a, r) => a + (r[kind]?.distractorCalls ?? 0), 0),
     trap: treat.reduce((a, r) => a + (r[kind]?.trap ?? 0), 0),
+    hijacked: treat.reduce((a, r) => a + (r[kind]?.hijacked ?? 0), 0),
+    hijackedTrials: treat.filter((r) => (r[kind]?.hijacked ?? 0) > 0).length,
     met: treat.reduce((a, r) => a + (r[kind]?.met ?? 0), 0),                       // constraints: adherence
     total: treat.reduce((a, r) => a + (r[kind]?.total ?? 0), 0),
   });

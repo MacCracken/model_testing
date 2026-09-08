@@ -24,10 +24,14 @@ import { wordmathTasks } from "./wordmath.js";
 import { datecalcTasks } from "./datecalc.js";
 import { logicgridTasks } from "./logicgrid.js";
 import { tallyTasks } from "./tally.js";
+import { fanoutTasks } from "./fanout.js";
+import { followTasks } from "./follow.js";
+import { task as norelevantTask } from "./norelevant.js";
 
 export const tasks = [
   healthTask, helloTask, reasonTask, lookupTask, regexTask, chainTask, transformTask, explainTask,
   ...restockTasks, ...wordmathTasks, ...datecalcTasks, ...logicgridTasks, ...tallyTasks,
+  ...fanoutTasks, ...followTasks, norelevantTask,
 ];
 
 export function getTask(name) {

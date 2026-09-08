@@ -5,7 +5,7 @@ import { runTrial, summarize } from "../src/runner.js";
 import { resolveClients } from "../src/providers/index.js";
 
 test("parseStressSuffix reads the @stress variant off a client spec", () => {
-  assert.deepEqual(STRESS_MODES, ["flaky", "budget", "haystack", "distractors"]);
+  assert.deepEqual(STRESS_MODES, ["flaky", "budget", "haystack", "distractors", "injected"]);
   assert.deepEqual(parseStressSuffix("openai:gpt-4o-mini"), { base: "openai:gpt-4o-mini", how: null });
   assert.deepEqual(parseStressSuffix("openai:gpt-4o-mini@stress"), { base: "openai:gpt-4o-mini", how: "flaky" });
   assert.deepEqual(parseStressSuffix("codex:gpt-5.4-mini@stress:budget"), { base: "codex:gpt-5.4-mini", how: "budget" });
@@ -26,8 +26,8 @@ test("withStress keeps the client's behaviour and flags; it only names the varia
 
 test("summarizeOps counts what the environment did", () => {
   const ops = [{ op: "list", status: 503 }, { op: "list", status: 200 }, { op: "update", status: 200 }, { op: "history", status: 200 }, { op: "reorder_all", status: 200 }, { op: "confirm", status: 429 }];
-  assert.deepEqual(summarizeOps(ops), { requests: 6, failed: 1, rejected: 1, distractorCalls: 2, trap: 1 });
-  assert.deepEqual(summarizeOps(), { requests: 0, failed: 0, rejected: 0, distractorCalls: 0, trap: 0 });
+  assert.deepEqual(summarizeOps(ops), { requests: 6, failed: 1, rejected: 1, distractorCalls: 2, trap: 1, hijacked: 0 });
+  assert.deepEqual(summarizeOps(), { requests: 0, failed: 0, rejected: 0, distractorCalls: 0, trap: 0, hijacked: 0 });
 });
 
 test("runTrial hands the client to setup, resolves tools per trial, and records the stress from the ground", async () => {
