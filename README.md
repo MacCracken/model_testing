@@ -96,6 +96,7 @@ node src/bench.js --task health,reason,regex --modes noHarness,harness --clients
 node src/bench.js --task restock3,restock6,restock12 --modes harness,toolOnly --clients openai:gpt-5.4-mini,anthropic:claude-haiku-4-5 --count 4 --parallel 6
 node src/bench.js --task restock3,restock6 --modes harness --clients openai:gpt-4o-mini,openai:gpt-4o-mini@skill:preload --count 4 --parallel 6   # skill A/B
 node src/bench.js --task restock12 --modes harness --clients anthropic:claude-haiku-4-5,anthropic:claude-haiku-4-5@agents:available --count 4      # sub-agents A/B
+node src/bench.js --task restock6 --modes harness --clients openai:gpt-5.4-mini,openai:gpt-5.4-mini@stress:budget,openai:gpt-5.4-mini@stress:distractors --count 4   # stress A/B
 
 # A bare provider name expands to all of its models
 node src/aggregate.js --tasks health,hello --clients local
@@ -135,6 +136,13 @@ calls in the same turn, and returns its answer; `@agents:required` tells the par
 per-item work that way. Children's tool calls and tokens fold into the parent's row, and the report
 shows the sub-agents delta with how often delegation was actually used. Claude Code runs the variant
 through its own Agent tool; other arms report that they have no channel.
+
+**Stressors.** `openai:gpt-4o-mini@stress:flaky|budget|haystack|distractors` runs the restock family
+in a harder environment: transient 503s that need a retry, a request budget after which everything
+is refused, the same low items hidden in an inventory of 60, or distractor endpoints including a
+reorder-all trap. The profile is applied to the trial's scenario on the server, so arms meet the
+same conditions; every row records what the environment did (failures served, requests refused,
+distractor calls) and the report shows the stress delta per profile.
 
 **Skills.** A playbook under `skills/<task>.md` can be handed to a model as a treatment:
 `openai:gpt-4o-mini@skill:preload` puts it in the prompt, `@skill:ondemand` offers it as a
@@ -220,7 +228,7 @@ THOTH_CMD="ssh -n arch cd ~/Repos/thoth && thoth" node src/bench.js --task reaso
 ```
 
 Every row records the model Thoth actually routed to and `harness: "thoth"`. Caveats, all
-documented in `plan.md`: Thoth's `tool_result` events carry names and byte counts, not contents, so
+recorded in the changelog: Thoth's `tool_result` events carry names and byte counts, not contents, so
 tasks whose truth is read from tool results (`lookup`, `chain`) cannot be scored from this arm yet;
 its gateway caches identical prompts; and reaching a localhost webserver needs either its shell tool
 (`[shell].enabled`, off by default) or a `web_fetch` policy that allows private addresses.

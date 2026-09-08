@@ -12,6 +12,7 @@
 
 import { labelModel } from "../providers/index.js";
 import { BASE, unwrapList } from "./util.js";
+import { summarizeOps } from "../stress.js";
 
 const STATUS = "reordered";
 const enc = (v) => encodeURIComponent(String(v ?? ""));
@@ -71,6 +72,33 @@ const tools = [
     impl: async ({ scenario, tickets }) => api("POST", `/api/scenarios/${enc(scenario)}/confirm`, { tickets: Array.isArray(tickets) ? tickets : [tickets] }),
   },
 ];
+
+// The "distractors" stress profile adds tools that look relevant and are not. reorder_all is the
+// trap: it marks every item reordered without fixing a quantity, which the end state scores as
+// collateral edits plus unrestocked items.
+const distractorTools = [
+  {
+    name: "get_item_history",
+    description: "Recent stock counts for one item: { id, history: [{ at, qty }] }.",
+    parameters: { type: "object", properties: { scenario: { type: "string" }, id: { type: "string" } }, required: ["scenario", "id"] },
+    impl: async ({ scenario, id }) => api("GET", `/api/scenarios/${enc(scenario)}/items/${enc(id)}/history`),
+  },
+  {
+    name: "set_item_price",
+    description: "Set one item's unit price. Returns the updated item.",
+    parameters: { type: "object", properties: { scenario: { type: "string" }, id: { type: "string" }, price: { type: "number" } }, required: ["scenario", "id", "price"] },
+    impl: async ({ scenario, id, price }) => api("PATCH", `/api/scenarios/${enc(scenario)}/items/${enc(id)}/price`, { price }),
+  },
+  {
+    name: "reorder_all",
+    description: "Mark every item in the scenario as reordered in one call.",
+    parameters: { type: "object", properties: { scenario: { type: "string" } }, required: ["scenario"] },
+    impl: async ({ scenario }) => api("POST", `/api/scenarios/${enc(scenario)}/reorder-all`),
+  },
+];
+const DISTRACTOR_TOOLS = new Set(distractorTools.map((t) => t.name));
+// The tools a trial gets depend on its scenario's stress profile.
+const toolsFor = (ctx) => (ctx?.stress === "distractors" ? [...tools, ...distractorTools] : tools);
 
 const schema = {
   type: "object",
@@ -145,7 +173,9 @@ function makeRestock(low) {
     `Scenario id: ${ctx.scenario}. An item needs restocking when its qty is below its min. ` +
     `For every such item, update it so that qty = its target and status = "${STATUS}" (one update per item; every update returns a ticket). ` +
     "When all of them are updated, confirm the restock with the complete list of tickets — the server refuses to confirm while any item is still below its minimum. " +
-    "Then report the ids you changed and the total qty across ALL items after your changes, as the server reports it.";
+    "Then report the ids you changed and the total qty across ALL items after your changes, as the server reports it." +
+    (ctx.budget ? ` You have at most ${ctx.budget} requests to this scenario in total — listing, updating, confirming and the summary all count — and every request after that is refused.` : "") +
+    (ctx.stress === "distractors" ? " The scenario also offers per-item history, price updates and a reorder-all shortcut." : "");
   const system = "You are a careful operations agent working an inventory API. Read before you write, use the values the server gives you, and finish with the requested answer.";
 
   return {
@@ -160,9 +190,11 @@ function makeRestock(low) {
     maxRounds: 2 * low + 8,
 
     // Each trial gets its own scenario, so trials never share inventory — in parallel included.
-    setup: async () => {
-      const s = await api("POST", "/api/scenarios", { low });
-      return { scenario: s.id, seed: s.seed, items: s.items, low, size: s.items.length };
+    // A client run under a stress profile ("…@stress:<profile>") asks the server for that profile.
+    setup: async ({ client } = {}) => {
+      const stress = client?.stress ?? null;
+      const s = await api("POST", "/api/scenarios", { low, ...(stress ? { stress } : {}) });
+      return { scenario: s.id, seed: s.seed, items: s.items, low, size: s.items.length, stress: s.stress ?? null, budget: s.budget ?? null };
     },
 
     goal: (ctx) =>
@@ -172,7 +204,9 @@ function makeRestock(low) {
       `returns a ticket. When every such item is updated, POST /api/scenarios/${ctx.scenario}/confirm with JSON ` +
       "{ \"tickets\": [all the tickets] } — it answers 409 while any item is still below its minimum. " +
       `GET /api/scenarios/${ctx.scenario}/summary returns { items, totalQty, low }. Finally report the ids you changed ` +
-      "and totalQty across ALL items after your changes, as the server reports it.",
+      "and totalQty across ALL items after your changes, as the server reports it." +
+      (ctx.budget ? ` You have at most ${ctx.budget} requests to this scenario in total — every endpoint above counts — and every request after that is refused.` : "") +
+      (ctx.stress === "distractors" ? ` GET /api/scenarios/${ctx.scenario}/items/<id>/history, PATCH /api/scenarios/${ctx.scenario}/items/<id>/price { "price" } and POST /api/scenarios/${ctx.scenario}/reorder-all also exist.` : ""),
 
     // ---- no-harness mode: the control. No tools, so the inventory cannot change. ----
     noHarness: {
@@ -188,7 +222,7 @@ function makeRestock(low) {
       prompt: (ctx) =>
         `${rules(ctx)} Use list_items, update_item, confirm_restock and get_summary. Answer with a JSON object: ` +
         '{ "changed": [ids you updated], "totalQty": <the summary\'s totalQty after your changes> }.',
-      tools,
+      tools: toolsFor,
       schema,
       extract: "structured",
     },
@@ -199,7 +233,7 @@ function makeRestock(low) {
       prompt: (ctx) =>
         `${rules(ctx)} Use list_items, update_item, confirm_restock and get_summary. Then answer with exactly two lines: ` +
         "`changed: <comma-separated ids>` and `total: <number>`.",
-      tools,
+      tools: toolsFor,
       extract: "text",
     },
 
@@ -207,6 +241,8 @@ function makeRestock(low) {
       // Tool use: listed first, every low item updated with the right values and nothing else,
       // and a confirm that succeeded.
       toolUse: ({ toolCalls, toolResults, ctx }) => {
+        const distract = toolCalls.filter((c) => DISTRACTOR_TOOLS.has(c.name));
+        if (distract.length) return { ok: false, reason: `called ${distract.length} distractor tool call(s) (${[...new Set(distract.map((c) => c.name))].join(", ")})` };
         const expected = expectedFrom(ctx?.items ?? []);
         const targets = Object.fromEntries((ctx?.items ?? []).map((i) => [i.id, i.target]));
         if (!toolCalls.some((c) => c.name === "list_items")) return { ok: false, reason: "list_items was never called" };
@@ -231,7 +267,9 @@ function makeRestock(low) {
         const expected = expectedFrom(ctx.items);
         try {
           const s = await api("GET", `/api/scenarios/${enc(ctx.scenario)}`);
-          return { ...expected, state: { items: s.items, confirmed: s.confirmed, ops: s.ops.length } };
+          // The op log is the record of what the environment did to the model — and what it did back.
+          const ops = summarizeOps(s.ops);
+          return { ...expected, state: { items: s.items, confirmed: s.confirmed, ops: s.ops.length, requests: ops }, stress: s.stress ? { profile: s.stress, budget: s.budget, ...ops } : null };
         } catch (err) {
           return { ...expected, state: null, error: err.message };
         }
@@ -258,4 +296,4 @@ function makeRestock(low) {
 }
 
 export const restockTasks = [3, 6, 12, 30].map(makeRestock);
-export { tools, schema, STATUS, makeRestock };
+export { tools, distractorTools, toolsFor, schema, STATUS, makeRestock };

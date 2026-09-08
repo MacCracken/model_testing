@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { restockTasks, expectedFrom, endStateVerdict, parseReport, STATUS } from "../src/tasks/restock.js";
+import { restockTasks, expectedFrom, endStateVerdict, parseReport, STATUS, toolsFor, distractorTools } from "../src/tasks/restock.js";
 import { runTrial } from "../src/runner.js";
 import { goalPrompt } from "../src/harness/util.js";
 
@@ -88,6 +88,23 @@ test("the family declares the control, harness and toolOnly modes, a setup, a go
     assert.equal(typeof t.goal, "function");
     assert.equal(t.category, "multi-step");
   }
+});
+
+test("the stress axis: distractor tools only under that profile, budget and distractors spelled out in prompts, distractor calls fail tool use", () => {
+  assert.deepEqual(toolsFor({}).map((t) => t.name), ["list_items", "update_item", "get_summary", "confirm_restock"]);
+  assert.deepEqual(toolsFor({ stress: "distractors" }).map((t) => t.name), ["list_items", "update_item", "get_summary", "confirm_restock", "get_item_history", "set_item_price", "reorder_all"]);
+  assert.equal(distractorTools.find((t) => t.name === "reorder_all").description, "Mark every item in the scenario as reordered in one call.");
+  for (const t of restockTasks) assert.equal(typeof t.harness.tools, "function");
+  const t3 = restockTasks[0];
+  assert.match(t3.harness.prompt({ scenario: "scn-1", budget: 8 }), /at most 8 requests/);
+  assert.doesNotMatch(t3.harness.prompt({ scenario: "scn-1" }), /at most/);
+  assert.match(t3.harness.prompt({ scenario: "scn-1", stress: "distractors" }), /reorder-all shortcut/);
+  assert.match(t3.goal({ scenario: "scn-1", budget: 8 }), /at most 8 requests/);
+  assert.match(t3.goal({ scenario: "scn-1", stress: "distractors" }), /scn-1\/reorder-all/);
+  assert.doesNotMatch(t3.goal({ scenario: "scn-1", stress: "flaky" }), /reorder-all|at most/);
+  const ctx = { scenario: "scn-x", items };
+  const calls = [{ name: "list_items", arguments: { scenario: "scn-x" } }, { name: "reorder_all", arguments: { scenario: "scn-x" } }];
+  assert.match(t3.eval.toolUse({ toolCalls: calls, toolResults: [], ctx }).reason, /1 distractor tool call\(s\) \(reorder_all\)/);
 });
 
 test("goalPrompt resolves a goal that is a function of the trial context", () => {

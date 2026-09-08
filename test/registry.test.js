@@ -27,9 +27,10 @@ test("every declared spec is well-formed for its mode", () => {
       } else {
         assert.equal(spec.schema, undefined, `${t.name}/${mode} must not carry a schema`);
       }
-      if (mode === "toolOnly") assert.ok(spec.tools?.length, `${t.name}/toolOnly carries tools`);
-      if (mode === "schemaOnly" || mode === "noHarness") assert.ok(!(spec.tools ?? []).length, `${t.name}/${mode} carries no tools`);
-      for (const tool of spec.tools ?? []) {
+      const tools = typeof spec.tools === "function" ? spec.tools({ scenario: "scn-test", stress: "distractors" }) : spec.tools ?? [];
+      if (mode === "toolOnly") assert.ok(tools.length, `${t.name}/toolOnly carries tools`);
+      if (mode === "schemaOnly" || mode === "noHarness") assert.ok(!tools.length, `${t.name}/${mode} carries no tools`);
+      for (const tool of tools) {
         assert.equal(typeof tool.impl, "function", `${t.name}/${mode} tool ${tool.name} has an impl`);
         assert.ok(tool.parameters?.type === "object", `${t.name}/${mode} tool ${tool.name} has an object schema`);
       }

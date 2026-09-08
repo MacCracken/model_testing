@@ -28,6 +28,60 @@ test("scenarios: seeded creation is reproducible; low count and size hold", asyn
   assert.equal(big.data.items.filter((i) => i.qty < i.min).length, 12);
 });
 
+test("stress profiles: flaky fails once per call site, budget refuses after low + 5, haystack is 60 wide, distractors gate their endpoints", async () => {
+  assert.equal((await j("POST", "/api/scenarios", { low: 2, stress: "nope" })).status, 400);
+
+  // flaky: the first list and the first update of each item answer 503; retries succeed.
+  const { data: f } = await j("POST", "/api/scenarios", { low: 2, seed: 3, stress: "flaky" });
+  assert.equal(f.stress, "flaky");
+  assert.equal((await j("GET", `/api/scenarios/${f.id}/items`)).status, 503);
+  assert.equal((await j("GET", `/api/scenarios/${f.id}/items`)).status, 200);
+  const low = f.items.filter((i) => i.qty < i.min);
+  const first = await j("PATCH", `/api/scenarios/${f.id}/items/${low[0].id}`, { qty: low[0].target, status: "reordered" });
+  assert.equal(first.status, 503);
+  assert.equal((await j("GET", `/api/scenarios/${f.id}`)).data.items.find((i) => i.id === low[0].id).qty, low[0].qty, "a failed update changes nothing");
+  const second = await j("PATCH", `/api/scenarios/${f.id}/items/${low[0].id}`, { qty: low[0].target, status: "reordered" });
+  assert.equal(second.status, 200);
+  assert.match(second.data.ticket, /^tkt-/);
+  const fstate = (await j("GET", `/api/scenarios/${f.id}`)).data;
+  assert.deepEqual(fstate.ops.map((o) => [o.op, o.status]), [["list", 503], ["list", 200], ["update", 503], ["update", 200]]);
+
+  // budget: low + 5 requests, then 429 (logged), and the bench's end-state read is never charged.
+  const { data: b } = await j("POST", "/api/scenarios", { low: 2, seed: 4, stress: "budget" });
+  assert.equal(b.budget, 7);
+  for (let i = 0; i < 7; i++) assert.equal((await j("GET", `/api/scenarios/${b.id}/summary`)).status, 200);
+  const over = await j("GET", `/api/scenarios/${b.id}/summary`);
+  assert.equal(over.status, 429);
+  assert.match(over.data.error, /budget exhausted/);
+  assert.equal((await j("PATCH", `/api/scenarios/${b.id}/items/${b.items[0].id}`, { qty: 1 })).status, 429);
+  const bstate = (await j("GET", `/api/scenarios/${b.id}`)).data;
+  assert.equal(bstate.used, 7);
+  assert.equal(bstate.ops.filter((o) => o.status === 429).length, 2);
+  assert.equal((await j("GET", `/api/scenarios/${b.id}`)).status, 200, "the state read stays free");
+
+  // haystack: 60 items, still the same number of low ones.
+  const { data: h } = await j("POST", "/api/scenarios", { low: 3, seed: 5, stress: "haystack" });
+  assert.equal(h.items.length, 60);
+  assert.equal(h.items.filter((i) => i.qty < i.min).length, 3);
+
+  // distractors: extra fields, and endpoints that exist only in this profile; reorder-all is the trap.
+  const { data: d } = await j("POST", "/api/scenarios", { low: 2, seed: 6, stress: "distractors" });
+  assert.ok(d.items.every((i) => typeof i.price === "number" && i.supplier && i.lastCount));
+  const hist = await j("GET", `/api/scenarios/${d.id}/items/${d.items[0].id}/history`);
+  assert.equal(hist.status, 200);
+  assert.equal(hist.data.history.length, 4);
+  assert.equal((await j("PATCH", `/api/scenarios/${d.id}/items/${d.items[0].id}/price`, { price: 9.5 })).data.item.price, 9.5);
+  const all = await j("POST", `/api/scenarios/${d.id}/reorder-all`);
+  assert.deepEqual(all.data, { reordered: d.items.length, note: "statuses set; quantities unchanged" });
+  const dstate = (await j("GET", `/api/scenarios/${d.id}`)).data;
+  assert.ok(dstate.items.every((i) => i.status === "reordered"));
+  assert.equal(dstate.items.filter((i) => i.qty < i.min).length, 2, "the trap fixes no quantity");
+  assert.deepEqual(dstate.ops.map((o) => o.op), ["history", "price", "reorder_all"]);
+  const plain = (await j("POST", "/api/scenarios", { low: 2, seed: 6 })).data;
+  assert.equal((await j("POST", `/api/scenarios/${plain.id}/reorder-all`)).status, 404, "no distractors outside the profile");
+  assert.equal(plain.items[0].price, undefined);
+});
+
 test("update hands out one ticket per item; confirm needs exactly the outstanding set; the state records it all", async () => {
   const { data: s } = await j("POST", "/api/scenarios", { low: 2, seed: 7 });
   const low = s.items.filter((i) => i.qty < i.min);

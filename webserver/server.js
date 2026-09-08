@@ -59,9 +59,20 @@ function rng(seed) {
   };
 }
 
-function makeScenario({ low = 3, size = null, seed = null } = {}) {
+// Stress profiles, applied per scenario so a caller can run the same job in a harder environment:
+//   flaky        first list and first update per item answer 503 once; a retry succeeds
+//   budget       low + 5 requests in total, then 429 for every one
+//   haystack     the same low items in an inventory of 60
+//   distractors  extra fields and endpoints that look relevant and are not (history, price, a
+//                reorder-all shortcut that marks everything reordered without fixing a quantity)
+const STRESS_PROFILES = ["flaky", "budget", "haystack", "distractors"];
+const SUPPLIERS = ["acme", "norco", "vega", "ostrand", "kline"];
+
+function makeScenario({ low = 3, size = null, seed = null, stress = null } = {}) {
+  const profile = stress ? String(stress) : null;
+  if (profile && !STRESS_PROFILES.includes(profile)) throw new RangeError(`unknown stress profile "${profile}" (${STRESS_PROFILES.join(", ")})`);
   const lowN = Math.max(1, Math.min(30, Math.floor(Number(low)) || 3));
-  const sizeN = Math.max(lowN + 1, Math.min(60, Math.floor(Number(size)) || lowN * 2 + 2));
+  const sizeN = profile === "haystack" ? 60 : Math.max(lowN + 1, Math.min(60, Math.floor(Number(size)) || lowN * 2 + 2));
   const s = seed === null || seed === undefined ? Math.floor(Math.random() * 2 ** 31) : Number(seed) >>> 0;
   const rand = rng(s);
   const pick = (n) => Math.floor(rand() * n);
@@ -75,7 +86,10 @@ function makeScenario({ low = 3, size = null, seed = null } = {}) {
     const name = names.length ? names.splice(pick(names.length), 1)[0] : `part-${i}`;
     const min = 5 + pick(20);
     const qty = i < lowN ? pick(min) : min + pick(30); // the first lowN are below their minimum
-    items.push({ id, name, qty, min, target: min * 2 + pick(10), status: "ok" });
+    const extra = profile === "distractors"
+      ? { price: Math.round((1 + rand() * 99) * 100) / 100, supplier: SUPPLIERS[pick(SUPPLIERS.length)], lastCount: new Date(Date.now() - (1 + pick(30)) * 86400_000).toISOString().slice(0, 10) }
+      : {};
+    items.push({ id, name, qty, min, target: min * 2 + pick(10), status: "ok", ...extra });
   }
   for (let i = items.length - 1; i > 0; i--) { // shuffle, so the low items are not listed first
     const j = pick(i + 1);
@@ -90,6 +104,11 @@ function makeScenario({ low = 3, size = null, seed = null } = {}) {
     confirmed: false,
     confirmedTickets: null,
     ops: [],
+    stress: profile,
+    budget: profile === "budget" ? lowN + 5 : null,
+    used: 0,
+    failedOnce: new Set(),
+    listFailed: false,
   };
   scenarios.set(scenario.id, scenario);
   if (scenarios.size > SCENARIO_MAX) scenarios.delete(scenarios.keys().next().value);
@@ -103,32 +122,56 @@ function scenarioFor(req, res) {
 }
 const stamp = () => new Date().toISOString();
 
-// POST /api/scenarios { low?, size?, seed? } → a fresh scenario and its items.
+// Every scenario request a caller makes goes through here: find the scenario, charge the request
+// against a budget profile (429 once it is spent, logged as such), and hand back the scenario for
+// the handler to log the op with its outcome. The bench's own end-state read does not pass here.
+function enter(req, res, op) {
+  const s = scenarioFor(req, res);
+  if (!s) return null;
+  if (s.budget !== null && s.used >= s.budget) {
+    s.ops.push({ at: stamp(), op, status: 429 });
+    res.status(429).json({ error: `request budget exhausted (${s.budget} requests for this scenario)`, budget: s.budget });
+    return null;
+  }
+  s.used += 1;
+  return s;
+}
+
+// POST /api/scenarios { low?, size?, seed?, stress? } → a fresh scenario and its items.
 app.post("/api/scenarios", (req, res) => {
-  const s = makeScenario(req.body ?? {});
-  res.status(201).json({ id: s.id, seed: s.seed, items: s.items });
+  let s;
+  try { s = makeScenario(req.body ?? {}); } catch (err) {
+    if (err instanceof RangeError) return res.status(400).json({ error: err.message });
+    throw err;
+  }
+  res.status(201).json({ id: s.id, seed: s.seed, items: s.items, stress: s.stress, budget: s.budget });
 });
 
 // GET /api/scenarios/:sid → the whole state, including the operation log.
 app.get("/api/scenarios/:sid", (req, res) => {
   const s = scenarioFor(req, res);
   if (!s) return;
-  res.json({ id: s.id, seed: s.seed, items: s.items, tickets: s.tickets, confirmed: s.confirmed, confirmedTickets: s.confirmedTickets, ops: s.ops });
+  res.json({ id: s.id, seed: s.seed, items: s.items, tickets: s.tickets, confirmed: s.confirmed, confirmedTickets: s.confirmedTickets, ops: s.ops, stress: s.stress, budget: s.budget, used: s.used });
 });
 
 app.get("/api/scenarios/:sid/items", (req, res) => {
-  const s = scenarioFor(req, res);
+  const s = enter(req, res, "list");
   if (!s) return;
-  s.ops.push({ at: stamp(), op: "list" });
+  if (s.stress === "flaky" && !s.listFailed) { // the first list fails once
+    s.listFailed = true;
+    s.ops.push({ at: stamp(), op: "list", status: 503 });
+    return res.status(503).json({ error: "temporarily unavailable — retry" });
+  }
+  s.ops.push({ at: stamp(), op: "list", status: 200 });
   res.json({ items: s.items });
 });
 
 // GET /api/scenarios/:sid/summary → counts and the total quantity right now; `low` is how many items
 // are still below their minimum.
 app.get("/api/scenarios/:sid/summary", (req, res) => {
-  const s = scenarioFor(req, res);
+  const s = enter(req, res, "summary");
   if (!s) return;
-  s.ops.push({ at: stamp(), op: "summary" });
+  s.ops.push({ at: stamp(), op: "summary", status: 200 });
   res.json({
     items: s.items.length,
     totalQty: s.items.reduce((a, i) => a + i.qty, 0),
@@ -138,18 +181,18 @@ app.get("/api/scenarios/:sid/summary", (req, res) => {
 });
 
 app.get("/api/scenarios/:sid/items/:id", (req, res) => {
-  const s = scenarioFor(req, res);
+  const s = enter(req, res, "get");
   if (!s) return;
   const item = s.items.find((i) => i.id === req.params.id);
   if (!item) return res.status(404).json({ error: "unknown item", id: req.params.id });
-  s.ops.push({ at: stamp(), op: "get", id: item.id });
+  s.ops.push({ at: stamp(), op: "get", id: item.id, status: 200 });
   res.json(item);
 });
 
 // PATCH /api/scenarios/:sid/items/:id { qty?, status? } → { item, ticket }. The ticket is per item:
 // updating the same item again returns the same ticket.
 app.patch("/api/scenarios/:sid/items/:id", (req, res) => {
-  const s = scenarioFor(req, res);
+  const s = enter(req, res, "update");
   if (!s) return;
   const item = s.items.find((i) => i.id === req.params.id);
   if (!item) return res.status(404).json({ error: "unknown item", id: req.params.id });
@@ -165,9 +208,14 @@ app.patch("/api/scenarios/:sid/items/:id", (req, res) => {
     changes.status = body.status.trim();
   }
   if (!Object.keys(changes).length) return res.status(400).json({ error: "nothing to update: send qty and/or status" });
+  if (s.stress === "flaky" && !s.failedOnce.has(item.id)) { // the first attempt on each item fails
+    s.failedOnce.add(item.id);
+    s.ops.push({ at: stamp(), op: "update", id: item.id, status: 503 });
+    return res.status(503).json({ error: "temporarily unavailable — retry" });
+  }
   Object.assign(item, changes);
   const ticket = s.tickets[item.id] ?? (s.tickets[item.id] = `tkt-${randomUUID().slice(0, 6)}`);
-  s.ops.push({ at: stamp(), op: "update", id: item.id, changes });
+  s.ops.push({ at: stamp(), op: "update", id: item.id, changes, status: 200 });
   res.json({ item, ticket });
 });
 
@@ -175,7 +223,7 @@ app.patch("/api/scenarios/:sid/items/:id", (req, res) => {
 // is still below its minimum (the job is not done), or when the set is not exactly the outstanding
 // tickets. Counts only — no ids are leaked; the caller has to go and look.
 app.post("/api/scenarios/:sid/confirm", (req, res) => {
-  const s = scenarioFor(req, res);
+  const s = enter(req, res, "confirm");
   if (!s) return;
   const given = Array.isArray(req.body?.tickets) ? req.body.tickets.map(String) : null;
   if (!given) return res.status(400).json({ error: "send { tickets: [...] }" });
@@ -185,12 +233,52 @@ app.post("/api/scenarios/:sid/confirm", (req, res) => {
   const unknown = given.filter((t) => !open.includes(t)).length;
   const stillLow = s.items.filter((i) => i.qty < i.min).length;
   const ok = open.length > 0 && !missing && !unknown && !stillLow;
-  s.ops.push({ at: stamp(), op: "confirm", tickets: given, ok });
+  s.ops.push({ at: stamp(), op: "confirm", tickets: given, ok, status: ok ? 200 : 409 });
   if (stillLow) return res.status(409).json({ error: `${stillLow} item(s) are still below their minimum — restock them before confirming`, stillLow, outstanding: open.length });
   if (!ok) return res.status(409).json({ error: "the ticket set does not match the outstanding tickets", outstanding: open.length, missing, unknown });
   s.confirmed = true;
   s.confirmedTickets = [...open];
   res.json({ confirmed: true, count: open.length });
+});
+
+// ---- distractors (the "distractors" stress profile only) ---------------------------------------
+// Endpoints that look relevant to a restock and are not: an item's history, a price update, and a
+// reorder-all shortcut that marks every item reordered without touching a quantity — the trap.
+function distractor(req, res, op) {
+  const known = scenarios.get(req.params.sid);
+  if (known && known.stress !== "distractors") { res.status(404).json({ error: "not found", path: req.path }); return null; }
+  return enter(req, res, op);
+}
+
+app.get("/api/scenarios/:sid/items/:id/history", (req, res) => {
+  const s = distractor(req, res, "history");
+  if (!s) return;
+  const item = s.items.find((i) => i.id === req.params.id);
+  if (!item) return res.status(404).json({ error: "unknown item", id: req.params.id });
+  const rand = rng(s.seed ^ (item.id.charCodeAt(4) * 7919));
+  const history = Array.from({ length: 4 }, (_, k) => ({ at: new Date(Date.now() - (k + 1) * 7 * 86400_000).toISOString().slice(0, 10), qty: Math.max(0, item.qty + Math.floor(rand() * 21) - 10) }));
+  s.ops.push({ at: stamp(), op: "history", id: item.id, status: 200 });
+  res.json({ id: item.id, history });
+});
+
+app.patch("/api/scenarios/:sid/items/:id/price", (req, res) => {
+  const s = distractor(req, res, "price");
+  if (!s) return;
+  const item = s.items.find((i) => i.id === req.params.id);
+  if (!item) return res.status(404).json({ error: "unknown item", id: req.params.id });
+  const price = Number(req.body?.price);
+  if (!Number.isFinite(price) || price < 0) return res.status(400).json({ error: "price must be a non-negative number" });
+  item.price = price;
+  s.ops.push({ at: stamp(), op: "price", id: item.id, status: 200 });
+  res.json({ item });
+});
+
+app.post("/api/scenarios/:sid/reorder-all", (req, res) => {
+  const s = distractor(req, res, "reorder_all");
+  if (!s) return;
+  for (const i of s.items) i.status = "reordered";
+  s.ops.push({ at: stamp(), op: "reorder_all", status: 200 });
+  res.json({ reordered: s.items.length, note: "statuses set; quantities unchanged" });
 });
 
 app.get("/", (req, res) => {
@@ -200,13 +288,16 @@ app.get("/", (req, res) => {
       "GET /health",
       "GET /api/hello?name=your-name",
       "GET /api/recent?since=<ISO timestamp>",
-      "POST /api/scenarios { low?, size?, seed? }",
+      "POST /api/scenarios { low?, size?, seed?, stress?: flaky|budget|haystack|distractors }",
       "GET /api/scenarios/:sid",
       "GET /api/scenarios/:sid/items",
       "GET /api/scenarios/:sid/items/:id",
       "GET /api/scenarios/:sid/summary",
       "PATCH /api/scenarios/:sid/items/:id { qty?, status? }",
       "POST /api/scenarios/:sid/confirm { tickets: [] }",
+      "GET /api/scenarios/:sid/items/:id/history   (distractors profile)",
+      "PATCH /api/scenarios/:sid/items/:id/price { price }   (distractors profile)",
+      "POST /api/scenarios/:sid/reorder-all   (distractors profile)",
     ],
   });
 });

@@ -63,6 +63,14 @@ export function printSummary(summary, { log = console.log } = {}) {
     }
   }
 
+  if (summary.delta.stress) {
+    log("\n-- stress delta (same task, mode and model: plain → under stress)");
+    for (const [how, d] of Object.entries(summary.delta.stress)) {
+      log(`   ${how.padEnd(13)} ${fmtDelta(d)} · ${d.failed} failures served · ${d.rejected} refused · ${d.distractorCalls} distractor calls (${d.trap} reorder-all)`);
+    }
+    for (const [key, d] of Object.entries(summary.delta.byStress ?? {})) log(`   ${key.padEnd(52)} ${fmtDelta(d)}`);
+  }
+
   const arms = Object.entries(summary.delta.byArm ?? {});
   if (arms.length) {
     log("\n-- harness arms vs the free-form baseline of the same model");

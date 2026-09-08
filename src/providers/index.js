@@ -7,6 +7,7 @@ import { CodexClient } from "../harness/codex.js";
 import { envValue } from "../util.js";
 import { withSkill, parseSkillSuffix } from "../skills.js";
 import { withDelegation, parseAgentsSuffix } from "../agents.js";
+import { withStress, parseStressSuffix } from "../stress.js";
 
 // Provider registry: maps a stable provider name -> a list of models to try, plus the URL and
 // auth scheme. Kept here so CLI flags and the web UI can select providers/tasks/models without
@@ -156,9 +157,10 @@ export function parseClientSpec(spec) {
   // for the client with a delegate tool. One variant per client — a treatment is one thing.
   const sk = parseSkillSuffix(spec);
   const ag = parseAgentsSuffix(sk.base);
-  const base = ag.base;
-  if (/@(skill|agents)(:|$)/.test(base)) throw new Error(`"${spec}": one variant per client — use @skill:<how> or @agents:<how>, not both`);
-  const variant = { ...(sk.how ? { skill: sk.how } : {}), ...(ag.how ? { agents: ag.how } : {}) };
+  const st = parseStressSuffix(ag.base);
+  const base = st.base;
+  if (/@(skill|agents|stress)(:|$)/.test(base)) throw new Error(`"${spec}": one variant per client — @skill:<how>, @agents:<how> or @stress:<profile>, not several`);
+  const variant = { ...(sk.how ? { skill: sk.how } : {}), ...(ag.how ? { agents: ag.how } : {}), ...(st.how ? { stress: st.how } : {}) };
   const idx = base.indexOf(":");
   if (idx === -1) return Object.keys(variant).length ? { provider: base, ...variant } : base;
   return { provider: base.slice(0, idx), model: base.slice(idx + 1), ...variant };
@@ -178,12 +180,12 @@ export function resolveClients(spec, { modelParams = {} } = {}) {
   const clients = [];
   const seen = new Set();
   const push = (provider, model, variant = {}) => {
-    const key = `${provider}:${model}${variant.skill ? `@skill:${variant.skill}` : ""}${variant.agents ? `@agents:${variant.agents}` : ""}`;
+    const key = `${provider}:${model}${variant.skill ? `@skill:${variant.skill}` : ""}${variant.agents ? `@agents:${variant.agents}` : ""}${variant.stress ? `@stress:${variant.stress}` : ""}`;
     if (seen.has(key)) return;
     seen.add(key);
     const c = buildClient({ provider, model, modelParams });
     if (!c) return;
-    clients.push(variant.skill ? withSkill(c, variant.skill) : variant.agents ? withDelegation(c, variant.agents) : c);
+    clients.push(variant.skill ? withSkill(c, variant.skill) : variant.agents ? withDelegation(c, variant.agents) : variant.stress ? withStress(c, variant.stress) : c);
   };
 
   if (!spec || (Array.isArray(spec) && !spec.length)) {
@@ -196,7 +198,7 @@ export function resolveClients(spec, { modelParams = {} } = {}) {
   for (const item of normalizeClientSpecs(spec)) {
     const provider = typeof item === "string" ? item : item.provider;
     const model = typeof item === "string" ? undefined : item.model;
-    const variant = typeof item === "string" ? {} : { skill: item.skill ?? null, agents: item.agents ?? null };
+    const variant = typeof item === "string" ? {} : { skill: item.skill ?? null, agents: item.agents ?? null, stress: item.stress ?? null };
     if (!PROVIDERS[provider]) continue;
     if (model === undefined) {
       for (const m of PROVIDERS[provider].models) push(provider, m, variant);

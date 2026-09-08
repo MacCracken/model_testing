@@ -37,7 +37,8 @@ export function listTasks() {
     category: t.category,
     description: t.description ?? "",
     modes: MODE_NAMES.filter((m) => !!t[m]),
-    tools: (t.harness?.tools ?? []).map((tool) => tool.name),
+    // Tools may depend on the trial's context (restock adds distractor tools under that stress profile).
+    tools: (typeof t.harness?.tools === "function" ? t.harness.tools({}) : t.harness?.tools ?? []).map((tool) => tool.name),
     needsJudge: !!t.eval?.needsJudge,
     skill: t.skill ?? t.name, // the playbook name a @skill variant looks for under skills/
   }));

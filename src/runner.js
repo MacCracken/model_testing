@@ -91,6 +91,7 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
     // it is a variant of, so summarize can pair the two.
     skill: client.skill ? { how: client.skill, name: null, applied: false, loaded: null } : null,
     agents: client.agents ? { how: client.agents, applied: false, delegations: 0, childCalls: 0, childTokens: 0, children: [] } : null,
+    stress: client.stress ? { how: client.stress, applied: false } : null,
     baseClient: client.baseName ?? null,
     error: null,
   };
@@ -104,10 +105,10 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
   try {
     // Per-trial context: a task with `setup` prepares isolated state (an inventory scenario, say),
     // and its prompts, goal, truth and scorers may be functions of it.
-    const ctx = typeof task.setup === "function" ? await task.setup({ mode, index, signal }) : null;
+    const ctx = typeof task.setup === "function" ? await task.setup({ mode, index, signal, client }) : null;
     record.ctx = ctx;
     const text = (v) => (typeof v === "function" ? v(ctx ?? {}) : v);
-    const rspec = { ...spec, prompt: text(spec.prompt), system: text(spec.system) };
+    const rspec = { ...spec, prompt: text(spec.prompt), system: text(spec.system), tools: text(spec.tools) };
     record.prompt = rspec.prompt ?? null;
 
     const system = buildSystemPrompt(rspec, mode);
@@ -116,13 +117,13 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
     // A mode that is structured (schema-aware) scores the parsed JSON. A mode that carries tools
     // runs them regardless — `toolOnly` is exactly free-form output *with* tools run, so tool
     // execution is gated on tools being present, not on structured scoring.
-    const hasTools = (spec.tools ?? []).length > 0;
+    const hasTools = (rspec.tools ?? []).length > 0;
 
     let resp;
     if (structured || hasTools) {
       // Tools run (if any) and the final message is parsed as JSON. What gets scored is the
       // model's final message written after it saw real tool output — never the tool args.
-      resp = await client.runWithTools(rspec.prompt, spec.tools ?? [], system, { maxRounds: task.maxRounds ?? maxRounds, signal, task, mode, ctx });
+      resp = await client.runWithTools(rspec.prompt, rspec.tools ?? [], system, { maxRounds: task.maxRounds ?? maxRounds, signal, task, mode, ctx });
       record.toolCalls = resp.toolCalls ?? [];
       record.toolResults = resp.toolResults ?? [];
       record.rounds = resp.rounds ?? 0;
@@ -168,6 +169,9 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
       ctx,
     });
     record.ground = ground;
+    // A stress variant's environment reports back through the ground (the scenario's op log); a task
+    // with no stress axis leaves the treatment unapplied, and the row says so.
+    if (client.stress) record.stress = { how: client.stress, applied: !!ground?.stress, ...(ground?.stress ?? {}) };
 
     // Structured modes score the parsed JSON; free-form scores the raw text.
     const scorer = structured ? task.eval.scoreHarness : task.eval.scoreNoHarness;
@@ -593,6 +597,11 @@ function variantDeltas(rows, kind) {
     used: treat.filter((r) => (r[kind]?.delegations ?? 0) > 0).length,              // agents: delegated at least once
     delegations: treat.reduce((a, r) => a + (r[kind]?.delegations ?? 0), 0),
     childTokens: treat.reduce((a, r) => a + (r[kind]?.childTokens ?? 0), 0),
+    requests: treat.reduce((a, r) => a + (r[kind]?.requests ?? 0), 0),                 // stress: what the environment saw
+    failed: treat.reduce((a, r) => a + (r[kind]?.failed ?? 0), 0),
+    rejected: treat.reduce((a, r) => a + (r[kind]?.rejected ?? 0), 0),
+    distractorCalls: treat.reduce((a, r) => a + (r[kind]?.distractorCalls ?? 0), 0),
+    trap: treat.reduce((a, r) => a + (r[kind]?.trap ?? 0), 0),
   });
   for (const key of new Set(treated.map((r) => `${r.task}|${r.mode}|${r.client}`))) {
     const [task, mode, client] = key.split("|");
@@ -663,6 +672,7 @@ export function summarize(rows) {
 
   const skillD = variantDeltas(rows, "skill");
   const agentsD = variantDeltas(rows, "agents");
+  const stressD = variantDeltas(rows, "stress");
 
   return {
     runs: rows.length,
@@ -682,6 +692,8 @@ export function summarize(rows) {
       skill: skillD.pooled,
       byAgents: agentsD.by,
       agents: agentsD.pooled,
+      byStress: stressD.by,
+      stress: stressD.pooled,
     },
   };
 }

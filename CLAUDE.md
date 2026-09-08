@@ -78,6 +78,11 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
   (`toolCalls` tagged `agent: n`, usage summed, `row.agents` with counts and each child's goal and
   answer). Arms receive `opts.agents` and use their own channel (Claude Code: the Agent tool) or
   report none. One variant per client: `@skill` or `@agents`, not both.
+- `src/stress.js` — stressors as a treatment: `withStress(client, profile)` names the variant
+  `<client>@stress:<profile>`; the restock task's `setup` reads `client.stress` and asks the server
+  for that profile (flaky / budget / haystack / distractors), and `ground` folds the scenario's op
+  log into `row.stress` (`summarizeOps`). The environment carries the treatment; the client is
+  untouched, so arms meet the same conditions.
 - `src/web/` — the control plane: `server.js` (node:http, zero deps) + `public/` (the UI).
 - `src/cli.js` — entry point (`list` / `show` / `export` / `index` / `query` / `compact` / `serve` /
   `bench` / `aggregate`).
@@ -105,10 +110,11 @@ export const task = {
     canon,          // optional: (answer, { mode, structured }) => string — the answer's canonical form, for
                     //   agreement across repeated trials; only tasks with fixed truth define one
   },
-  // optional, for stateful tasks (restock): setup runs before every trial and returns a context;
-  // prompt / system / goal may then be functions of it, and ground, scorers and toolUse receive it
-  // as ctx. maxRounds raises the synthetic tool loop's budget for long dependent chains.
-  setup: async ({ mode, index }) => ({ scenario: "scn-…", items: [...] }),
+  // optional, for stateful tasks (restock): setup runs before every trial (it also gets the client,
+  // whose `stress` names a profile) and returns a context; prompt / system / goal / tools may then
+  // be functions of it, and ground, scorers and toolUse receive it as ctx. maxRounds raises the
+  // synthetic tool loop's budget for long dependent chains.
+  setup: async ({ mode, index, client }) => ({ scenario: "scn-…", items: [...] }),
   maxRounds: 14,
   skill: "restock",        // optional: the playbook under skills/ a @skill variant loads (default: the task name)
 };
@@ -136,9 +142,10 @@ schema's own `items` key scores the same as a bare array.
 own (a real-harness arm), its delta against the free-form rows of the same model from any other
 client in the run, matched on the model id with any `provider/` prefix stripped.
 
-A client run as `…@skill:<how>` or `…@agents:<how>` is paired by `summarize` with its base client
-on the same task and mode (`variantDeltas`): `delta.bySkill` / `delta.byAgents` per cell and
-`delta.skill[how]` / `delta.agents[how]` pooled per delivery, the same shape as the harness delta (`deltaBetween` is the shared baseline-versus-treatment calculation; its
+A client run as `…@skill:<how>`, `…@agents:<how>` or `…@stress:<profile>` is paired by `summarize`
+with its base client on the same task and mode (`variantDeltas`): `delta.bySkill` / `delta.byAgents`
+/ `delta.byStress` per cell and `delta.skill[how]` / `delta.agents[how]` / `delta.stress[profile]`
+pooled, the same shape as the harness delta (`deltaBetween` is the shared baseline-versus-treatment calculation; its
 `noHarness*`/`harness*` fields mean baseline/treatment, with `base*`/`treat*` aliases).
 
 `summarize` also reports `stability` per mode from repeated cells: `flaky` (both passes and
@@ -179,7 +186,9 @@ keep it minimal. Its concessions to the bench are `GET /api/recent?since=&until=
 last few hundred `/api/hello` replies, which lets real-harness arms be scored against what the
 server actually served (`recentGreetings` in `harness/util.js`), and the **inventory scenarios**
 (`/api/scenarios…`) the `restock` tasks run against: one isolated inventory per trial, tickets per
-update, a confirm that is refused while anything is still low, and `GET /api/scenarios/:sid` as the
-end state a trial is scored on. `test/sut.test.js` pins that contract in-process. Every run (CLI or web) is saved to `results/`, which is gitignored along
-with `.env`. `plan.md` is the roadmap; keep its "done" claims tied to what the tests and saved runs
-actually show.
+update, a confirm that is refused while anything is still low, optional stress profiles (flaky,
+budget, haystack, distractors) and `GET /api/scenarios/:sid` as the end state a trial is scored on,
+op log included. `test/sut.test.js` pins that contract in-process. Every run (CLI or web) is saved to `results/`, which is gitignored along
+with `.env`. `plan.md` is the forward roadmap only; `CHANGELOG.md` records what shipped by date and
+`docs/results.md` holds every measurement table. When something ships, move it from the plan to the
+changelog, and keep every claim tied to what the tests and saved runs actually show.
