@@ -39,5 +39,6 @@ export function listTasks() {
     modes: MODE_NAMES.filter((m) => !!t[m]),
     tools: (t.harness?.tools ?? []).map((tool) => tool.name),
     needsJudge: !!t.eval?.needsJudge,
+    skill: t.skill ?? t.name, // the playbook name a @skill variant looks for under skills/
   }));
 }

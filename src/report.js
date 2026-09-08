@@ -43,6 +43,16 @@ export function printSummary(summary, { log = console.log } = {}) {
   for (const [task, d] of Object.entries(summary.delta.byTask)) log(`   ${task.padEnd(13)} ${fmtDelta(d)}`);
   for (const [client, d] of Object.entries(summary.delta.byClient)) log(`   ${client.padEnd(13)} ${fmtDelta(d)}`);
 
+  if (summary.delta.skill) {
+    log("\n-- skill delta (same task, mode and model: without → with the playbook)");
+    for (const [how, d] of Object.entries(summary.delta.skill)) {
+      log(`   ${how.padEnd(13)} ${fmtDelta(d)}${how === "ondemand" ? ` · loaded in ${d.loaded}/${d.treatRuns}` : ""}`);
+    }
+    for (const [key, d] of Object.entries(summary.delta.bySkill ?? {})) {
+      log(`   ${key.padEnd(52)} ${fmtDelta(d)}${d.how === "ondemand" ? ` · loaded in ${d.loaded}/${d.treatRuns}` : ""}`);
+    }
+  }
+
   const arms = Object.entries(summary.delta.byArm ?? {});
   if (arms.length) {
     log("\n-- harness arms vs the free-form baseline of the same model");

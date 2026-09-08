@@ -9,6 +9,7 @@
 
 import "../env.js";
 import { indexRuns, queryRuns, cellHistory } from "../store.js";
+import { listSkills, parseSkillSuffix } from "../skills.js";
 import { createServer } from "node:http";
 import { readFile, stat } from "node:fs/promises";
 import { extname, join, normalize, dirname, resolve } from "node:path";
@@ -61,7 +62,8 @@ function startRun({ tasks, modes, clients, count, parallel = 1, modelParams = {}
   const judge = resolveJudge(judgeSpec);
   if (!clientObjs.length) throw new Error("no usable clients — check the model names and that the provider's API key is set in .env");
 
-  const missing = clients.filter((c) => !clientObjs.some((r) => r.name === c));
+  const canonical = (c) => { const { base, how } = parseSkillSuffix(c); return how ? `${base}@skill:${how}` : base; };
+  const missing = clients.filter((c) => !clientObjs.some((r) => r.name === canonical(c)));
   const controller = new AbortController();
 
   const run = {
@@ -209,7 +211,7 @@ async function handle(req, res) {
 
   if (req.method === "GET" && path === "/api/meta") {
     const [providers, sut] = await Promise.all([describeProviders(), probeSUT()]);
-    return sendJSON(res, 200, { tasks: listTasks(), modes: MODE_NAMES, defaultModes: DEFAULT_MODES, providers, sut });
+    return sendJSON(res, 200, { tasks: listTasks(), skills: listSkills(), modes: MODE_NAMES, defaultModes: DEFAULT_MODES, providers, sut });
   }
 
   if (req.method === "GET" && path === "/api/sut") {

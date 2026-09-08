@@ -4,7 +4,7 @@
 const ROW_COLUMNS = [
   "run", "task", "mode", "client", "model", "index", "correct", "reason", "error",
   "toolCalls", "toolUseOk", "toolUseReason", "schemaValid", "judgeScore", "judgeReason", "latencyMs", "ttftMs", "ttfaMs",
-  "promptTokens", "completionTokens", "totalTokens", "rounds", "finishReason", "startedAt", "canon",
+  "promptTokens", "completionTokens", "totalTokens", "rounds", "finishReason", "startedAt", "canon", "skill", "baseClient",
 ];
 
 const CELL_COLUMNS = [
@@ -50,6 +50,8 @@ export function rowsToCsv(run) {
     finishReason: r.finishReason ?? null,
     startedAt: r.startedAt,
     canon: r.canon ?? null,
+    skill: r.skill?.how ?? null,
+    baseClient: r.baseClient ?? null,
   })));
 }
 

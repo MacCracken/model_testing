@@ -64,6 +64,14 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
   token-level timings. Claude Code therefore runs with `--output-format stream-json --verbose`.
   Tasks expose a `goal` (plain job statement, endpoint described, no bench tool names) for arms;
   `runTrial` passes `task` and `mode` to `runWithTools` so an arm can build its own prompt.
+- `src/skills.js` — skills as a treatment. A playbook lives in `skills/<name>.md` (a task names a
+  shared one with `task.skill`; every tool task has one, `reason` and `explain` do not); `withSkill(client, how)` wraps any client — synthetic or arm — as
+  `<client>@skill:<how>` with `baseName` pointing back. `preload` puts the playbook in the system
+  prompt (arms: the goal prompt); `ondemand` adds a `load_skill` tool and the row's `skill.loaded`
+  says whether it was read; `native` lets an arm use its own channel (`nativeSkill` in
+  `harness/util.js`: Claude Code and Pi append a system prompt, Codex gets an `AGENTS.md` in a
+  scratch cwd) and `skill.applied` records the path taken. `resolveClients` understands the
+  `@skill[:how]` suffix.
 - `src/web/` — the control plane: `server.js` (node:http, zero deps) + `public/` (the UI).
 - `src/cli.js` — entry point (`list` / `show` / `export` / `index` / `query` / `compact` / `serve` /
   `bench` / `aggregate`).
@@ -96,6 +104,7 @@ export const task = {
   // as ctx. maxRounds raises the synthetic tool loop's budget for long dependent chains.
   setup: async ({ mode, index }) => ({ scenario: "scn-…", items: [...] }),
   maxRounds: 14,
+  skill: "restock",        // optional: the playbook under skills/ a @skill variant loads (default: the task name)
 };
 ```
 
@@ -120,6 +129,11 @@ schema's own `items` key scores the same as a bare array.
 `summarize` also computes `delta.byArm`: for a client with harness rows and no free-form rows of its
 own (a real-harness arm), its delta against the free-form rows of the same model from any other
 client in the run, matched on the model id with any `provider/` prefix stripped.
+
+A client run as `…@skill:<how>` is paired by `summarize` with its base client on the same task and
+mode: `delta.bySkill` per cell and `delta.skill[how]` pooled per delivery, the same shape as the
+harness delta (`deltaBetween` is the shared baseline-versus-treatment calculation; its
+`noHarness*`/`harness*` fields mean baseline/treatment, with `base*`/`treat*` aliases).
 
 `summarize` also reports `stability` per mode from repeated cells: `flaky` (both passes and
 failures) and `agreementPct` (share of trials giving the modal canonical answer, over cells whose

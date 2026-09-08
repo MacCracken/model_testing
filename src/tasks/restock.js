@@ -150,6 +150,7 @@ function makeRestock(low) {
 
   return {
     name,
+    skill: "restock", // the family shares skills/restock.md
     category: "multi-step",
     description:
       `Restock ${low} low items in an inventory of ${low * 2 + 2}: list, ${low} dependent updates (each returns a ticket), confirm with the tickets (refused while anything is still low), report the server's total. Scored on the server's end state.`,

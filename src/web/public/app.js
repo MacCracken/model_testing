@@ -128,6 +128,7 @@ async function init() {
 
 function wire() {
   $("#parallel").addEventListener("input", updatePlan);
+  $("#skill").addEventListener("change", updatePlan);
   $("#run").addEventListener("click", launch);
   $("#cancel").addEventListener("click", cancel);
   $("#count").addEventListener("input", updatePlan);
@@ -411,7 +412,9 @@ function plan() {
     }
   }
   const armsN = [...state.clients].filter((c) => arms.has(c)).length;
-  return { count, modes, total: cells * count, skipped, modelsN: state.clients.size - armsN, armsN };
+  // An A/B skill setting runs every client twice: plain, and wrapped with the playbook.
+  const variants = ($("#skill").value || "").startsWith("ab") ? 2 : 1;
+  return { count, modes, total: cells * count * variants, skipped, modelsN: state.clients.size - armsN, armsN, variants };
 }
 
 function updatePlan() {
@@ -432,6 +435,12 @@ function updatePlan() {
     if (p.skipped.length) node.append(el("div", { className: "hint" }, `skips ${p.skipped.join(", ")} — not declared by that task`));
     const par = Math.max(1, Math.min(16, Number($("#parallel").value) || 1));
     if (par > 1) node.append(el("div", { className: "hint" }, `${par} trials in flight at once · arms still run alone · latencies include queueing`));
+    const skillMode = $("#skill").value;
+    if (skillMode) {
+      const have = new Set(state.meta?.skills ?? []);
+      const without = [...state.tasks].filter((n) => !have.has(taskMeta(n)?.skill ?? n));
+      node.append(el("div", { className: "hint" }, `${p.variants === 2 ? "each model runs plain and with its playbook" : "models run with their playbook"}${without.length ? ` · no playbook for ${without.join(", ")} (unchanged)` : ""}`));
+    }
   }
   const judged = [...state.tasks].filter((name) => taskMeta(name)?.needsJudge);
   if (p.total && judged.length && !$("#judge").value) node.append(el("div", { className: "hint" }, `${judged.join(", ")} needs a judge — pick one under Settings or its trials will error`));
@@ -452,10 +461,16 @@ function showLaunchError(msg) {
 
 async function launch() {
   showLaunchError("");
+  const skillMode = $("#skill").value;
+  const variants = (c) => (skillMode === "" ? [c]
+    : skillMode === "ab" ? [c, `${c}@skill:preload`]
+      : skillMode === "ab-ondemand" ? [c, `${c}@skill:ondemand`]
+        : skillMode === "ab-native" ? [c, `${c}@skill:native`]
+          : [`${c}@skill:${skillMode}`]);
   const body = {
     tasks: [...state.tasks],
     modes: [...state.modes],
-    clients: [...state.clients],
+    clients: [...state.clients].flatMap(variants),
     count: plan().count,
     parallel: Math.max(1, Math.min(16, Number($("#parallel").value) || 1)),
   };
@@ -616,6 +631,19 @@ function renderHeadline(s) {
   }
   box.append(col);
 
+  // With skilled variants in the run, each delivery's delta (preload / on demand) stands beside
+  // the harness delta.
+  const skillCols = Object.entries(s.delta?.skill ?? {});
+  for (const [how, sk] of skillCols) {
+    box.append(el("div", { className: "hcol" },
+      el("div", { className: "eyebrow" }, `Skill delta · ${how === "ondemand" ? "on demand" : how}`),
+      el("div", { className: `big ${sk.deltaPp > 0 ? "up" : sk.deltaPp < 0 ? "down" : "flat"}` },
+        `${sk.deltaPp > 0 ? "+" : ""}${Number.isInteger(sk.deltaPp) ? sk.deltaPp : sk.deltaPp.toFixed(1)}`, el("small", {}, "pp")),
+      el("div", { className: "sub" }, `${fmtPct(sk.basePct)} → ${fmtPct(sk.treatPct)} correct · without → with playbook${how === "ondemand" ? ` · loaded in ${sk.loaded}/${sk.treatRuns}` : ""}`),
+      el("div", { className: `sig${sk.significant ? " yes" : ""}` }, describeSignificance(sk)),
+    ));
+  }
+
   const modeCols = MODE_ORDER.filter((m) => s.byMode[m]);
   for (const m of modeCols) {
     const st = s.byMode[m];
@@ -644,7 +672,7 @@ function renderHeadline(s) {
     kv("harness / free", `${fmtInt(harnessTokens)} / ${fmtInt(freeTokens)}`),
   ));
 
-  box.style.gridTemplateColumns = `1.35fr repeat(${modeCols.length}, 1fr) 1.15fr`;
+  box.style.gridTemplateColumns = `1.35fr ${"1.2fr ".repeat(skillCols.length)}repeat(${modeCols.length}, 1fr) 1.15fr`;
 }
 
 // The tools × schema decomposition, shown once three of the four modes have rows.

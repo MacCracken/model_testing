@@ -13,7 +13,7 @@
 // removed from the environment so the arm also works when the bench itself runs under Claude Code.
 
 import { parseJSONLoose } from "../json.js";
-import { goalPrompt, synthesizeToolResults, recentGreetings, splitCommand, runChild, eventTimings } from "./util.js";
+import { goalPrompt, synthesizeToolResults, recentGreetings, splitCommand, runChild, eventTimings, skillBlock, nativeSkill } from "./util.js";
 import { BASE } from "../tasks/util.js";
 
 export function parseTranscript(raw) {
@@ -84,11 +84,14 @@ export class ClaudeCodeClient {
     throw new Error("the claude-code arm only runs structured modes; use a synthetic client for the free-form baseline");
   }
 
-  async runWithTools(prompt, _tools, system, { signal, task, mode, ctx = null, timeoutMs = this.timeoutMs } = {}) {
+  async runWithTools(prompt, _tools, system, { signal, task, mode, ctx = null, skill = null, timeoutMs = this.timeoutMs } = {}) {
+    // A native skill goes in through Claude Code's own system-prompt flag instead of the goal text.
+    const native = nativeSkill(skill);
     const argv = [
-      ...splitCommand(this.command), "-p", goalPrompt(task, mode, prompt, ctx),
+      ...splitCommand(this.command), "-p", goalPrompt(task, mode, prompt, ctx, native ? null : skill),
       "--bare", "--output-format", "stream-json", "--verbose", "--model", this.model, "--no-session-persistence",
       "--allowedTools", this.tools, "--permission-mode", "bypassPermissions",
+      ...(native ? ["--append-system-prompt", skillBlock(native)] : []),
     ];
     const env = { ...process.env };
     for (const k of Object.keys(env)) if (k === "CLAUDECODE" || k.startsWith("CLAUDE_CODE_") || k === "CLAUDE_PID") delete env[k];
@@ -110,6 +113,7 @@ export class ClaudeCodeClient {
     return {
       ttftMs: timing.ttftMs,
       ttfaMs: timing.ttfaMs,
+      skillApplied: native ? "native" : null,
       text: t.text,
       structured: parseJSONLoose(t.text),
       toolCalls: t.toolCalls,

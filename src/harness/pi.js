@@ -12,7 +12,7 @@
 // that drives the synthetic arm drives Pi. Model ids are `provider/model`, as Pi spells them.
 
 import { parseJSONLoose } from "../json.js";
-import { goalPrompt, synthesizeToolResults, recentGreetings, splitCommand, runChild, eventTimings } from "./util.js";
+import { goalPrompt, synthesizeToolResults, recentGreetings, splitCommand, runChild, eventTimings, skillBlock, nativeSkill } from "./util.js";
 import { BASE } from "../tasks/util.js";
 
 export function parsePiEvents(ndjson) {
@@ -72,16 +72,19 @@ export class PiClient {
     throw new Error("the pi arm only runs structured modes; use a synthetic client for the free-form baseline");
   }
 
-  async runWithTools(prompt, _tools, system, { signal, task, mode, ctx = null, timeoutMs = this.timeoutMs } = {}) {
+  async runWithTools(prompt, _tools, system, { signal, task, mode, ctx = null, skill = null, timeoutMs = this.timeoutMs } = {}) {
     const slash = this.model.indexOf("/");
     const providerName = slash === -1 ? null : this.model.slice(0, slash);
     const modelId = slash === -1 ? this.model : this.model.slice(slash + 1);
+    // A native skill goes in through Pi's own system-prompt flag instead of the goal text.
+    const native = nativeSkill(skill);
     const argv = [
       ...splitCommand(this.command), "--mode", "json", "-p", "--no-session", "-nc",
       ...(providerName ? ["--provider", providerName] : []), "--model", modelId,
       "--tools", this.tools,
       ...(this.apiKey ? ["--api-key", this.apiKey] : []),
-      goalPrompt(task, mode, prompt, ctx),
+      ...(native ? ["--append-system-prompt", skillBlock(native)] : []),
+      goalPrompt(task, mode, prompt, ctx, native ? null : skill),
     ];
     const env = { ...process.env };
     for (const k of Object.keys(env)) if (k === "CLAUDECODE" || k.startsWith("CLAUDE_CODE_")) delete env[k];
@@ -100,6 +103,7 @@ export class PiClient {
     return {
       ttftMs: timing.ttftMs,
       ttfaMs: timing.ttfaMs,
+      skillApplied: native ? "native" : null,
       text: p.text,
       structured: parseJSONLoose(p.text),
       toolCalls: p.toolCalls,

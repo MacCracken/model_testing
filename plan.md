@@ -477,12 +477,12 @@ cheap to get by running repeated trials in parallel instead of one after another
   unique name (a nonce in the goal prompt) and `recentGreetings` matched on it instead of on the
   time window.
 
-### Tier 7 — Agents: harder tasks, sub-agents, skills (STARTED 2026-09-07 — [17] built; [18]–[20] open)
+### Tier 7 — Agents: harder tasks, sub-agents, skills (STARTED 2026-09-07 — [17] and [19] built; [18] and [20] open)
 
 Everything so far is one goal, one or two tool calls, one answer. The next capability question is
 what a harness buys on **harder** work, where the axes belong to the agent rather than the prompt:
 
-- **[17] Multi-step tasks.** **BUILT** (2026-09-07; arms measured below as they come in). The
+- **[17] Multi-step tasks.** **DONE** (2026-09-07). The
   `restock` family — `restock3`, `restock6`, `restock12` — is one job at three lengths against a new
   stateful corner of the SUT: **inventory scenarios** (`POST /api/scenarios` mints an isolated
   inventory of 2K+2 items, K of them below their minimum; `GET …/items`, `PATCH …/items/:id` →
@@ -516,19 +516,106 @@ what a harness buys on **harder** work, where the axes belong to the agent rathe
   makes no difference on this task for the capable models; the whole delta is tools plus the loop.
   The synthetic loop's own ceiling shows too: every capable run finishes in 5 rounds because the
   models batch their updates as parallel tool calls.
+
+  The same family through the real arms (three trials per cell, harness mode, arms run alone):
+
+  | arm · model | restock3 | restock6 | restock12 | restock12 tokens · latency | synthetic, same model |
+  |---|---|---|---|---|---|
+  | pi · gpt-4o-mini | 3/3 | 2/3 | 0/3 | 232 k · 46 s | 2/4 · 1/4 · 0/4 |
+  | claude-code · claude-haiku-4-5 | 3/3 | 3/3 | 3/3 | 27 k · 27 s | 4/4 · 4/4 · 4/4 |
+  | codex · gpt-5.4-mini | 2/3 | 3/3 | 3/3 | 103 k · 14 s | 4/4 · 4/4 · 3/4 |
+
+  Readings: Pi's loop lifts the weak model at short lengths (3/3 and 2/3 where the synthetic
+  harness managed 2/4 and 1/4) and then falls off the same cliff at twelve — 6–11 of 12 items left
+  low after 232 k tokens, twice the synthetic harness's spend for the same failure. Claude Code with
+  Haiku is clean at every length and the cheapest arm by far (27 k tokens at K = 12, about 1.4× the
+  synthetic Haiku run). Codex's one miss is the same collateral edit gpt-5.4-mini made in the
+  synthetic harness, at roughly 10× the tokens. So on this task the model sets the ceiling and the
+  harness sets the cost: no arm beat its own model's synthetic result at K = 12, and the spread in
+  tokens for equal correctness is an order of magnitude.
 - **[18] Sub-agents.** Offloading work: the same multi-step goal with delegation available versus
   without. In the synthetic harness a `delegate(goal)` tool runs a fresh model turn with its own
   tools and returns its answer; the arms use their native mechanism (Claude Code's Agent tool, Pi and
   Codex sub-agents, Thoth's delegation under its tron policy). Score correctness, wall time, tokens,
   and whether the parent actually delegated (a tool-use verdict). This is where the arms should
   separate most, and where token cost will diverge fastest.
-- **[19] Skills.** A skill is a packaged procedure the model can load on demand — a markdown playbook
-  with steps, pitfalls and the endpoint's quirks. Treatment: the same task with and without its skill
-  file. First in the synthetic harness (`skills/<task>.md`, offered through a `load_skill` tool or
-  pre-loaded into the system prompt, both as modes), then through each arm's own mechanism (Claude
-  Code skills, Pi skills, Codex `AGENTS.md`, Thoth's). Questions: does a written procedure
-  substitute for a stronger model, does it help the small local models most, and does it cut
-  variance (Tier 6's agreement) more than it raises correctness?
+- **[19] Skills.** **BUILT** (2026-09-07; arm variants measured as they land). A skill is a markdown
+  playbook under `skills/<name>.md` — `restock` (shared by the family through `task.skill`), `chain`,
+  `transform`. The treatment is a **client variant, not a new mode**: `openai:gpt-4o-mini@skill:preload`
+  next to `openai:gpt-4o-mini` in the same run (the web "skill" setting's A/B choice does this for
+  every selected model) runs the same task with and without the playbook, and `summarize` pairs each
+  `…@skill:<how>` client with its base on the same task and mode — `delta.bySkill` per cell and
+  `delta.skill[how]` pooled, with the usual Fisher p. Two deliveries: **preload** appends the playbook
+  to the system prompt (synthetic) or the goal prompt (arms); **on demand** offers a `load_skill`
+  tool and the row records how often the model actually loaded it (arms get preload — they bring
+  their own tools). `src/skills.js` wraps any client and keeps its flags, so an arm variant still
+  runs alone; rows carry `skill` and `baseClient`, the CSV and the index too. First A/B on
+  gpt-4o-mini, restock family, harness mode, four trials per cell:
+
+  | delivery | restock3 | restock6 | restock12 | pooled |
+  |---|---|---|---|---|
+  | plain | 2/4 | 1/4 | 0/4 | 3/12 |
+  | preload | 3/4 | 3/4 | 0/4 | 6/12 · +25 pp · p = 0.4 |
+  | on demand | 1/4 | 0/4 | 0/4 | 1/12 · loaded **0/12** |
+
+  Readings: the written procedure helps exactly where the model was sloppy rather than incapable —
+  at 3 and 6 items it stops skipping the marginal ones and mostly stops the collateral edits (the
+  one preload miss per length is a single collateral edit) — and does nothing at 12, where the
+  failure is capacity, not procedure. On demand is a null result with a cause: gpt-4o-mini **never
+  called `load_skill`** in twelve trials, even told to read it before acting, and the extra tool
+  cost it (1/12). An offered skill is only as good as the model's habit of reaching for it. Nothing
+  here is significant at four per cell; the direction is consistent across lengths.
+  A third delivery, **native**, uses the arm's own channel instead of the goal text: Claude Code and
+  Pi take the playbook through `--append-system-prompt`, Codex reads it as the `AGENTS.md` of a
+  scratch working directory made for the run; Thoth and the synthetic client have no separate
+  channel and fall back to preload, and the row's `skill.applied` records which path was taken. The
+  measured arm variants are below. Still open: the arms' on-demand loaders (Claude Code skills
+  directories, Pi skills).
+
+  The playbook through the arms, preloaded into the goal prompt (three trials per cell; plain
+  numbers from the arm table under [17]):
+
+  | arm · model · delivery | restock3 | restock6 | restock12 | tokens at 12 |
+  |---|---|---|---|---|
+  | pi · gpt-4o-mini · plain | 3/3 | 2/3 | 0/3 | 232 k |
+  | pi · gpt-4o-mini · preload (goal prompt) | 3/3 | **0/3** | 0/3 | **914 k** |
+  | pi · gpt-4o-mini · native (`--append-system-prompt`) | 3/3 | 1/3 | 0/3 | 534 k |
+  | codex · gpt-5.4-mini · plain | 2/3 | 3/3 | 3/3 | 103 k |
+  | codex · gpt-5.4-mini · preload (goal prompt) | 3/3 | 3/3 | 3/3 | 170 k |
+  | codex · gpt-5.4-mini · native (`AGENTS.md`) | 3/3 | 3/3 | 3/3 | 198 k |
+
+  Readings: for the capable model the playbook removed the one collateral edit Codex made (2/3 →
+  3/3 at K = 3) at about 1.5× the tokens. For the weak model inside a real agent loop it was
+  harmful: Pi + gpt-4o-mini went from 2/3 to 0/3 at six items (one trial hit the 300 s timeout,
+  the others made collateral edits or missed one), and at twelve it spent 914 k tokens and 64 tool
+  calls per trial — four times its plain run — still leaving 5–8 items low. The playbook's
+  "verify before confirming, go back and look" steps give a model that cannot do the comparison
+  reliably a licence to loop; the synthetic harness's round budget capped that, Pi's loop did not.
+  A skill amplifies whatever loop it lands in.
+  Native delivery changes the cost more than the outcome: through Pi's system prompt the same
+  playbook cost 534 k tokens at twelve instead of 914 k (still 2.3× plain) and recovered one of the
+  three six-item trials; through Codex's `AGENTS.md` it matched the goal-prompt result exactly at
+  a similar spend. Where the playbook sits matters less than which model reads it.
+
+  The small-local-model question ("does a written procedure help them most?") — two Ollama models,
+  four tasks with playbooks, harness mode, preload, four trials per cell, serial:
+
+  | model | chain | transform | regex | restock3 | pooled | tokens |
+  |---|---|---|---|---|---|---|
+  | ornith-1.5:9b · plain | 4/4 | 3/4 | 4/4 | 4/4 | 15/16 | — |
+  | ornith-1.5:9b · preload | 4/4 | 3/4 | **2/4** | 4/4 | 13/16 | +15–25 % |
+  | qwen3.8:27b-mlx · plain | 4/4 | 4/4 | 4/4 | 4/4 | 16/16 | — |
+  | qwen3.8:27b-mlx · preload | 4/4 | 4/4 | 4/4 | 4/4 | 16/16 | +25–35 % |
+
+  Pooled skill delta −6 pp (97 % → 91 %, p = 0.6). Answer: no — not on these tasks, because the
+  local models were not failing them (ornith even takes restock3 4/4, where gpt-4o-mini managed
+  2/4). The only movement is ornith's regex, 4/4 → 2/4, with one trial producing no structured
+  output at all: a longer system prompt cost the 9 B model its output discipline. Taken with the
+  gpt-4o-mini and arm results, the picture for [19] is consistent — a playbook pays off in the
+  narrow band where a model is sloppy on a task it can otherwise do (gpt-4o-mini at three and six
+  items), is neutral where the model is already at ceiling, and is harmful where the model cannot
+  execute it (inside a loop with no budget) or cannot afford the context (a small model's output
+  discipline). It never substituted for a stronger model.
 - **[20] Other stressors.** Distractor tools and endpoints (`regex` already carries a decoy),
   tool results that fail or come back partial so the model must retry, a long log to search (context
   length), and a budget of calls (time pressure). Each is an axis on an existing task rather than a

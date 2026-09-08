@@ -87,6 +87,10 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
     usage: null,
     ground: null,
     ctx: null,
+    // A client wrapped with a playbook ("<client>@skill:<how>") says so here and names the client
+    // it is a variant of, so summarize can pair the two.
+    skill: client.skill ? { how: client.skill, name: null, applied: false, loaded: null } : null,
+    baseClient: client.baseName ?? null,
     error: null,
   };
 
@@ -141,6 +145,7 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
       );
     }
 
+    if (resp.skill) record.skill = resp.skill;
     record.answerText = resp.text ?? "";
     record.finishReason = resp.finishReason ?? null;
     record.usage = resp.usage ?? null;
@@ -458,9 +463,16 @@ export function describeStability(st) {
   return `${st.agreementPct.toFixed(0)}% agreement over ${st.canonCells} ${st.canonCells === 1 ? "cell" : "cells"} · ${flaky}`;
 }
 
+// The harness delta: free-form rows against harness rows of the same slice.
 function deltaFor(rows) {
-  const noH = rows.filter((r) => r.mode === "noHarness");
-  const withH = rows.filter((r) => r.mode === "harness");
+  return deltaBetween(rows.filter((r) => r.mode === "noHarness"), rows.filter((r) => r.mode === "harness"));
+}
+
+// Baseline rows against treatment rows — the harness delta when the split is by mode, the skill
+// delta when it is by client variant. Field names keep the historical noHarness*/harness* spelling
+// (baseline/treatment) so every consumer, describeSignificance included, reads both the same way;
+// the base*/treat* aliases say the same without the mode connotation.
+export function deltaBetween(noH, withH) {
   if (!noH.length || !withH.length) return null;
   const n = noH.length;
   const m = withH.length;
@@ -491,6 +503,10 @@ function deltaFor(rows) {
     // Wilson intervals on each rate: confidence bands that are honest near 0% / 100%.
     noHarnessWilson: wilsonInterval(x1, n),
     harnessWilson: wilsonInterval(x2, m),
+    basePct: a,
+    treatPct: b,
+    baseRuns: n,
+    treatRuns: m,
   };
 }
 
@@ -541,7 +557,8 @@ function armDeltas(rows, clientNames, taskNames) {
     const harness = own.filter((r) => r.mode === "harness");
     if (!harness.length || own.some((r) => r.mode === "noHarness")) continue;
     const models = new Set(harness.map((r) => normalizeModel(r.model)));
-    const baseline = rows.filter((r) => r.mode === "noHarness" && r.client !== client && models.has(normalizeModel(r.model)));
+    // Skilled variants are a treatment of their own; an arm's baseline is the plain model.
+    const baseline = rows.filter((r) => r.mode === "noHarness" && r.client !== client && !r.baseClient && models.has(normalizeModel(r.model)));
     if (!baseline.length) continue;
     const byTask = {};
     for (const t of taskNames) {
@@ -556,6 +573,36 @@ function armDeltas(rows, clientNames, taskNames) {
     };
   }
   return byArm;
+}
+
+// A client wrapped with a playbook ("<client>@skill:<how>") is paired with its base client on the
+// same task and mode; the difference is the skill's. Keyed "task|mode|<skilled client>"; `skill`
+// pools every pair that has both sides.
+function skillDeltas(rows) {
+  const bySkill = {};
+  const pooled = {}; // how → { base: Set<row>, treat: row[] }
+  const skilled = rows.filter((r) => r.baseClient);
+  for (const key of new Set(skilled.map((r) => `${r.task}|${r.mode}|${r.client}`))) {
+    const [task, mode, client] = key.split("|");
+    const treat = skilled.filter((r) => r.task === task && r.mode === mode && r.client === client);
+    const base = rows.filter((r) => r.task === task && r.mode === mode && r.client === treat[0].baseClient);
+    if (!base.length) continue;
+    bySkill[key] = {
+      ...deltaBetween(base, treat),
+      how: treat[0].skill?.how ?? null,
+      applied: treat.filter((r) => r.skill?.applied).length,
+      loaded: treat.filter((r) => (r.skill?.loaded ?? 0) > 0).length,
+      baseClient: treat[0].baseClient,
+    };
+    const pool = (pooled[bySkill[key].how ?? "preload"] ??= { base: new Set(), treat: [] });
+    base.forEach((r) => pool.base.add(r));
+    pool.treat.push(...treat);
+  }
+  const skill = {};
+  for (const [how, p] of Object.entries(pooled)) {
+    skill[how] = { ...deltaBetween([...p.base], p.treat), loaded: p.treat.filter((r) => (r.skill?.loaded ?? 0) > 0).length };
+  }
+  return { bySkill, skill: Object.keys(skill).length ? skill : null };
 }
 
 export function summarize(rows) {
@@ -617,6 +664,6 @@ export function summarize(rows) {
     byMode,
     cells,
     stability,
-    delta: { overall: deltaFor(rows), byTask, byClient, byTaskClient, byArm: armDeltas(rows, clientNames, taskNames) },
+    delta: { overall: deltaFor(rows), byTask, byClient, byTaskClient, byArm: armDeltas(rows, clientNames, taskNames), ...skillDeltas(rows) },
   };
 }

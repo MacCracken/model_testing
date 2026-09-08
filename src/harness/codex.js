@@ -16,7 +16,10 @@
 // because Codex was not logged in on this machine when it was written.
 
 import { parseJSONLoose } from "../json.js";
-import { goalPrompt, synthesizeToolResults, recentGreetings, splitCommand, runChild, eventTimings } from "./util.js";
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { goalPrompt, synthesizeToolResults, recentGreetings, splitCommand, runChild, eventTimings, skillBlock, nativeSkill } from "./util.js";
 import { BASE } from "../tasks/util.js";
 
 export function parseCodexEvents(ndjson) {
@@ -70,16 +73,27 @@ export class CodexClient {
     throw new Error("the codex arm only runs structured modes; use a synthetic client for the free-form baseline");
   }
 
-  async runWithTools(prompt, _tools, system, { signal, task, mode, ctx = null, timeoutMs = this.timeoutMs } = {}) {
+  async runWithTools(prompt, _tools, system, { signal, task, mode, ctx = null, skill = null, timeoutMs = this.timeoutMs } = {}) {
+    // A native skill is the AGENTS.md of the working directory Codex runs in — its own channel for
+    // project instructions — so the run gets a scratch directory holding just that file.
+    const native = nativeSkill(skill);
+    const cwd = native ? mkdtempSync(join(tmpdir(), "hb-codex-")) : this.cwd;
+    if (native) writeFileSync(join(cwd, "AGENTS.md"), skillBlock(native));
     const argv = [
-      ...splitCommand(this.command), "exec", "--json", "--ephemeral", "--skip-git-repo-check", "-C", this.cwd,
-      "-m", this.model, ...splitCommand(this.sandboxArgs), goalPrompt(task, mode, prompt, ctx),
+      ...splitCommand(this.command), "exec", "--json", "--ephemeral", "--skip-git-repo-check", "-C", cwd,
+      "-m", this.model, ...splitCommand(this.sandboxArgs), goalPrompt(task, mode, prompt, ctx, native ? null : skill),
     ];
     const env = { ...process.env };
     for (const k of Object.keys(env)) if (k === "CLAUDECODE" || k.startsWith("CLAUDE_CODE_")) delete env[k];
     const t0 = performance.now();
     const startedAt = new Date().toISOString();
-    const { stdout, stderr, code, lines } = await runChild(argv, { signal, timeoutMs, env, label: "codex" });
+    let child;
+    try {
+      child = await runChild(argv, { signal, timeoutMs, env, label: "codex" });
+    } finally {
+      if (native) rmSync(cwd, { recursive: true, force: true });
+    }
+    const { stdout, stderr, code, lines } = child;
     const timing = eventTimings(lines,
       (l) => /"type":"item\.(started|completed)"/.test(l),
       (l) => /"type":"item\.completed"/.test(l) && /"type":"agent_message"/.test(l));
@@ -92,6 +106,7 @@ export class CodexClient {
     return {
       ttftMs: timing.ttftMs,
       ttfaMs: timing.ttfaMs,
+      skillApplied: native ? "native" : null,
       text: p.text,
       structured: parseJSONLoose(p.text),
       toolCalls: p.toolCalls,

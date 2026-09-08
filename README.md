@@ -94,6 +94,7 @@ node src/bench.js --task health --mode harness --clients openai:gpt-4o-mini
 node src/bench.js --task all --modes noHarness,harness --clients local:ornith-1.5:9b --count 3
 node src/bench.js --task health,reason,regex --modes noHarness,harness --clients openai:gpt-4o-mini --count 8 --parallel 8
 node src/bench.js --task restock3,restock6,restock12 --modes harness,toolOnly --clients openai:gpt-5.4-mini,anthropic:claude-haiku-4-5 --count 4 --parallel 6
+node src/bench.js --task restock3,restock6 --modes harness --clients openai:gpt-4o-mini,openai:gpt-4o-mini@skill:preload --count 4 --parallel 6   # skill A/B
 
 # A bare provider name expands to all of its models
 node src/aggregate.js --tasks health,hello --clients local
@@ -126,6 +127,16 @@ real-harness arms always run alone because they are scored from the webserver's 
 and latencies measured under parallel load on a local model include queueing. Repeated cells
 report their **stability**: agreement (the share of trials giving the same canonical answer, on
 tasks with fixed truth) and whether the cell was flaky, in the report and the headline.
+
+**Skills.** A playbook under `skills/<task>.md` can be handed to a model as a treatment:
+`openai:gpt-4o-mini@skill:preload` puts it in the prompt, `@skill:ondemand` offers it as a
+`load_skill` tool and records whether the model read it, and `@skill:native` hands it to a
+real-harness arm through its own channel (Claude Code and Pi: an appended system prompt; Codex:
+the `AGENTS.md` of its working directory). Run a model plain and wrapped in the same
+run (the web UI's skill setting has an A/B choice) and the report shows the skill delta per task and
+pooled per delivery. Every tool task has a playbook (`health`, `hello`, `lookup`, `regex`, `chain`,
+`transform`; the restock family shares `skills/restock.md`); `reason` and `explain` have none and
+run unchanged under a skill variant.
 
 `--temperature T`, `--seed S` and `--model-param key=value` (repeatable; e.g. `think=false`,
 `max_tokens=600`) are sent as-is with every request and recorded in the run's config (the

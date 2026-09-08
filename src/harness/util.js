@@ -11,8 +11,22 @@ import { schemaHint } from "../schema.js";
 
 // The prompt a real harness gets: the task's goal plus the same schema instruction the synthetic
 // harness receives (the schema is part of the treatment, so both arms see it worded the same).
-export function goalPrompt(task, mode, fallback, ctx = null) {
-  const goal = typeof task?.goal === "function" ? task.goal(ctx ?? {}) : (task?.goal ?? fallback);
+// The playbook as the model sees it, wherever it is delivered.
+export function skillBlock(skill) {
+  return `# Skill: ${skill.name}\nA playbook for this job. Follow it.\n\n${skill.text}`;
+}
+
+// An arm with a native channel for the playbook (a system-prompt flag, an AGENTS.md) takes it when
+// the variant asks for "native"; otherwise the playbook rides in the goal prompt.
+export function nativeSkill(skill) {
+  return skill?.how === "native" && skill.text ? skill : null;
+}
+
+export function goalPrompt(task, mode, fallback, ctx = null, skill = null) {
+  let goal = typeof task?.goal === "function" ? task.goal(ctx ?? {}) : (task?.goal ?? fallback);
+  // A skilled variant of an arm gets the playbook in the prompt (the arm brings its own tools, so
+  // "on demand" means preload here; "native" arrives here only when the arm has no own channel).
+  if (skill?.text) goal = `${goal}\n\n${skillBlock(skill)}`;
   const schema = task?.[mode]?.schema;
   if (!schema) return goal;
   return `${goal}\n\nReturn your final answer as a JSON value that is an instance of this JSON Schema (a value that validates against it — not the schema itself):\n${schemaHint(schema)}\nReply with that JSON value only — no prose, no markdown fences.`;
