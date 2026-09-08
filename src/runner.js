@@ -49,6 +49,14 @@ async function resolveGround(task, ctx) {
   return typeof g === "function" ? g(ctx) : g;
 }
 
+// The run file keeps a prompt for the drawer, not a 400 KB log; long prompts are cut in the record
+// (the model received the whole thing — token counts in usage say so).
+const PROMPT_RECORD_MAX = 20_000;
+function capText(t) {
+  if (typeof t !== "string" || t.length <= PROMPT_RECORD_MAX) return t;
+  return `${t.slice(0, PROMPT_RECORD_MAX)}\n…[prompt truncated in the record: ${t.length} characters in total]`;
+}
+
 /** Run a single (task, mode, client) trial once and score it. Never throws. */
 export async function runTrial({ task, mode, client, index = 1, signal, maxRounds = 4, judge = null, seed = null }) {
   // The instance seed: a generated task mints its problem from it, so the same seed re-mints the same
@@ -115,7 +123,7 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
     record.ctx = ctx;
     const text = (v) => (typeof v === "function" ? v(ctx ?? {}) : v);
     const rspec = { ...spec, prompt: text(spec.prompt), system: text(spec.system), tools: text(spec.tools) };
-    record.prompt = rspec.prompt ?? null;
+    record.prompt = capText(rspec.prompt ?? null);
 
     const system = buildSystemPrompt(rspec, mode);
     record.system = system || null;
@@ -157,7 +165,7 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
     if (resp.skill) record.skill = resp.skill;
     if (resp.agents) record.agents = resp.agents;
     if (resp.constraints) record.constraints = resp.constraints;
-    if (typeof resp.effectivePrompt === "string") record.prompt = resp.effectivePrompt;
+    if (typeof resp.effectivePrompt === "string") record.prompt = capText(resp.effectivePrompt);
     // A variant that rewrote the system prompt reports what the model actually saw.
     if (typeof resp.effectiveSystem === "string") record.system = resp.effectiveSystem;
     record.answerText = resp.text ?? "";

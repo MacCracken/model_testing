@@ -42,7 +42,7 @@ rebuildable. One learned this week: a structured schema for a task that needs th
 | Data | one JSON per run, SQLite index (`index`, `query`, `--sql`, `compact`), CSV, versions on every run, cross-run cell history |
 | UI | Ledger design, live grid, dumbbell matrix, trial drawer with transcript and children, history filter |
 | SUT | the webserver: hello/health, the `/api/recent` log, inventory scenarios with tickets, confirm rules, stress profiles, op log |
-| Tests | 231, none needing a model; the webserver runs in-process |
+| Tests | 235, none needing a model; the webserver runs in-process |
 
 ## What the field measures that we do not
 
@@ -68,7 +68,7 @@ with a priority for the stated purpose:
 | Agentic multi-step | SWE-bench Verified, Terminal-Bench, GAIA, BrowseComp, OSWorld | restock family (3–30 steps), four real arms | other domains (files, terminal, scheduling), longer horizons, policy constraints | **high** |
 | Reasoning / math | GPQA Diamond, HLE, ARC-AGI-2, FrontierMath, LiveBench math | `reason` plus the generated `wordmath`, `datecalc`, `logicgrid`, `tally` families with a calculator / date / query tool as the harness axis | harder tiers, unit conversions, spatial and ordering puzzles | medium (was high) |
 | Instruction following | IFEval (verifiable constraints), LiveBench IF | `@constraints` variants: eleven requirement families checked by code on any task, adherence beside correctness | more families (sentences, language), requirements across turns, a `@format` variant | low (was high) |
-| Long context | RULER / needle-in-a-haystack (multi-key, multi-value, aggregation) at 4 k–1 M | haystack of 60 items (a few k tokens) | generated logs at 8 k–128 k, position sweeps, aggregation, a search tool as the harness axis | high |
+| Long context | RULER / needle-in-a-haystack (multi-key, multi-value, aggregation) at 4 k–1 M | `needle8k/32k/100k`: single needle with recorded depth, multi-needle, aggregation; grep/count tools as the harness axis | larger sizes, a depth-sweep view, multi-hop questions | medium (was high) |
 | Structured extraction | LiveBench data analysis, enterprise extraction evals | `transform`, schema modes | generated documents with exact truth, joins across two sources | medium |
 | Statistics & reproducibility | HELM CIs, Inspect logs, lm-eval fixed prompts and versions | Fisher, Wilson, seeds, versions, canonical answers, index, McNemar + bootstrap on paired instances, power guidance, Bonferroni, `cli compare` | lineage-aware pooling, regression alerts over time ([34]) | medium (was high) |
 | Own-model workflow | lm-eval HF/vLLM backends; W&B / MLflow tracking; per-checkpoint scoreboards | named endpoints for any OpenAI-compatible server, `docs/serving.md`, `models/lineage.json` on every run and in the index, `cli models` / `suite` / `compare --parent`, the UI compare block | gates with exit codes, contamination policy ([38]), replay ([39]), per-family scorecards | medium (was high) |
@@ -103,10 +103,11 @@ declares the capability it measures and runs in the four modes where they mean s
   (answer-only versus answer-with-`work` schemas) is in docs/results.md. Left for later: a `@format`
   variant that strips or adds the `work` field on any schema so the axis can be run on demand,
   language and length-in-sentences families, and requirements composed across turns.
-- **[23] Long-context retrieval and aggregation.** Generated logs and records served by the SUT
-  (`GET /api/logs?scenario=…`) or inlined, from 8 k to 128 k tokens; single and multi needle, a
-  position sweep, aggregation (count / sum over matches); with and without a search tool, so the
-  harness delta on long context is its own number.
+- **[23] Long-context retrieval and aggregation.** Shipped 2026-09-08 (see the changelog): the
+  `needle8k/32k/100k` family with single, multi and aggregation questions, a recorded needle depth,
+  and grep/count tools over the same log on the server. Left for later: sizes past 100 k for models
+  that take them, a depth-sweep view over the rows, and multi-hop questions (find a line, then a
+  second line it refers to).
 - **[24] Structured extraction from generated documents.** Invoices, tickets and tables with known
   truth → JSON under a schema; joins across two documents; tolerance rules for numbers and dates.
 - **[25] Tool-use breadth.** Shipped 2026-09-08 (see the changelog): `fanout4/8` (parallel-call
@@ -182,11 +183,10 @@ declares the capability it measures and runs in the four modes where they mean s
 
 ## Decisions needed
 
-1. **Order for the next month.** [21], [22], [25], [31], [33], [35] and [36] are done, with suite
-   presets from [37]; recommendation for the rest: [23] long context (the one stressor that reached
-   a capable model, and a capability with no family yet), then [32]/[34] difficulty curves and
-   regression detection over the index, then the gates half of [37] and [39] replay once a
-   checkpoint exists to gate.
+1. **Order for the next month.** [21], [22], [23], [25], [31], [33], [35] and [36] are done, with
+   suite presets from [37]; recommendation for the rest: [32]/[34] difficulty curves and regression
+   detection over the index, then the gates half of [37] and [39] replay once a checkpoint exists to
+   gate, then [24] extraction and [26] multi-turn.
 2. **Code sandbox.** Worker-thread isolation keeps the zero-dependency rule but is weaker; Docker is
    stronger and a dependency. This gates [27].
 3. **Scope of knowledge and safety.** Exclude closed-book knowledge as an axis? Include tool-result

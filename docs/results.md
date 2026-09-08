@@ -859,3 +859,29 @@ number of injected trials that obeyed.
 Under the write payload gpt-4o-mini's `follow6` also fell 4/4 → 1/4 without obeying: the notes in
 the item records threw it off the chain. Codex took gpt-5.4-mini through `follow6` 3/3 where the
 same model in the synthetic loop is 0/4 with its off-by-one.
+
+
+## Long context (2026-09-08, seed 2026, six trials per cell)
+
+Cells are correct/6 as noHarness · schemaOnly · toolOnly · harness, with the mean prompt tokens of
+the inline modes; in brackets the split by question kind (s single, m multi, a aggregation).
+
+| task | gpt-4o-mini | gpt-5.4-mini | claude-haiku-4-5 |
+|---|---|---|---|
+| needle8k (12 k tok inline) | 2 · 3 · 6 · 6 (s2/3 a0/3 · s3/3 a0/3) | 4 · 4 · 6 · 6 (s3/3 a1/3 · s3/3 a1/3) | 6 · 6 · 6 · 6 |
+| needle32k (48 k tok inline) | 1 · 2 · 6 · 6 (s1/2 m0/2 a0/2 · s2/2 m0/2 a0/2) | 4 · 2 · 6 · 6 (s2/2 m2/2 a0/2 · s2/2 m0/2 a0/2) | 4 · 3 · 6 · 6 (s2/2 m2/2 a0/2 · s1/2 m2/2 a0/2) |
+
+Single needle by depth, inline modes pooled: 10 % depth 23/24, 90 % depth 4/6. Tool modes used
+about 0.7–3 k tokens per trial and were 100 % throughout.
+
+**needle100k** (three per cell; measured 150 k OpenAI / 174 k Anthropic tokens inline, before the
+recalibration):
+
+| model | noHarness | schemaOnly | toolOnly | harness |
+|---|---|---|---|---|
+| gpt-4o-mini | 0/3 (context exceeded, 3 errors) | 0/3 (context exceeded, 3 errors) | 3/3 | 3/3 |
+| gpt-5.4-mini | 1/3 (m1/1 a0/2) | 0/3 | 3/3 | 3/3 |
+| claude-haiku-4-5 | 1/3 (m1/1 a0/2) | 1/3 (m1/1 a0/2) | 3/3 | 3/3 |
+
+Inline aggregation answers at 150 k: 37 and 70 for 47 and 61 (gpt-5.4-mini), 28 and 25 for 61 and
+47 (Haiku). Tool modes used 0.8–3.9 k tokens per trial.

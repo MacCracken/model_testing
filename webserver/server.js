@@ -305,6 +305,55 @@ app.post("/api/scenarios/:sid/reorder-all", (req, res) => {
   res.json({ reordered: s.items.length, note: "statuses set; quantities unchanged" });
 });
 
+// ---- logs -------------------------------------------------------------------------------------
+// A caller posts a log as plain text and searches it by regular expression: matching lines with
+// their numbers (capped) and the total, or just the count. The bench's long-context tasks put the
+// same log here that they inline in a prompt, so a model with a grep tool and a model reading the
+// whole text face the same question.
+const LOG_MAX = 40;
+const logStore = new Map();
+
+app.post("/api/logs", express.text({ type: "*/*", limit: "50mb" }), (req, res) => {
+  const lines = String(req.body ?? "").split(/\r?\n/).filter((l) => l.length);
+  if (!lines.length) return res.status(400).json({ error: "post the log as plain text, one event per line" });
+  const id = `log-${randomUUID().slice(0, 8)}`;
+  logStore.set(id, { id, lines, createdAt: stamp() });
+  if (logStore.size > LOG_MAX) logStore.delete(logStore.keys().next().value);
+  res.status(201).json({ id, lines: lines.length });
+});
+
+function logAndPattern(req, res) {
+  const log = logStore.get(req.params.id);
+  if (!log) { res.status(404).json({ error: "unknown log", id: req.params.id }); return null; }
+  const grep = req.query.grep === undefined ? null : String(req.query.grep);
+  if (grep !== null && grep.length > 300) { res.status(400).json({ error: "pattern too long" }); return null; }
+  let re = null;
+  if (grep !== null) {
+    try { re = new RegExp(grep); } catch (err) { res.status(400).json({ error: `invalid pattern: ${err.message}` }); return null; }
+  }
+  return { log, re };
+}
+
+app.get("/api/logs/:id", (req, res) => {
+  const got = logAndPattern(req, res);
+  if (!got) return;
+  const limit = Math.max(1, Math.min(200, Number(req.query.limit) || 50));
+  const matches = [];
+  let total = 0;
+  got.log.lines.forEach((line, i) => {
+    if (got.re && !got.re.test(line)) return;
+    total += 1;
+    if (matches.length < limit) matches.push({ n: i + 1, line });
+  });
+  res.json({ id: got.log.id, lines: got.log.lines.length, total, returned: matches.length, matches });
+});
+
+app.get("/api/logs/:id/count", (req, res) => {
+  const got = logAndPattern(req, res);
+  if (!got) return;
+  res.json({ id: got.log.id, count: got.re ? got.log.lines.filter((l) => got.re.test(l)).length : got.log.lines.length });
+});
+
 app.get("/", (req, res) => {
   res.json({
     service: "webserver",
@@ -322,6 +371,9 @@ app.get("/", (req, res) => {
       "GET /api/scenarios/:sid/items/:id/history   (distractors profile)",
       "PATCH /api/scenarios/:sid/items/:id/price { price }   (distractors profile)",
       "POST /api/scenarios/:sid/reorder-all   (distractors profile)",
+      "POST /api/logs   (text/plain body, one event per line)",
+      "GET /api/logs/:id?grep=<regex>&limit=<n>",
+      "GET /api/logs/:id/count?grep=<regex>",
     ],
   });
 });

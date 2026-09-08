@@ -4,6 +4,44 @@ What shipped, by date. Full measurement tables live in [docs/results.md](docs/re
 forward roadmap is [plan.md](plan.md). Dates are the commit dates; item numbers ([1]–[20]) are the
 roadmap tiers as they were numbered while being built.
 
+## 2026-09-08 (evening) — long context
+
+### Added
+- **The `needle` family** ([23]): `needle8k`, `needle32k`, `needle100k` — a seeded server log of
+  about that many tokens (296, 1,185 and 3,704 lines) with one question per trial, rotated by seed:
+  a single planted line (the latency of one request id, at 10 %, 50 % or 90 % depth — recorded, so
+  a position sweep falls out of the rows), a multi-needle (which three hosts logged a CRITICAL
+  event), or an aggregation (how many ERROR lines one service logged). Free-form and schema-only
+  modes read the whole log inline; the tool modes get `grep_log` / `count_log` over the same log,
+  posted to the webserver — so the harness delta here is *search versus read*. Truth is recomputable
+  from the lines (the tests do).
+- Webserver: `POST /api/logs` (text, one event per line), `GET /api/logs/:id?grep=&limit=`
+  (numbered matches and the total), `GET /api/logs/:id/count?grep=`.
+- Run records keep a capped prompt (20 k characters) — the model receives the whole log, and the
+  token counts in `usage` say so.
+
+### Measured (three hosted models, six trials per cell, seed 2026)
+- **Search beats reading, completely**: with `grep_log` / `count_log` every model was 6/6 on both
+  sizes in both tool modes, on about 1–3 k tokens per trial. Reading the log inline, gpt-4o-mini was
+  2/6 and 1/6 (12 k and 48 k tokens per trial), gpt-5.4-mini 4/6 and 4/6, Haiku 6/6 and 4/6.
+- **Aggregation is what breaks on a long read.** Single planted lines were mostly found (23/24 at
+  10 % depth, 4/6 at 90 % — a depth effect already at 32 k) and the three CRITICAL hosts usually
+  listed, but counting one service's ERROR lines across the log failed for every model inline:
+  gpt-4o-mini 0/5 (it often gave no number at all), gpt-5.4-mini 2/5, Haiku 3/5 at 8 k and 0/2 at
+  32 k — off by one to three each time. The count tool made it 100 %.
+- The question kind now rotates with the trial index (single, multi, aggregation), so a cell of six
+  covers each twice; this run's cells were unbalanced by the seed hash (no multi-needle at 8 k).
+- **The 100 k log** (three per cell): the tool modes were 3/3 for every model on about 1–4 k
+  tokens; reading inline, gpt-5.4-mini was 1/3 and 0/3 and Haiku 1/3 and 1/3 — the multi-needle
+  usually found, the aggregation off by 10–40 — and **gpt-4o-mini could not run the inline modes at
+  all**: the prompt measured 150 k tokens on OpenAI's tokenizer (174 k on Anthropic's) against its
+  128 k context, so every inline trial is an API error row while the same model with grep and count
+  is 3/3. At this size the tool axis does not improve the task; it makes it possible.
+- The sizes were mislabelled: the line-length estimate was 27 tokens and the live counts say about
+  41 (OpenAI) to 47 (Anthropic) — hex ids and timestamps tokenize badly. Recalibrated to 42 per
+  line, so `needle8k/32k/100k` now mean roughly that on OpenAI's tokenizer (190, 762 and 2,381
+  lines); the runs above were really 12 k, 48 k and 150 k tokens.
+
 ## 2026-09-08 (later still) — own-model plumbing: endpoints, lineage, suites, compare view
 
 ### Added

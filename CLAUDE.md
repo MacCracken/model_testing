@@ -28,6 +28,9 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
   families (`wordmath`, `datecalc`, `logicgrid`, `tally`) mint an instance per trial from the trial's
   seed in `setup` (`seeded: true`); `tasks/gen.js` holds the seeded RNG, `seedFor` and lenient answer
   readers, `src/calc.js` the exact calculator that is the harness axis for arithmetic. The
+  long-context family (`needle8k/32k/100k`) mints a server log per trial, inlines it in the free-form
+  modes and posts it to the webserver for the tool modes' grep and count (`tasks/needle.js`); the
+  record keeps a capped prompt (`capText` in the runner), the model gets the whole log. The
   scenario-backed families (`fanout`, `follow`, `norelevant`, and `restock`) share `tasks/scenario.js`:
   the server API, a scenario minted from the trial seed (the server takes the seed, so the inventory
   is reproducible), the read tools, and `endState`, which turns the scenario's op log into a hijack
@@ -231,8 +234,9 @@ last few hundred `/api/hello` replies, which lets real-harness arms be scored ag
 server actually served (`recentGreetings` in `harness/util.js`), and the **inventory scenarios**
 (`/api/scenarios…`) the `restock` tasks run against: one isolated inventory per trial, tickets per
 update, a confirm that is refused while anything is still low, optional stress profiles (flaky,
-budget, haystack, distractors) and `GET /api/scenarios/:sid` as the end state a trial is scored on,
-op log included. `test/sut.test.js` pins that contract in-process. Every run (CLI or web) is saved to `results/`, which is gitignored along
+budget, haystack, distractors, injected) and `GET /api/scenarios/:sid` as the end state a trial is
+scored on, op log included; and the **logs** (`POST /api/logs` as text, `GET /api/logs/:id?grep=`,
+`…/count`) the `needle` family searches. `test/sut.test.js` pins that contract in-process. Every run (CLI or web) is saved to `results/`, which is gitignored along
 with `.env`. `plan.md` is the forward roadmap only; `CHANGELOG.md` records what shipped by date and
 `docs/results.md` holds every measurement table. When something ships, move it from the plan to the
 changelog, and keep every claim tied to what the tests and saved runs actually show.

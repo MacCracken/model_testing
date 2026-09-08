@@ -4,6 +4,7 @@ import { generate as wordmathGen } from "../src/tasks/wordmath.js";
 import { generate as datecalcGen } from "../src/tasks/datecalc.js";
 import { generate as logicgridGen } from "../src/tasks/logicgrid.js";
 import { generate as tallyGen } from "../src/tasks/tally.js";
+import { generate as needleGen } from "../src/tasks/needle.js";
 
 import { listTasks, tasks } from "../src/tasks/registry.js";
 import { isStructuredMode, MODE_NAMES } from "../src/runner.js";
@@ -20,7 +21,7 @@ test("listTasks advertises exactly the modes each task declares", () => {
 
 // A context to render a task's prompts with: generated families mint one from a fixed seed (pure,
 // no network); the stateful restock family gets a stand-in scenario.
-const generators = { wordmath: (t) => wordmathGen(1, Number(t.name.replace("wordmath", ""))), datecalc: (t) => datecalcGen(1, Number(t.name.replace("datecalc", ""))), logicgrid: (t) => logicgridGen(1, Number(t.name.replace("logicgrid", ""))), tally: (t) => tallyGen(1, Number(t.name.replace("tally", ""))) };
+const generators = { wordmath: (t) => wordmathGen(1, Number(t.name.replace("wordmath", ""))), datecalc: (t) => datecalcGen(1, Number(t.name.replace("datecalc", ""))), logicgrid: (t) => logicgridGen(1, Number(t.name.replace("logicgrid", ""))), tally: (t) => tallyGen(1, Number(t.name.replace("tally", ""))), needle: () => ({ ...needleGen(1, 8000), log: "log-test" }) };
 function sampleCtx(t) {
   const fam = Object.keys(generators).find((k) => t.name.startsWith(k));
   if (fam) return generators[fam](t);

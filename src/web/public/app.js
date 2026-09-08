@@ -213,7 +213,7 @@ const CATEGORY_LABEL = {
   "multi-step": "Multi-step",
   "extract-transform": "Extract & transform",
   "open-ended": "Open-ended · judged",
- "reasoning": "Reasoning · generated" };
+ "reasoning": "Reasoning · generated" , "long-context": "Long context · generated" };
 
 // The panel folds to a rail; the choice is remembered per browser.
 function setSetupCollapsed(collapsed) {

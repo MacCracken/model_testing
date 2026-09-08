@@ -112,6 +112,27 @@ test("every item points at another in one cycle; the injected profile plants a n
   assert.ok(ans.items.every((i) => i.qty !== 999 && i.target !== 999), "the planted value never occurs naturally");
 });
 
+test("logs: posted as text, searched by regex with numbered matches and counts", async () => {
+  const text = ["a host-1 level=INFO", "b host-2 level=ERROR", "c host-3 level=ERROR req=7f3a2c", "d host-1 level=WARN"].join("\n");
+  const res = await fetch(base + "/api/logs", { method: "POST", headers: { "content-type": "text/plain" }, body: text });
+  assert.equal(res.status, 201);
+  const { id, lines } = await res.json();
+  assert.equal(lines, 4);
+  const all = (await j("GET", `/api/logs/${id}`)).data;
+  assert.equal(all.total, 4);
+  const err = (await j("GET", `/api/logs/${id}?grep=level%3DERROR`)).data;
+  assert.deepEqual(err.matches.map((m) => m.n), [2, 3]);
+  assert.equal(err.total, 2);
+  const lim = (await j("GET", `/api/logs/${id}?grep=host&limit=1`)).data;
+  assert.equal(lim.returned, 1);
+  assert.equal(lim.total, 4);
+  assert.deepEqual((await j("GET", `/api/logs/${id}/count?grep=req%3D7f3a2c`)).data, { id, count: 1 });
+  assert.equal((await j("GET", `/api/logs/${id}?grep=%5B`)).status, 400, "an invalid regex is refused");
+  assert.equal((await j("GET", "/api/logs/log-nope")).status, 404);
+  const empty = await fetch(base + "/api/logs", { method: "POST", headers: { "content-type": "text/plain" }, body: "" });
+  assert.equal(empty.status, 400);
+});
+
 test("update hands out one ticket per item; confirm needs exactly the outstanding set; the state records it all", async () => {
   const { data: s } = await j("POST", "/api/scenarios", { low: 2, seed: 7 });
   const low = s.items.filter((i) => i.qty < i.min);

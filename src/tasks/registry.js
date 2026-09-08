@@ -27,11 +27,12 @@ import { tallyTasks } from "./tally.js";
 import { fanoutTasks } from "./fanout.js";
 import { followTasks } from "./follow.js";
 import { task as norelevantTask } from "./norelevant.js";
+import { needleTasks } from "./needle.js";
 
 export const tasks = [
   healthTask, helloTask, reasonTask, lookupTask, regexTask, chainTask, transformTask, explainTask,
   ...restockTasks, ...wordmathTasks, ...datecalcTasks, ...logicgridTasks, ...tallyTasks,
-  ...fanoutTasks, ...followTasks, norelevantTask,
+  ...fanoutTasks, ...followTasks, norelevantTask, ...needleTasks,
 ];
 
 export function getTask(name) {
