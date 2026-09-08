@@ -129,6 +129,7 @@ async function init() {
 function wire() {
   $("#parallel").addEventListener("input", updatePlan);
   $("#skill").addEventListener("change", updatePlan);
+  $("#agents").addEventListener("change", updatePlan);
   $("#run").addEventListener("click", launch);
   $("#cancel").addEventListener("click", cancel);
   $("#count").addEventListener("input", updatePlan);
@@ -397,6 +398,24 @@ function armClientSet() {
 
 // What the current setup would actually run: (task, mode) pairs the task declares × runners × count.
 // A harness arm runs structured modes only; the server skips its free-form pairs, so the count does too.
+// The client names a launch sends for one selected client, given the skill and sub-agent settings.
+// An A/B choice keeps the plain client as the baseline; a bare treatment replaces it.
+function clientVariants(c) {
+  const pick = (value, abDefault) => {
+    if (!value) return { how: null, ab: false };
+    if (value === "ab") return { how: abDefault, ab: true };
+    if (value.startsWith("ab-")) return { how: value.slice(3), ab: true };
+    return { how: value, ab: false };
+  };
+  const skill = pick($("#skill").value, "preload");
+  const agents = pick($("#agents").value, "available");
+  const out = [];
+  if ((!skill.how && !agents.how) || skill.ab || agents.ab) out.push(c);
+  if (skill.how) out.push(`${c}@skill:${skill.how}`);
+  if (agents.how) out.push(`${c}@agents:${agents.how}`);
+  return out;
+}
+
 function plan() {
   const count = Math.max(1, Math.min(20, Number($("#count").value) || 1));
   const modes = [...state.modes].filter(modeSupported);
@@ -412,8 +431,8 @@ function plan() {
     }
   }
   const armsN = [...state.clients].filter((c) => arms.has(c)).length;
-  // An A/B skill setting runs every client twice: plain, and wrapped with the playbook.
-  const variants = ($("#skill").value || "").startsWith("ab") ? 2 : 1;
+  // Treatments (skill, sub-agents) run every client once per variant; an A/B choice keeps the plain client too.
+  const variants = clientVariants("x").length;
   return { count, modes, total: cells * count * variants, skipped, modelsN: state.clients.size - armsN, armsN, variants };
 }
 
@@ -439,8 +458,10 @@ function updatePlan() {
     if (skillMode) {
       const have = new Set(state.meta?.skills ?? []);
       const without = [...state.tasks].filter((n) => !have.has(taskMeta(n)?.skill ?? n));
-      node.append(el("div", { className: "hint" }, `${p.variants === 2 ? "each model runs plain and with its playbook" : "models run with their playbook"}${without.length ? ` · no playbook for ${without.join(", ")} (unchanged)` : ""}`));
+      node.append(el("div", { className: "hint" }, `${skillMode.startsWith("ab") ? "each model also runs with its playbook" : "models run with their playbook"}${without.length ? ` · no playbook for ${without.join(", ")} (unchanged)` : ""}`));
     }
+    const agentsMode = $("#agents").value;
+    if (agentsMode) node.append(el("div", { className: "hint" }, `${agentsMode.startsWith("ab") ? "each model also runs with a delegate tool" : "models run with a delegate tool"} · arms use their own sub-agents where they have them (Claude Code)`));
   }
   const judged = [...state.tasks].filter((name) => taskMeta(name)?.needsJudge);
   if (p.total && judged.length && !$("#judge").value) node.append(el("div", { className: "hint" }, `${judged.join(", ")} needs a judge — pick one under Settings or its trials will error`));
@@ -461,16 +482,10 @@ function showLaunchError(msg) {
 
 async function launch() {
   showLaunchError("");
-  const skillMode = $("#skill").value;
-  const variants = (c) => (skillMode === "" ? [c]
-    : skillMode === "ab" ? [c, `${c}@skill:preload`]
-      : skillMode === "ab-ondemand" ? [c, `${c}@skill:ondemand`]
-        : skillMode === "ab-native" ? [c, `${c}@skill:native`]
-          : [`${c}@skill:${skillMode}`]);
   const body = {
     tasks: [...state.tasks],
     modes: [...state.modes],
-    clients: [...state.clients].flatMap(variants),
+    clients: [...state.clients].flatMap(clientVariants),
     count: plan().count,
     parallel: Math.max(1, Math.min(16, Number($("#parallel").value) || 1)),
   };
@@ -631,16 +646,23 @@ function renderHeadline(s) {
   }
   box.append(col);
 
-  // With skilled variants in the run, each delivery's delta (preload / on demand) stands beside
-  // the harness delta.
-  const skillCols = Object.entries(s.delta?.skill ?? {});
-  for (const [how, sk] of skillCols) {
+  // With treated variants in the run (a playbook, a delegate tool), each treatment's delta stands
+  // beside the harness delta, one column per delivery.
+  const variantCols = [
+    ...Object.entries(s.delta?.skill ?? {}).map(([how, d]) => ({ kind: "skill", how, d })),
+    ...Object.entries(s.delta?.agents ?? {}).map(([how, d]) => ({ kind: "agents", how, d })),
+  ];
+  for (const { kind, how, d } of variantCols) {
+    const label = kind === "skill" ? `Skill delta · ${how === "ondemand" ? "on demand" : how}` : `Sub-agents delta · ${how}`;
+    const detail = kind === "skill"
+      ? `without → with playbook${how === "ondemand" ? ` · loaded in ${d.loaded}/${d.treatRuns}` : ""}`
+      : `without → with delegation · delegated in ${d.used}/${d.treatRuns} · ${plural(d.delegations, "sub-agent")}`;
     box.append(el("div", { className: "hcol" },
-      el("div", { className: "eyebrow" }, `Skill delta · ${how === "ondemand" ? "on demand" : how}`),
-      el("div", { className: `big ${sk.deltaPp > 0 ? "up" : sk.deltaPp < 0 ? "down" : "flat"}` },
-        `${sk.deltaPp > 0 ? "+" : ""}${Number.isInteger(sk.deltaPp) ? sk.deltaPp : sk.deltaPp.toFixed(1)}`, el("small", {}, "pp")),
-      el("div", { className: "sub" }, `${fmtPct(sk.basePct)} → ${fmtPct(sk.treatPct)} correct · without → with playbook${how === "ondemand" ? ` · loaded in ${sk.loaded}/${sk.treatRuns}` : ""}`),
-      el("div", { className: `sig${sk.significant ? " yes" : ""}` }, describeSignificance(sk)),
+      el("div", { className: "eyebrow" }, label),
+      el("div", { className: `big ${d.deltaPp > 0 ? "up" : d.deltaPp < 0 ? "down" : "flat"}` },
+        `${d.deltaPp > 0 ? "+" : ""}${Number.isInteger(d.deltaPp) ? d.deltaPp : d.deltaPp.toFixed(1)}`, el("small", {}, "pp")),
+      el("div", { className: "sub" }, `${fmtPct(d.basePct)} → ${fmtPct(d.treatPct)} correct · ${detail}`),
+      el("div", { className: `sig${d.significant ? " yes" : ""}` }, describeSignificance(d)),
     ));
   }
 
@@ -672,7 +694,7 @@ function renderHeadline(s) {
     kv("harness / free", `${fmtInt(harnessTokens)} / ${fmtInt(freeTokens)}`),
   ));
 
-  box.style.gridTemplateColumns = `1.35fr ${"1.2fr ".repeat(skillCols.length)}repeat(${modeCols.length}, 1fr) 1.15fr`;
+  box.style.gridTemplateColumns = `1.35fr ${"1.2fr ".repeat(variantCols.length)}repeat(${modeCols.length}, 1fr) 1.15fr`;
 }
 
 // The tools × schema decomposition, shown once three of the four modes have rows.
@@ -917,7 +939,7 @@ function renderDetail() {
   (r.toolCalls ?? []).forEach((c, i) => {
     const res = r.toolResults?.[i];
     step(
-      `tool call · ${c.name}(${JSON.stringify(c.arguments ?? {})})`,
+      `tool call${c.agent ? ` · sub-agent ${c.agent}` : ""} · ${c.name}(${JSON.stringify(c.arguments ?? {})})`,
       res ? (res.ok === false ? "error" : "ok") : "no result recorded",
       res ? pretty(res.content) : "(no result recorded)",
       res?.ok === false ? "bad" : "accent",
@@ -959,6 +981,19 @@ function renderDetail() {
       el("div", { className: "eyebrow" }, "Trial context"),
       el("div", { className: "hint" }, items ? `scenario ${r.ctx.scenario} · ${plural(items.length, "item")} · ${plural(low, "low item")}` : JSON.stringify(r.ctx).slice(0, 200)),
     );
+  }
+
+  // Delegation: what the parent handed off and what came back.
+  if (r.agents?.delegations) {
+    body.append(
+      el("div", { className: "eyebrow" }, "Sub-agents"),
+      el("div", { className: "hint" }, `${plural(r.agents.delegations, "sub-agent")} · ${plural(r.agents.childCalls ?? 0, "child tool call")} · ${fmtInt(r.agents.childTokens ?? 0)} child tokens`),
+      ...(r.agents.children ?? []).map((c, i) => el("div", { className: "hint" }, `#${i + 1} · ${plural(c.calls, "call")} · ${fmtMs(c.latencyMs)} · ${c.goal.slice(0, 140)} → ${c.answer.slice(0, 200)}`)),
+    );
+  } else if (r.agents && r.agents.applied === false) {
+    body.append(el("div", { className: "eyebrow" }, "Sub-agents"), el("div", { className: "hint" }, "delegation was requested, but this client has no channel for it"));
+  } else if (r.agents) {
+    body.append(el("div", { className: "eyebrow" }, "Sub-agents"), el("div", { className: "hint" }, "a delegate tool was available and never used"));
   }
 
   // The same task × model × mode cell across every saved run, from the index.

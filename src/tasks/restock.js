@@ -4,8 +4,8 @@
 //   "reordered"); each update returns a ticket → confirm with the complete set of tickets → report
 //   the ids changed and the total quantity across all items afterwards.
 //
-// The number of low items is the knob (restock3 / restock6 / restock12), so success can be drawn
-// against the length of the dependent chain. Each trial creates its own scenario in `setup`, so
+// The number of low items is the knob (restock3 / restock6 / restock12 / restock30 — the last in an
+// inventory of 60, the scenario cap), so success can be drawn against the length of the dependent chain. Each trial creates its own scenario in `setup`, so
 // parallel trials never share state; prompts, goal and truth are functions of that context. Truth is
 // the server's **end state**, read after the model answers — a right-looking report over an
 // unchanged inventory scores wrong. Free-form mode has no tools and cannot act: it is the control.
@@ -153,7 +153,7 @@ function makeRestock(low) {
     skill: "restock", // the family shares skills/restock.md
     category: "multi-step",
     description:
-      `Restock ${low} low items in an inventory of ${low * 2 + 2}: list, ${low} dependent updates (each returns a ticket), confirm with the tickets (refused while anything is still low), report the server's total. Scored on the server's end state.`,
+      `Restock ${low} low items in an inventory of ${Math.min(60, low * 2 + 2)}: list, ${low} dependent updates (each returns a ticket), confirm with the tickets (refused while anything is still low), report the server's total. Scored on the server's end state.`,
     model: labelModel,
     // The synthetic tool loop needs a round per dependent step (models often issue one call at a
     // time), plus room for a second pass after the server refuses an early confirm.
@@ -257,5 +257,5 @@ function makeRestock(low) {
   };
 }
 
-export const restockTasks = [3, 6, 12].map(makeRestock);
+export const restockTasks = [3, 6, 12, 30].map(makeRestock);
 export { tools, schema, STATUS, makeRestock };

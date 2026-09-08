@@ -48,6 +48,7 @@ test("preload puts the playbook into the system prompt and tags the response", a
   assert.equal(calls[0].tools.length, 0);
   assert.equal(calls[0].opts.skill.name, "restock");
   assert.deepEqual(r.skill, { how: "preload", name: "restock", applied: "preload", loaded: null });
+  assert.match(r.effectiveSystem, /Restock playbook/, "the row can show the system prompt the model saw");
   const c = await w.chat([{ role: "user", content: "hi" }], undefined, { task: restockTasks[0], mode: "noHarness" });
   assert.equal(calls[1].messages[0].role, "system");
   assert.match(calls[1].messages[0].content, /# Skill: restock/);

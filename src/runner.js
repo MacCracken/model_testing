@@ -90,6 +90,7 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
     // A client wrapped with a playbook ("<client>@skill:<how>") says so here and names the client
     // it is a variant of, so summarize can pair the two.
     skill: client.skill ? { how: client.skill, name: null, applied: false, loaded: null } : null,
+    agents: client.agents ? { how: client.agents, applied: false, delegations: 0, childCalls: 0, childTokens: 0, children: [] } : null,
     baseClient: client.baseName ?? null,
     error: null,
   };
@@ -146,6 +147,9 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
     }
 
     if (resp.skill) record.skill = resp.skill;
+    if (resp.agents) record.agents = resp.agents;
+    // A variant that rewrote the system prompt reports what the model actually saw.
+    if (typeof resp.effectiveSystem === "string") record.system = resp.effectiveSystem;
     record.answerText = resp.text ?? "";
     record.finishReason = resp.finishReason ?? null;
     record.usage = resp.usage ?? null;
@@ -575,34 +579,35 @@ function armDeltas(rows, clientNames, taskNames) {
   return byArm;
 }
 
-// A client wrapped with a playbook ("<client>@skill:<how>") is paired with its base client on the
-// same task and mode; the difference is the skill's. Keyed "task|mode|<skilled client>"; `skill`
-// pools every pair that has both sides.
-function skillDeltas(rows) {
-  const bySkill = {};
-  const pooled = {}; // how → { base: Set<row>, treat: row[] }
-  const skilled = rows.filter((r) => r.baseClient);
-  for (const key of new Set(skilled.map((r) => `${r.task}|${r.mode}|${r.client}`))) {
+// A treated variant of a client ("<client>@skill:<how>", "<client>@agents:<how>") is paired with its
+// base client on the same task and mode; the difference is the treatment's. `kind` names the row
+// field the treatment writes (`skill` or `agents`). Keyed "task|mode|<variant client>"; `pooled`
+// gathers every pair per `how`.
+function variantDeltas(rows, kind) {
+  const by = {};
+  const pools = {}; // how → { base: Set<row>, treat: row[] }
+  const treated = rows.filter((r) => r.baseClient && r[kind]);
+  const stats = (treat) => ({
+    applied: treat.filter((r) => r[kind]?.applied).length,
+    loaded: treat.filter((r) => (r[kind]?.loaded ?? 0) > 0).length,                 // skills: the playbook was read
+    used: treat.filter((r) => (r[kind]?.delegations ?? 0) > 0).length,              // agents: delegated at least once
+    delegations: treat.reduce((a, r) => a + (r[kind]?.delegations ?? 0), 0),
+    childTokens: treat.reduce((a, r) => a + (r[kind]?.childTokens ?? 0), 0),
+  });
+  for (const key of new Set(treated.map((r) => `${r.task}|${r.mode}|${r.client}`))) {
     const [task, mode, client] = key.split("|");
-    const treat = skilled.filter((r) => r.task === task && r.mode === mode && r.client === client);
+    const treat = treated.filter((r) => r.task === task && r.mode === mode && r.client === client);
     const base = rows.filter((r) => r.task === task && r.mode === mode && r.client === treat[0].baseClient);
     if (!base.length) continue;
-    bySkill[key] = {
-      ...deltaBetween(base, treat),
-      how: treat[0].skill?.how ?? null,
-      applied: treat.filter((r) => r.skill?.applied).length,
-      loaded: treat.filter((r) => (r.skill?.loaded ?? 0) > 0).length,
-      baseClient: treat[0].baseClient,
-    };
-    const pool = (pooled[bySkill[key].how ?? "preload"] ??= { base: new Set(), treat: [] });
+    const how = treat[0][kind]?.how ?? "default";
+    by[key] = { ...deltaBetween(base, treat), how, baseClient: treat[0].baseClient, ...stats(treat) };
+    const pool = (pools[how] ??= { base: new Set(), treat: [] });
     base.forEach((r) => pool.base.add(r));
     pool.treat.push(...treat);
   }
-  const skill = {};
-  for (const [how, p] of Object.entries(pooled)) {
-    skill[how] = { ...deltaBetween([...p.base], p.treat), loaded: p.treat.filter((r) => (r.skill?.loaded ?? 0) > 0).length };
-  }
-  return { bySkill, skill: Object.keys(skill).length ? skill : null };
+  const pooled = {};
+  for (const [how, p] of Object.entries(pools)) pooled[how] = { ...deltaBetween([...p.base], p.treat), ...stats(p.treat) };
+  return { by, pooled: Object.keys(pooled).length ? pooled : null };
 }
 
 export function summarize(rows) {
@@ -656,6 +661,9 @@ export function summarize(rows) {
     }
   }
 
+  const skillD = variantDeltas(rows, "skill");
+  const agentsD = variantDeltas(rows, "agents");
+
   return {
     runs: rows.length,
     tasks: taskNames,
@@ -664,6 +672,16 @@ export function summarize(rows) {
     byMode,
     cells,
     stability,
-    delta: { overall: deltaFor(rows), byTask, byClient, byTaskClient, byArm: armDeltas(rows, clientNames, taskNames), ...skillDeltas(rows) },
+    delta: {
+      overall: deltaFor(rows),
+      byTask,
+      byClient,
+      byTaskClient,
+      byArm: armDeltas(rows, clientNames, taskNames),
+      bySkill: skillD.by,
+      skill: skillD.pooled,
+      byAgents: agentsD.by,
+      agents: agentsD.pooled,
+    },
   };
 }

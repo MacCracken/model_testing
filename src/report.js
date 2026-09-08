@@ -53,6 +53,16 @@ export function printSummary(summary, { log = console.log } = {}) {
     }
   }
 
+  if (summary.delta.agents) {
+    log("\n-- sub-agents delta (same task, mode and model: without → with delegation)");
+    for (const [how, d] of Object.entries(summary.delta.agents)) {
+      log(`   ${how.padEnd(13)} ${fmtDelta(d)} · delegated in ${d.used}/${d.treatRuns} · ${d.delegations} sub-agent(s) · child tokens ${d.childTokens}`);
+    }
+    for (const [key, d] of Object.entries(summary.delta.byAgents ?? {})) {
+      log(`   ${key.padEnd(52)} ${fmtDelta(d)} · delegated in ${d.used}/${d.treatRuns}`);
+    }
+  }
+
   const arms = Object.entries(summary.delta.byArm ?? {});
   if (arms.length) {
     log("\n-- harness arms vs the free-form baseline of the same model");

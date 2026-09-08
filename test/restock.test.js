@@ -80,7 +80,7 @@ test("toolUse: list, every low item with the right values, nothing else, a succe
 });
 
 test("the family declares the control, harness and toolOnly modes, a setup, a goal and a round budget", () => {
-  assert.deepEqual(restockTasks.map((t) => t.name), ["restock3", "restock6", "restock12"]);
+  assert.deepEqual(restockTasks.map((t) => t.name), ["restock3", "restock6", "restock12", "restock30"]);
   for (const t of restockTasks) {
     assert.ok(t.noHarness && t.harness && t.toolOnly && !t.schemaOnly);
     assert.ok(t.maxRounds > 6);

@@ -72,6 +72,12 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
   `harness/util.js`: Claude Code and Pi append a system prompt, Codex gets an `AGENTS.md` in a
   scratch cwd) and `skill.applied` records the path taken. `resolveClients` understands the
   `@skill[:how]` suffix.
+- `src/agents.js` — sub-agents as a treatment. `withDelegation(client, how)` wraps a client as
+  `<client>@agents:<how>`; the synthetic parent gets a `delegate(goal)` tool whose children run the
+  task's tools (never `delegate`), in parallel within a turn, and fold back into the parent's row
+  (`toolCalls` tagged `agent: n`, usage summed, `row.agents` with counts and each child's goal and
+  answer). Arms receive `opts.agents` and use their own channel (Claude Code: the Agent tool) or
+  report none. One variant per client: `@skill` or `@agents`, not both.
 - `src/web/` — the control plane: `server.js` (node:http, zero deps) + `public/` (the UI).
 - `src/cli.js` — entry point (`list` / `show` / `export` / `index` / `query` / `compact` / `serve` /
   `bench` / `aggregate`).
@@ -130,9 +136,9 @@ schema's own `items` key scores the same as a bare array.
 own (a real-harness arm), its delta against the free-form rows of the same model from any other
 client in the run, matched on the model id with any `provider/` prefix stripped.
 
-A client run as `…@skill:<how>` is paired by `summarize` with its base client on the same task and
-mode: `delta.bySkill` per cell and `delta.skill[how]` pooled per delivery, the same shape as the
-harness delta (`deltaBetween` is the shared baseline-versus-treatment calculation; its
+A client run as `…@skill:<how>` or `…@agents:<how>` is paired by `summarize` with its base client
+on the same task and mode (`variantDeltas`): `delta.bySkill` / `delta.byAgents` per cell and
+`delta.skill[how]` / `delta.agents[how]` pooled per delivery, the same shape as the harness delta (`deltaBetween` is the shared baseline-versus-treatment calculation; its
 `noHarness*`/`harness*` fields mean baseline/treatment, with `base*`/`treat*` aliases).
 
 `summarize` also reports `stability` per mode from repeated cells: `flaky` (both passes and

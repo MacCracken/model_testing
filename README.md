@@ -36,7 +36,7 @@ output.
 | `lookup` | api-call | Three server-minted random ids. **Tool-essential**: there is nothing to memorize, so free text floors at 0 and truth is whatever the tool returned during the trial. |
 | `regex` | tool-reasoning | Which of six strings match an anchored regex, with a correct `regex_match` tool and a `word_count` decoy. Tests tool *selection* and typed arguments, not just firing. |
 | `chain` | multi-step | Greet alice, then greet the id that came back, and report the second greeting. The second call depends on the first; the id is random, so nothing but the chain produces the answer. |
-| `restock3` / `restock6` / `restock12` | multi-step | One job at three lengths against an isolated inventory scenario minted per trial: list, update every low item (each update returns a ticket), confirm with the complete ticket set (refused while anything is still low), report the server's total. Scored on the server's **end state**, not the report alone. |
+| `restock3` / `restock6` / `restock12` / `restock30` | multi-step | One job at three lengths against an isolated inventory scenario minted per trial: list, update every low item (each update returns a ticket), confirm with the complete ticket set (refused while anything is still low), report the server's total. Scored on the server's **end state**, not the report alone. |
 | `transform` | extract-transform | Fetch three greetings, then report each name with the first 8 characters of its id and the greeting in upper case. Tool-essential, plus two transformations of what came back. |
 | `explain` | open-ended | Explain the server's health and running time to a non-engineer. Graded by a **judge model** against the live facts; needs `--judge`. |
 
@@ -95,6 +95,7 @@ node src/bench.js --task all --modes noHarness,harness --clients local:ornith-1.
 node src/bench.js --task health,reason,regex --modes noHarness,harness --clients openai:gpt-4o-mini --count 8 --parallel 8
 node src/bench.js --task restock3,restock6,restock12 --modes harness,toolOnly --clients openai:gpt-5.4-mini,anthropic:claude-haiku-4-5 --count 4 --parallel 6
 node src/bench.js --task restock3,restock6 --modes harness --clients openai:gpt-4o-mini,openai:gpt-4o-mini@skill:preload --count 4 --parallel 6   # skill A/B
+node src/bench.js --task restock12 --modes harness --clients anthropic:claude-haiku-4-5,anthropic:claude-haiku-4-5@agents:available --count 4      # sub-agents A/B
 
 # A bare provider name expands to all of its models
 node src/aggregate.js --tasks health,hello --clients local
@@ -127,6 +128,13 @@ real-harness arms always run alone because they are scored from the webserver's 
 and latencies measured under parallel load on a local model include queueing. Repeated cells
 report their **stability**: agreement (the share of trials giving the same canonical answer, on
 tasks with fixed truth) and whether the cell was flaky, in the report and the headline.
+
+**Sub-agents.** `openai:gpt-4o-mini@agents:available` gives the model a `delegate` tool: each
+call runs a sub-agent with the task's own tools on a goal the parent writes, in parallel with other
+calls in the same turn, and returns its answer; `@agents:required` tells the parent to do the
+per-item work that way. Children's tool calls and tokens fold into the parent's row, and the report
+shows the sub-agents delta with how often delegation was actually used. Claude Code runs the variant
+through its own Agent tool; other arms report that they have no channel.
 
 **Skills.** A playbook under `skills/<task>.md` can be handed to a model as a treatment:
 `openai:gpt-4o-mini@skill:preload` puts it in the prompt, `@skill:ondemand` offers it as a

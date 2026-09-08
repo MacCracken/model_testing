@@ -477,7 +477,7 @@ cheap to get by running repeated trials in parallel instead of one after another
   unique name (a nonce in the goal prompt) and `recentGreetings` matched on it instead of on the
   time window.
 
-### Tier 7 — Agents: harder tasks, sub-agents, skills (STARTED 2026-09-07 — [17] and [19] built; [18] and [20] open)
+### Tier 7 — Agents: harder tasks, sub-agents, skills (STARTED 2026-09-07 — [17], [18] and [19] built; [20] open)
 
 Everything so far is one goal, one or two tool calls, one answer. The next capability question is
 what a harness buys on **harder** work, where the axes belong to the agent rather than the prompt:
@@ -533,12 +533,62 @@ what a harness buys on **harder** work, where the axes belong to the agent rathe
   synthetic harness, at roughly 10× the tokens. So on this task the model sets the ceiling and the
   harness sets the cost: no arm beat its own model's synthetic result at K = 12, and the spread in
   tokens for equal correctness is an order of magnitude.
-- **[18] Sub-agents.** Offloading work: the same multi-step goal with delegation available versus
-  without. In the synthetic harness a `delegate(goal)` tool runs a fresh model turn with its own
-  tools and returns its answer; the arms use their native mechanism (Claude Code's Agent tool, Pi and
-  Codex sub-agents, Thoth's delegation under its tron policy). Score correctness, wall time, tokens,
-  and whether the parent actually delegated (a tool-use verdict). This is where the arms should
-  separate most, and where token cost will diverge fastest.
+- **[18] Sub-agents.** **BUILT** (2026-09-07; measurements below as they land). Offloading work is
+  a client variant like skills: `openai:gpt-4o-mini@agents:available` (or `:required`) next to the
+  plain client in one run. In the synthetic harness the parent gets one extra tool, `delegate(goal)`:
+  each call runs a fresh model turn — a child — with the task's own tools (never `delegate`, so depth
+  stays at one) and returns the child's final answer as the tool result; several delegate calls in one
+  turn run in parallel because the tool loop executes a turn's calls together. Everything a child did
+  folds back into the parent's row — tool calls and results tagged with the child's number, usage
+  summed — so end-state scoring, tool-use verdicts and cost see the whole tree, and `row.agents`
+  records how much was delegated (count, child calls, child tokens, each child's goal and answer).
+  `available` tells the parent it may offload independent pieces; `required` tells it to do the
+  per-item work through sub-agents. Arms get the request in `opts.agents` and use their own channel:
+  Claude Code's Agent tool is allowed (`--allowedTools Bash,Agent,Task`) and its uses counted; an arm
+  without a channel leaves `applied` false so the row says the treatment did not happen. Pairing and
+  deltas come from the same `variantDeltas` as skills — `delta.byAgents` per cell, `delta.agents[how]`
+  pooled, "delegated in n/m" alongside. `src/agents.js`; the web setting "sub-agents" with A/B
+  choices; rows and the index carry `agents` / `delegations`.
+
+  First result, gpt-4o-mini on restock6 and restock12, four trials per cell: it **never delegated** —
+  0 of 16 treated trials called `delegate`, under `available` and under `required` alike — so the
+  cells differ only by noise (restock6 0/4 → 2/4 both ways, restock12 0/4 → 0/4). The plumbing is
+  not the reason: asked directly to have a sub-agent say "pong", the same client delegates once and
+  relays the answer. Read with [19]'s on-demand result (it never called `load_skill` either), the
+  small model does not reach for meta-tools even when told to; capability it is offered but must
+  choose to use is capability it does not have.
+
+  The capable models, restock12, four trials per cell (three for the arm):
+
+  | client | plain | @agents:available | @agents:required |
+  |---|---|---|---|
+  | gpt-5.4-mini | 3/4 · 10.8 k tok · 5.6 s | 3/4 · delegated 0/4 | 2/4 · delegated 4/4 · ~2 children · 20 k tok · 9.8 s |
+  | claude-haiku-4-5 | 4/4 · 19.5 k tok · 16.8 s | 4/4 · delegated 0/4 | 3/4 · delegated 2/4 · 12 children when it did · 49 k tok · 18 s |
+  | claude-code · haiku (Agent tool allowed) | 3/3 · 50 k tok | 3/3 · Agent tool used 0/3 | — |
+
+  Offered, nobody takes it: neither model nor Claude Code's own Agent tool delegated once when the
+  job was one they could finish alone. Forced, it cost: gpt-5.4-mini split the work into one or two
+  batch children (once the same batch twice — duplicate updates), doubled its tokens and lost a
+  trial to a collateral edit; Haiku obeyed half the time, fanned out one child per item (twelve in
+  parallel, so wall time held), spent 2.5× the tokens and also lost one to a collateral edit.
+  Twelve dependent steps are simply not where offloading pays.
+
+  So the family got a fourth length — **restock30**, thirty low items in an inventory of sixty, the
+  scenario cap — where one context should start to strain. Three trials per cell, harness mode:
+
+  | client | plain | @agents:required |
+  |---|---|---|
+  | gpt-5.4-mini | **0/3** (one missed item, two collateral edits, one hand-summed total) · 49 k tok · 12.7 s | 1/3 · delegated 3/3 · one batch child · **25 k tok** · 14.3 s |
+  | claude-haiku-4-5 | 2/3 · 67 k tok · 41.8 s | **3/3** · delegated 3/3 · 16 children · 125 k tok · 46.8 s |
+
+  Here delegation moved both models up (+33 pp each, n = 3, nothing significant yet) and the two
+  shapes of it show: gpt-5.4-mini's single batch child worked from a fresh context and halved the
+  total tokens; Haiku's one-child-per-item fan-out doubled tokens while keeping wall time flat
+  because the children ran in parallel. Reading across the lengths: sub-agents are a cost at
+  twelve steps, a gain at thirty, and never something a model picks up on its own — which is the
+  measurement the tier asked for. Still open under [18]: the arms' own sub-agents beyond Claude Code
+  (Pi, Codex, Thoth), and forcing Claude Code's Agent tool the way `required` forces the synthetic
+  parent.
 - **[19] Skills.** **BUILT** (2026-09-07; arm variants measured as they land). A skill is a markdown
   playbook under `skills/<name>.md` — `restock` (shared by the family through `task.skill`), `chain`,
   `transform`. The treatment is a **client variant, not a new mode**: `openai:gpt-4o-mini@skill:preload`

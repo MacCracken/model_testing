@@ -82,14 +82,15 @@ export function withSkill(client, how = "preload") {
         };
         const sys = `${system ? `${system}\n\n` : ""}A load_skill tool holds a playbook for this job. Read it before you act.`;
         const resp = await client.runWithTools(prompt, [...(tools ?? []), loadSkill], sys, passed);
-        return tag(resp, how, skill, "ondemand", loaded);
+        return { ...tag(resp, how, skill, "ondemand", loaded), effectiveSystem: sys };
       }
       if (how === "native" && client.structuredOnly) {
         // The arm decides whether it has a native channel; it reports the path it took.
         const resp = await client.runWithTools(prompt, tools, system, passed);
         return tag(resp, how, skill, resp.skillApplied ?? "preload");
       }
-      return tag(await client.runWithTools(prompt, tools, preloadText(system, skill), passed), how, skill, "preload");
+      const sys = preloadText(system, skill);
+      return { ...tag(await client.runWithTools(prompt, tools, sys, passed), how, skill, "preload"), effectiveSystem: sys };
     },
   };
 }
