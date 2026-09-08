@@ -16,7 +16,7 @@ const SCHEMA = `
 create table if not exists runs (
   id text primary key, created_at text, finished_at text, status text, source text,
   tasks text, modes text, clients text, count integer, model_params text, judge text,
-  versions text, warnings text, row_count integer, compacted text, file_mtime real, indexed_at text, parallel integer, instance_seed integer
+  versions text, warnings text, row_count integer, compacted text, file_mtime real, indexed_at text, parallel integer, instance_seed integer, lineage text, suite text
 );
 create table if not exists trials (
   run_id text not null, idx integer not null, task text, mode text, client text, model text, harness text,
@@ -24,6 +24,7 @@ create table if not exists trials (
   tool_use_reason text, schema_valid integer, judge_score real, judge_reason text, latency_ms integer,
   ttft_ms integer, ttfa_ms integer, prompt_tokens integer, completion_tokens integer, total_tokens integer,
   rounds integer, finish_reason text, started_at text, canon text, skill text, base_client text, agents text, delegations integer, stress text, seed integer, constraints text, adherence_pct real,
+  family text, checkpoint text, step integer, parent text,
   primary key (run_id, idx)
 );
 create index if not exists trials_by_cell on trials(task, client, mode);
@@ -55,8 +56,8 @@ export function openStore() {
 // Columns added after an index was first built. `create table if not exists` leaves an existing
 // table alone, so each new column is added here when missing; the next `index --full` fills it.
 const LATER_COLUMNS = {
-  runs: { parallel: "integer", instance_seed: "integer" },
-  trials: { canon: "text", skill: "text", base_client: "text", agents: "text", delegations: "integer", stress: "text", seed: "integer", constraints: "text", adherence_pct: "real" },
+  runs: { parallel: "integer", instance_seed: "integer", lineage: "text", suite: "text" },
+  trials: { canon: "text", skill: "text", base_client: "text", agents: "text", delegations: "integer", stress: "text", seed: "integer", constraints: "text", adherence_pct: "real", family: "text", checkpoint: "text", step: "integer", parent: "text" },
   cells: { agreement_pct: "real", distinct_answers: "integer", flaky: "integer" },
 };
 function migrate(d) {
@@ -87,19 +88,20 @@ export function indexRun(run, { mtime = null } = {}) {
     d.prepare("delete from trials where run_id = ?").run(run.id);
     d.prepare("delete from cells where run_id = ?").run(run.id);
     d.prepare(`insert or replace into runs
-      (id, created_at, finished_at, status, source, tasks, modes, clients, count, model_params, judge, versions, warnings, row_count, compacted, file_mtime, indexed_at, parallel, instance_seed)
-      values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      (id, created_at, finished_at, status, source, tasks, modes, clients, count, model_params, judge, versions, warnings, row_count, compacted, file_mtime, indexed_at, parallel, instance_seed, lineage, suite)
+      values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
       run.id, run.createdAt ?? null, run.finishedAt ?? null, run.status ?? null, run.source ?? null,
       json(run.config?.tasks ?? []), json(run.config?.modes ?? []), json(run.config?.clients ?? []),
       num(run.config?.count), json(run.config?.modelParams ?? {}), run.config?.judge ?? null,
       json(run.versions ?? null), json(run.warnings ?? []), (run.rows ?? []).length, run.compacted ?? null,
-      mtime, new Date().toISOString(), num(run.config?.parallel) ?? 1, num(run.config?.instanceSeed),
+      mtime, new Date().toISOString(), num(run.config?.parallel) ?? 1, num(run.config?.instanceSeed), json(run.config?.lineage ?? {}), run.config?.suite ?? null,
     );
     if (run.status !== "running") {
       const ins = d.prepare(`insert into trials
         (run_id, idx, task, mode, client, model, harness, trial_index, correct, reason, error, tool_calls, tool_use_ok, tool_use_reason,
-         schema_valid, judge_score, judge_reason, latency_ms, ttft_ms, ttfa_ms, prompt_tokens, completion_tokens, total_tokens, rounds, finish_reason, started_at, canon, skill, base_client, agents, delegations, stress, seed, constraints, adherence_pct)
-        values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+         schema_valid, judge_score, judge_reason, latency_ms, ttft_ms, ttfa_ms, prompt_tokens, completion_tokens, total_tokens, rounds, finish_reason, started_at, canon, skill, base_client, agents, delegations, stress, seed, constraints, adherence_pct, family, checkpoint, step, parent)
+        values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+      const lineageOfRow = (r) => run.config?.lineage?.[r.client] ?? run.config?.lineage?.[String(r.client).replace(/@(skill|agents|stress|constraints)(:[a-z]+)?$/, "")] ?? null;
       (run.rows ?? []).forEach((r, i) => ins.run(
         run.id, i, r.task ?? null, r.mode ?? null, r.client ?? null, r.model ?? null, r.harness ?? null,
         num(r.index), flag(!!r.correct), r.reason ?? null, r.error ?? null, (r.toolCalls ?? []).length,
@@ -109,6 +111,7 @@ export function indexRun(run, { mtime = null } = {}) {
         num(r.usage?.total_tokens), num(r.rounds), r.finishReason ?? null, r.startedAt ?? null, typeof r.canon === "string" ? r.canon : null,
         r.skill?.how ?? null, r.baseClient ?? null, r.agents?.how ?? null, r.agents ? num(r.agents.delegations) ?? 0 : null, r.stress?.how ?? null, num(r.seed),
         r.constraints?.how ?? null, r.constraints?.total ? (100 * r.constraints.met) / r.constraints.total : null,
+        lineageOfRow(r)?.family ?? null, lineageOfRow(r)?.checkpoint ?? null, num(lineageOfRow(r)?.step), lineageOfRow(r)?.parent ?? null,
       ));
       const cell = d.prepare(`insert into cells
         (run_id, task, client, mode, runs, correct, correct_pct, tool_use_pct, tool_args_ok_pct, schema_valid_pct, error_pct,
@@ -174,11 +177,13 @@ function headerOf(row) {
     compacted: row.compacted,
     parallel: row.parallel ?? 1,
     instanceSeed: row.instance_seed ?? null,
+    lineage: JSON.parse(row.lineage ?? "{}"),
+    suite: row.suite ?? null,
   };
 }
 
 // Run headers, newest first, filtered. `q` matches the id, a task name or a client name.
-export function queryRuns({ q = null, task = null, client = null, mode = null, since = null, limit = 100 } = {}) {
+export function queryRuns({ q = null, task = null, client = null, mode = null, since = null, seed = null, limit = 100 } = {}) {
   const d = openStore();
   const where = [];
   const params = [];
@@ -187,6 +192,7 @@ export function queryRuns({ q = null, task = null, client = null, mode = null, s
   if (client) { where.push("clients like ?"); params.push(`%"${client}"%`); }
   if (mode) { where.push("modes like ?"); params.push(`%"${mode}"%`); }
   if (since) { where.push("created_at >= ?"); params.push(since); }
+  if (seed !== null && seed !== undefined && seed !== "") { where.push("instance_seed = ?"); params.push(Number(seed)); }
   const sql = `select * from runs ${where.length ? "where " + where.join(" and ") : ""} order by created_at desc limit ?`;
   return d.prepare(sql).all(...params, Math.max(1, Math.min(1000, Number(limit) || 100))).map(headerOf);
 }

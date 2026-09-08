@@ -1,0 +1,21 @@
+{
+  "_comment": "Model lineage: one entry per client id (provider:model). family groups checkpoints of one model line; parent is the client id this checkpoint was trained from; step is the training step or epoch; trainedOn tags the data. Every run records the entries of the clients it ran, and the index carries family/step so scorecards and compares can follow a line over time. Add your own checkpoints here as you serve them (see docs/serving.md).",
+  "local:ornith-1.5:9b": {
+    "family": "ornith",
+    "checkpoint": "1.5-9b",
+    "step": null,
+    "parent": null,
+    "trainedOn": null,
+    "date": "2026-08",
+    "notes": "local 9B thinking model served by Ollama; the bench's small-model reference"
+  },
+  "local:qwen3.8:27b-mlx": {
+    "family": "qwen3.8",
+    "checkpoint": "27b-mlx",
+    "step": null,
+    "parent": null,
+    "trainedOn": null,
+    "date": null,
+    "notes": "local 27B, MLX build served by Ollama"
+  }
+}

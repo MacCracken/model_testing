@@ -34,7 +34,7 @@ rebuildable. One learned this week: a structured schema for a task that needs th
 |---|---|
 | Tasks | 26: `health`, `hello`, `reason`, `lookup`, `regex`, `chain`, `transform`, `explain` (judged), `restock3/6/12/30` (stateful, end-state scored), the generated `wordmath2/4/6`, `datecalc1/3`, `logicgrid3/4`, `tally20/60`, and the scenario-backed `fanout4/8`, `follow3/6`, `norelevant` (all minted per trial from the run's instance seed) |
 | Modes | `noHarness`, `harness`, `schemaOnly`, `toolOnly` — the tools × schema 2×2 |
-| Models | OpenAI, Anthropic, Groq, DeepSeek, Ollama (live-probed); real-harness arms Thoth, Claude Code, Pi, Codex |
+| Models | OpenAI, Anthropic, Groq, DeepSeek, Ollama (live-probed), any named OpenAI-compatible endpoint (`LOCAL_ENDPOINTS`); real-harness arms Thoth, Claude Code, Pi, Codex; lineage per client from `models/lineage.json` |
 | Treatments | client variants paired against their base: `@skill:preload/ondemand/native`, `@agents:available/required`, `@stress:flaky/budget/haystack/distractors`, `@constraints:light/medium/heavy`; stress adds `injected` (prompt injection through tool output) |
 | Scoring | deterministic scorers per task; truth from the trial (tool results) or the server's end state; tool-use verdicts; one judged task |
 | Statistics | Fisher exact with the "inconclusive" floor, Wilson bands, 2×2 decomposition, per-arm and per-variant deltas, McNemar + bootstrap on paired instances, power guidance, Bonferroni over cells, stability (agreement, flaky cells), a capability scorecard per run and over the index |
@@ -42,7 +42,7 @@ rebuildable. One learned this week: a structured schema for a task that needs th
 | Data | one JSON per run, SQLite index (`index`, `query`, `--sql`, `compact`), CSV, versions on every run, cross-run cell history |
 | UI | Ledger design, live grid, dumbbell matrix, trial drawer with transcript and children, history filter |
 | SUT | the webserver: hello/health, the `/api/recent` log, inventory scenarios with tickets, confirm rules, stress profiles, op log |
-| Tests | 227, none needing a model; the webserver runs in-process |
+| Tests | 231, none needing a model; the webserver runs in-process |
 
 ## What the field measures that we do not
 
@@ -71,7 +71,7 @@ with a priority for the stated purpose:
 | Long context | RULER / needle-in-a-haystack (multi-key, multi-value, aggregation) at 4 k–1 M | haystack of 60 items (a few k tokens) | generated logs at 8 k–128 k, position sweeps, aggregation, a search tool as the harness axis | high |
 | Structured extraction | LiveBench data analysis, enterprise extraction evals | `transform`, schema modes | generated documents with exact truth, joins across two sources | medium |
 | Statistics & reproducibility | HELM CIs, Inspect logs, lm-eval fixed prompts and versions | Fisher, Wilson, seeds, versions, canonical answers, index, McNemar + bootstrap on paired instances, power guidance, Bonferroni, `cli compare` | lineage-aware pooling, regression alerts over time ([34]) | medium (was high) |
-| Own-model workflow | lm-eval HF/vLLM backends; W&B / MLflow tracking; per-checkpoint scoreboards | Ollama through the OpenAI route | serving recipes, model lineage, checkpoint compare, suites and gates, contamination policy | **high** |
+| Own-model workflow | lm-eval HF/vLLM backends; W&B / MLflow tracking; per-checkpoint scoreboards | named endpoints for any OpenAI-compatible server, `docs/serving.md`, `models/lineage.json` on every run and in the index, `cli models` / `suite` / `compare --parent`, the UI compare block | gates with exit codes, contamination policy ([38]), replay ([39]), per-family scorecards | medium (was high) |
 | Coding | HumanEval → LiveCodeBench → SWE-bench | none | sandboxed execution of generated specs with hidden tests | medium (needs a sandbox decision) |
 | Calibration & abstention | HELM calibration (ECE); "answer or abstain" splits | hedge detection in one scorer | confidence elicitation, Brier/ECE per cell, unanswerable variants | medium |
 | Robustness / consistency | HELM perturbations; paraphrase suites | agreement, flaky cells, stressors | paraphrase and ordering perturbations minted by generators | medium |
@@ -143,13 +143,14 @@ declares the capability it measures and runs in the four modes where they mean s
 
 ### Tier 10 — Own-model workflow
 
-- **[35] Serving recipes.** vLLM, llama.cpp server, MLX server and Ollama Modelfiles, all through the
-  OpenAI-compatible route; the `local` provider generalized to named local endpoints.
-- **[36] Model registry and lineage.** A model id maps to family, checkpoint or step, parent, training
-  data tag and date; recorded on every run; the index groups by lineage; a checkpoint-versus-parent
-  compare view built on [33].
-- **[37] Suites and gates.** `bench suite smoke|standard|full` presets that are time-boxed; `--gate`
-  thresholds per capability with exit codes, so a checkpoint can fail CI; a nightly definition.
+- **[35] Serving recipes** and **[36] model registry and lineage.** Shipped 2026-09-08 (see the
+  changelog): `LOCAL_ENDPOINTS` providers, `docs/serving.md` (vLLM / llama.cpp / MLX / Ollama with
+  tool calling on), `models/lineage.json`, lineage on runs and in the index, `cli models`, `compare
+  --parent`, the paired-comparison block in the UI with B from any run on the same seed. Left for
+  later: pooling the scorecard by family across checkpoints, and a lineage graph in the UI.
+- **[37] Suites and gates.** Presets shipped 2026-09-08 (`cli suite smoke|standard|full`, recorded as
+  `config.suite`). Open: `--gate` thresholds per capability with exit codes so a checkpoint can fail
+  CI, time-boxing, and a nightly definition.
 - **[38] Contamination policy.** Private seed pools per training generation, a "minted after
   checkpoint" flag on instances, seeds never published, and an optional hook that hashes our
   instances against a training corpus before a run is trusted.
@@ -181,10 +182,11 @@ declares the capability it measures and runs in the four modes where they mean s
 
 ## Decisions needed
 
-1. **Order for the next month.** [21], [22], [25], [31] and [33] are done; recommendation for the
-   rest: [35]/[36] own-model plumbing (serving recipes, lineage, the compare view on top of `cli
-   compare`) before the first trained checkpoint exists, then [23] long context, then [32]/[34]
-   difficulty curves and regression detection over the index.
+1. **Order for the next month.** [21], [22], [25], [31], [33], [35] and [36] are done, with suite
+   presets from [37]; recommendation for the rest: [23] long context (the one stressor that reached
+   a capable model, and a capability with no family yet), then [32]/[34] difficulty curves and
+   regression detection over the index, then the gates half of [37] and [39] replay once a
+   checkpoint exists to gate.
 2. **Code sandbox.** Worker-thread isolation keeps the zero-dependency rule but is weaker; Docker is
    stronger and a dependency. This gates [27].
 3. **Scope of knowledge and safety.** Exclude closed-book knowledge as an axis? Include tool-result

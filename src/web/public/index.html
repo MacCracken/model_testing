@@ -139,6 +139,19 @@
           <div id="scorecard" class="scorecard"></div>
         </section>
 
+        <section id="compare-block" class="block panel" hidden>
+          <div class="block-head">
+            <h3 class="serif-title">Paired comparison</h3>
+            <div class="block-tools compare-tools">
+              <label>A <select id="compare-a"></select></label>
+              <label>B <select id="compare-b"></select></label>
+              <label title="Other saved runs on the same instance seed — the same problems, so B can come from another run (a later checkpoint, a different day).">B from <select id="compare-run"><option value="">this run</option></select></label>
+              <label>mode <select id="compare-mode"><option value="">all modes</option></select></label>
+            </div>
+          </div>
+          <div id="compare" class="compare"></div>
+        </section>
+
         <section class="block panel">
           <div class="block-head">
             <h3 id="live-title" class="serif-title">Trials</h3>

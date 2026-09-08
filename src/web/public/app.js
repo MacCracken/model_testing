@@ -3,7 +3,7 @@
 // Summaries come from the runner itself (served as /lib/runner.js), so a run in flight, a run
 // loaded from history, and the CLI all report the same numbers through the same code.
 
-import { summarize, deltaFor, describeSignificance, isStructuredMode, twoByTwo, DEFAULT_MODES, describeStability, describePaired, describePower } from "/lib/runner.js";
+import { summarize, deltaFor, describeSignificance, isStructuredMode, twoByTwo, DEFAULT_MODES, describeStability, describePaired, describePower, compareRows } from "/lib/runner.js";
 
 // ---- tiny DOM + format helpers -------------------------------------------------------------
 
@@ -55,6 +55,7 @@ const MODE_DESC = {
 const TOOL_MODES = new Set(["harness", "toolOnly"]);
 
 const state = {
+  compare: { a: null, b: null, runId: "", rows: null, mode: "", seedRuns: null }, // the paired-comparison block
   inFlight: new Set(), // trial keys started but not finished (task|mode|client|index), for the live view
   meta: null,
   tasks: new Set(),
@@ -132,6 +133,13 @@ function wire() {
   $("#agents").addEventListener("change", updatePlan);
   $("#stress").addEventListener("change", updatePlan);
   $("#constraints").addEventListener("change", updatePlan);
+  for (const id of ["compare-a", "compare-b", "compare-mode"]) $(`#${id}`).addEventListener("change", (e) => { state.compare[{ "compare-a": "a", "compare-b": "b", "compare-mode": "mode" }[id]] = e.target.value; renderReport(); });
+  $("#compare-run").addEventListener("change", async (e) => {
+    state.compare.runId = e.target.value;
+    state.compare.b = null;
+    state.compare.rows = state.compare.runId ? await getJSON(`/api/runs/${state.compare.runId}`).then((d) => d.run ?? d).catch(() => null) : null;
+    renderReport();
+  });
   $("#run").addEventListener("click", launch);
   $("#cancel").addEventListener("click", cancel);
   $("#count").addEventListener("input", updatePlan);
@@ -539,6 +547,7 @@ async function openRun(id) {
     const msg = JSON.parse(ev.data);
     if (msg.type === "snapshot") {
       state.run = msg.run;
+      state.compare = { a: null, b: null, runId: "", rows: null, mode: "", seedRuns: null };
       state.inFlight = new Set();
       state.filter = "all";
       closeDetail();
@@ -617,6 +626,7 @@ function renderReport() {
   renderHeadline(s);
   renderTwoByTwo(s);
   renderScorecard(s);
+  renderCompare(s);
   renderLive();
   renderMatrix(s);
   renderTrials();
@@ -832,6 +842,52 @@ function renderScorecard(s) {
       ));
     }
   }
+}
+
+// Two clients on the same instances — from this run, or B from another run on the same instance
+// seed (a later checkpoint, another day) — paired per task with McNemar and a bootstrap band.
+function lineageLabel(client) {
+  const e = state.meta?.lineage?.[client.replace(/@(skill|agents|stress|constraints)(:[a-z]+)?$/, "")];
+  return e ? `${client} · ${[e.family, e.checkpoint, e.step !== null && e.step !== undefined ? `step ${e.step}` : null].filter(Boolean).join(" ")}` : client;
+}
+
+async function renderCompare(s) {
+  const run = state.run;
+  const block = $("#compare-block");
+  const box = $("#compare");
+  const c = state.compare;
+  const clients = s.clients;
+  if (clients.length < 2 && !c.runId) { block.hidden = true; return; }
+  block.hidden = false;
+  const fill = (sel, options, value) => {
+    const cur = value ?? sel.value;
+    sel.replaceChildren(...options.map(([v, label]) => el("option", { value: v }, label)));
+    sel.value = options.some(([v]) => v === cur) ? cur : options[0]?.[0] ?? "";
+    return sel.value;
+  };
+  c.a = fill($("#compare-a"), clients.map((x) => [x, lineageLabel(x)]), c.a);
+  // Other saved runs on the same seed, fetched once per run.
+  if (c.seedRuns === null && run.config?.instanceSeed !== undefined && run.config?.instanceSeed !== null && run.status !== "running") {
+    c.seedRuns = [];
+    try { c.seedRuns = ((await getJSON(`/api/runs?seed=${run.config.instanceSeed}`)).runs ?? []).filter((r) => r.id !== run.id); } catch { c.seedRuns = []; }
+  }
+  fill($("#compare-run"), [["", "this run"], ...(c.seedRuns ?? []).map((r) => [r.id, `${r.id} · ${(r.config?.clients ?? []).length} clients`])], c.runId);
+  const bRows = c.runId && c.rows?.id === c.runId ? c.rows.rows : run.rows;
+  const bClients = [...new Set(bRows.map((r) => r.client))];
+  c.b = fill($("#compare-b"), bClients.map((x) => [x, lineageLabel(x)]), c.b ?? bClients.find((x) => x !== c.a) ?? bClients[0]);
+  const modes = [...new Set([...run.rows, ...bRows].map((r) => r.mode))];
+  c.mode = fill($("#compare-mode"), [["", "all modes"], ...modes.map((m) => [m, MODE_LABEL[m] ?? m])], c.mode);
+
+  box.replaceChildren();
+  const rowsA = run.rows.filter((r) => r.client === c.a);
+  const rowsB = bRows.filter((r) => r.client === c.b);
+  const cmp = compareRows(rowsA, rowsB, { mode: c.mode || null });
+  if (!cmp.pairs) { box.append(el("div", { className: "hint" }, "nothing pairs: the two sides did not run the same task and trial indices")); return; }
+  for (const h of ["task", "A", "B", "both", "A only", "B only", "neither", "McNemar"]) box.append(el("div", { className: "mh" }, h));
+  for (const [task, d] of Object.entries(cmp.byTask)) {
+    box.append(el("div", {}, task), el("div", {}, fmtPct(d.aPct)), el("div", {}, fmtPct(d.bPct)), el("div", { className: "faint" }, String(d.both)), el("div", { className: d.onlyBase ? "bad" : "faint" }, String(d.onlyBase)), el("div", { className: d.onlyTreat ? "ok" : "faint" }, String(d.onlyTreat)), el("div", { className: "faint" }, String(d.neither)), el("div", { className: d.significant ? "ok" : "faint" }, `p=${d.pValue.toFixed(3)}${d.significant ? " ·" : ""}`));
+  }
+  box.append(el("div", { className: "overall" }, `overall: A ${fmtPct(cmp.overall.aPct)} → B ${fmtPct(cmp.overall.bPct)} · ${describePaired(cmp.overall)}${cmp.unpairedA || cmp.unpairedB ? ` · unpaired: ${cmp.unpairedA} A, ${cmp.unpairedB} B` : ""}`));
 }
 
 function renderMatrix(s) {

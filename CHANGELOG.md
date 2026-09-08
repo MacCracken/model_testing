@@ -4,6 +4,36 @@ What shipped, by date. Full measurement tables live in [docs/results.md](docs/re
 forward roadmap is [plan.md](plan.md). Dates are the commit dates; item numbers ([1]–[20]) are the
 roadmap tiers as they were numbered while being built.
 
+## 2026-09-08 (later still) — own-model plumbing: endpoints, lineage, suites, compare view
+
+### Added
+- **Named local endpoints** ([35]): `LOCAL_ENDPOINTS="vllm=http://127.0.0.1:8000/v1;mlx=…"` turns any
+  OpenAI-compatible server — vLLM, llama.cpp, MLX, a second Ollama — into a provider like `local`:
+  no key, models probed live from its `/v1/models`, offline in the UI when down, never shadowing a
+  built-in. Clients are `<name>:<model>`. `docs/serving.md` is the step-by-step: serve the
+  checkpoint (with tool calling on), name the endpoint, record the lineage, run a suite, compare
+  with the parent.
+- **Model lineage** ([36]): `models/lineage.json` (or `LINEAGE_FILE`) maps a client id to family,
+  checkpoint, step, parent, training data and date. Every run records the entries of the clients
+  it ran (`config.lineage`), the index carries family / checkpoint / step / parent per trial (a
+  variant inherits its checkpoint's), `node src/cli.js models` lists the registry with what the
+  index holds for each entry, and `compare <run> --a <checkpoint> --parent` pairs a checkpoint
+  against the parent its entry names.
+- **Suites** (the preset half of [37]): `node src/cli.js suite smoke|standard|full --clients …` runs
+  a preset (smoke: one task per capability, two trials, two modes; standard: every task, four
+  trials; full: four modes, eight trials); a suite run is a bench run with `config.suite`. Gates
+  remain open.
+- **Paired comparison in the UI**: every run gets a block with A and B selects (labelled with
+  lineage), a mode filter, and "B from" any other saved run on the same instance seed (`GET
+  /api/runs?seed=`), rendering the per-task McNemar table and the overall band from `compareRows`.
+- Tests: 231 (lineage file, endpoint parsing and registration, suites, lineage in the index, seed
+  filter).
+
+### Measured
+- A named endpoint aliasing the local Ollama (`mlx=http://127.0.0.1:11434/v1`) lists the same five
+  models live and runs a harness trial as `mlx:ornith-1.5:9b` with tool calls — the path a served
+  checkpoint will take, exercised before one exists.
+
 ## 2026-09-08 (later) — capability scorecard and paired statistics
 
 ### Added

@@ -707,7 +707,9 @@ function armDeltas(rows, clientNames, taskNames) {
 export function compareRows(a, b, { mode = null } = {}) {
   const fa = mode ? a.filter((r) => r.mode === mode) : a;
   const fb = mode ? b.filter((r) => r.mode === mode) : b;
-  const pairs = pairRows(fa, fb);
+  // Rows of several modes share a task and index, so pairing happens within each mode.
+  const modes = [...new Set([...fa, ...fb].map((r) => r.mode))];
+  const pairs = modes.flatMap((m) => pairRows(fa.filter((r) => r.mode === m), fb.filter((r) => r.mode === m)));
   const byTask = {};
   for (const task of [...new Set(pairs.map(([r]) => r.task))]) {
     const ps = pairs.filter(([r]) => r.task === task);

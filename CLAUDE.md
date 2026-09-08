@@ -102,9 +102,16 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
   checks the answer, and puts `row.constraints` (met / total / list) on the row; `variantDeltas`
   pools adherence next to the correctness delta. Both `chat` and `runWithTools` receive
   `{ task, mode, ctx, seed }`, so wrappers behave the same on the free-form path.
+- `src/lineage.js` — the model registry (`models/lineage.json` or `LINEAGE_FILE`): client id →
+  family / checkpoint / step / parent / trainedOn. Runs record `config.lineage` for their clients,
+  the index carries the fields per trial, `cli models` lists the registry, `cli compare --parent`
+  pairs a checkpoint against its parent. `src/suites.js` holds the `smoke` / `standard` / `full`
+  presets behind `cli suite` (a suite run is a bench run with `config.suite`). Named local endpoints
+  (`LOCAL_ENDPOINTS`, `parseLocalEndpoints` / `registerLocalEndpoints` in `providers/index.js`)
+  make any OpenAI-compatible server a provider like `local`; see docs/serving.md.
 - `src/web/` — the control plane: `server.js` (node:http, zero deps) + `public/` (the UI).
 - `src/cli.js` — entry point (`list` / `show` / `export` / `index` / `query` / `scorecard` /
-  `compare` / `compact` / `serve` / `bench` / `aggregate`).
+  `compare` / `models` / `suite` / `compact` / `serve` / `bench` / `aggregate`).
 - `test/` — `npm test` (node:test, no deps). Scorers are tested with synthetic ground values, the
   runner with a fake client; nothing in the suite needs a model or the webserver.
 
@@ -198,7 +205,9 @@ as helpers. `describeSignificance` is the one phrasing every surface prints — 
 Add entries to `PROVIDERS` in `src/providers/index.js` (name → baseUrl, auth, default models)
 and labels to `MODEL_LABELS`. Keys live in `.env`. `local` (Ollama) needs no key; its models are
 probed live from `/v1/models` and the UI marks the provider offline when the daemon is down.
-`OLLAMA_BASE_URL`, `SUT_PORT` (the webserver's port; `PORT` is a legacy fallback) and `RESULTS_DIR` are honored from `.env` too.
+`OLLAMA_BASE_URL`, `LOCAL_ENDPOINTS` (named OpenAI-compatible servers for your own checkpoints),
+`LINEAGE_FILE`, `SUT_PORT` (the webserver's port; `PORT` is a legacy fallback) and `RESULTS_DIR` are
+honored from `.env` too.
 
 ## Commands
 

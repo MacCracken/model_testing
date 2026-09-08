@@ -50,6 +50,28 @@ test("saving a run indexes it; queries see runs, trials and cells", () => {
   assert.equal(raw[0].n, 6);
 });
 
+test("a run's lineage and instance seed reach the index; runs can be found by seed", () => {
+  const lin = run("20260903T000000-dddd", "2026-09-03T00:00:00.000Z", [row("health", "harness", "vllm:ckpt-2000", true, 1), row("health", "harness", "vllm:ckpt-2000@skill:preload", true, 1)]);
+  lin.config.instanceSeed = 4242;
+  lin.config.suite = "smoke";
+  lin.config.lineage = { "vllm:ckpt-2000": { id: "vllm:ckpt-2000", family: "mine", checkpoint: "2000", step: 2000, parent: "vllm:ckpt-1000" } };
+  saveRun(lin);
+  const fam = store.rawQuery("select client, family, checkpoint, step, parent from trials where run_id = '20260903T000000-dddd' order by client").map((r) => ({ ...r }));
+  assert.deepEqual(fam, [
+    { client: "vllm:ckpt-2000", family: "mine", checkpoint: "2000", step: 2000, parent: "vllm:ckpt-1000" },
+    { client: "vllm:ckpt-2000@skill:preload", family: "mine", checkpoint: "2000", step: 2000, parent: "vllm:ckpt-1000" },
+  ], "a variant of a checkpoint inherits its lineage");
+  const [hdr] = store.queryRuns({ seed: 4242 });
+  assert.equal(hdr.id, lin.id);
+  assert.equal(hdr.suite, "smoke");
+  assert.equal(hdr.lineage["vllm:ckpt-2000"].family, "mine");
+  assert.equal(store.queryRuns({ seed: 1 }).length, 0);
+  store.rawQuery("select 1"); // the index stays readable
+  const { unlinkSync } = process.getBuiltinModule("node:fs");
+  unlinkSync(join(dir, "runs", `${lin.id}.json`));
+  store.indexRuns();
+});
+
 test("indexRuns is incremental by mtime, re-reads changed files and drops vanished ones", () => {
   let r = store.indexRuns();
   assert.equal(r.indexed, 0); assert.equal(r.skipped, 2); assert.equal(r.removed, 0);

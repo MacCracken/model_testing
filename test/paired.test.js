@@ -105,4 +105,10 @@ test("compareRows: two clients on the same instances, per task and overall", () 
   assert.equal(c.overall.onlyBase, 0);
   assert.ok(c.overall.bootstrap);
   assert.equal(compareRows(a, b, { mode: "noHarness" }).pairs, 0);
+  // Several modes on both sides: pairs form within each mode, never across.
+  const a2 = [...a, ...a.map((r) => ({ ...r, mode: "noHarness", correct: false }))];
+  const b2 = [...b, ...b.map((r) => ({ ...r, mode: "noHarness", correct: true }))];
+  const all = compareRows(a2, b2);
+  assert.equal(all.pairs, 16);
+  assert.equal(all.overall.onlyTreat, 3 + 8);
 });

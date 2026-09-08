@@ -135,6 +135,40 @@ async function main() {
       break;
     }
 
+    // The model registry (models/lineage.json) with what the index holds for each entry.
+    case "models": {
+      const { loadLineage } = await import("./lineage.js");
+      const { indexRuns, rawQuery } = await import("./store.js");
+      indexRuns();
+      const { file, entries } = loadLineage();
+      const counts = Object.fromEntries(rawQuery("select client, count(*) as n, count(distinct run_id) as runs, max(started_at) as last from trials group by client").map((r) => [r.client, r]));
+      console.log(`${file} — ${Object.keys(entries).length} entries\n`);
+      console.log(`${"client".padEnd(28)} ${"family".padEnd(12)} ${"checkpoint".padEnd(12)} ${"step".padEnd(7)} ${"parent".padEnd(26)} runs   trials  last`);
+      for (const e of Object.values(entries)) {
+        const c = counts[e.id];
+        console.log(`${e.id.padEnd(28)} ${String(e.family ?? "").padEnd(12)} ${String(e.checkpoint ?? "").padEnd(12)} ${String(e.step ?? "").padEnd(7)} ${String(e.parent ?? "").padEnd(26)} ${String(c?.runs ?? 0).padStart(4)}   ${String(c?.n ?? 0).padStart(6)}  ${c?.last ? c.last.slice(0, 10) : "—"}`);
+      }
+      const unlisted = Object.keys(counts).filter((c) => !entries[c] && !/@/.test(c));
+      if (unlisted.length) console.log(`\nclients with runs but no lineage entry: ${unlisted.join(", ")}`);
+      break;
+    }
+
+    // Named presets for a fresh checkpoint: node src/cli.js suite smoke --clients vllm:my-ckpt
+    case "suite": {
+      const { SUITES, suiteArgs } = await import("./suites.js");
+      const name = rest[0];
+      if (!name || !SUITES[name]) {
+        console.error("usage: node src/cli.js suite <smoke|standard|full> --clients <c1,c2> [--instance-seed N] [--judge …]");
+        for (const [k, s] of Object.entries(SUITES)) console.error(`  ${k.padEnd(9)} ${s.description}`);
+        process.exit(1);
+      }
+      const { spawnSync } = await import("node:child_process");
+      const { fileURLToPath } = await import("node:url");
+      const bench = fileURLToPath(new URL("./bench.js", import.meta.url));
+      const r = spawnSync(process.execPath, [bench, ...suiteArgs(name, rest.slice(1))], { stdio: "inherit", env: { ...process.env, BENCH_SUITE: name } });
+      process.exit(r.status ?? 1);
+    }
+
     // Paired comparison: two clients in one run, or two runs on the same instance seed.
     case "compare": {
       const args = parseArgs(rest);
@@ -149,7 +183,14 @@ async function main() {
         if (A.config?.instanceSeed !== B.config?.instanceSeed) console.log(`note: instance seeds differ (${A.config?.instanceSeed} vs ${B.config?.instanceSeed}) — generated tasks are not the same problems`);
         rowsA = A.rows; rowsB = B.rows; labelA = runA; labelB = runB;
       } else {
-        if (!args.a || !args.b) { console.error("compare within a run needs --a <client> --b <client>"); process.exit(1); }
+        // --parent: compare a checkpoint against the parent its lineage entry names.
+        if (args.parent && args.a && !args.b) {
+          const { parentOf } = await import("./lineage.js");
+          const parent = parentOf(args.a);
+          if (!parent) { console.error(`no parent recorded for ${args.a} in the lineage file`); process.exit(1); }
+          args.b = args.a; args.a = parent;
+        }
+        if (!args.a || !args.b) { console.error("compare within a run needs --a <client> --b <client> (or --a <checkpoint> --parent)"); process.exit(1); }
         rowsA = A.rows.filter((r) => r.client === args.a); rowsB = A.rows.filter((r) => r.client === args.b); labelA = args.a; labelB = args.b;
       }
       const c = compareRows(rowsA, rowsB, { mode: args.mode ?? null });
@@ -212,6 +253,8 @@ async function main() {
       console.log("  node src/cli.js compact --older-than <days> [--yes]  # strip prompts/transcripts from old runs");
       console.log("  node src/cli.js scorecard <client> [--since D]       # capability scorecard pooled over the index");
       console.log("  node src/cli.js compare <run> --a <c1> --b <c2> | compare <runA> <runB>   # paired comparison (McNemar)");
+      console.log("  node src/cli.js models                                # the lineage registry and what the index holds per checkpoint");
+      console.log("  node src/cli.js suite smoke|standard|full --clients … # preset runs for a fresh checkpoint");
       console.log("  node src/cli.js serve [--port 4000] [--host 127.0.0.1] [--open]");
       console.log("  node src/cli.js bench --task <name|all> --modes noHarness,harness,schemaOnly,toolOnly --clients <p:model,...> [--count N] [--temperature T] [--seed S] [--model-param k=v]... [--json]");
       console.log("  node src/cli.js aggregate [--tasks <name,...>] [--modes ...] [--clients ...] [--count N]");

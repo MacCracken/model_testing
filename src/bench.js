@@ -12,6 +12,7 @@
 
 import "./env.js";
 import "./store.js";
+import { lineageOf } from "./lineage.js";
 import { getTask, tasks as allTasks } from "./tasks/registry.js";
 import { resolveClients } from "./providers/index.js";
 import { runMatrix, planMatrix, isStructuredMode, describeSignificance, MODE_NAMES, DEFAULT_MODES } from "./runner.js";
@@ -151,6 +152,8 @@ async function main() {
       instanceSeed,
       modelParams,
       judge: judge?.name ?? null,
+      suite: process.env.BENCH_SUITE ?? null,
+      lineage: lineageOf(clients.map((c) => c.name)),
     },
     versions: benchVersions(),
     warnings: describeSkipped(skipped),

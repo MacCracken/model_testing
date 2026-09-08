@@ -81,8 +81,35 @@ const PROVIDERS = {
     needsKey: false,
     // Fallback list; the live set is probed from Ollama's /v1/models where it's reachable.
     models: ["ornith-1.5:9b", "qwen3.5:9b-mlx", "gemma4:31b-mlx", "qwen3.8:27b-mlx"],
+    local: true,
   },
 };
+
+// Named local endpoints — a vLLM, llama.cpp or MLX server serving a checkpoint through the
+// OpenAI-compatible route: LOCAL_ENDPOINTS="vllm=http://127.0.0.1:8000/v1;mlx=http://127.0.0.1:8080/v1".
+// Each becomes a provider like `local`: no key, models probed live from its /v1/models.
+export function parseLocalEndpoints(spec) {
+  const out = {};
+  for (const part of String(spec ?? "").split(/[;,]/)) {
+    const m = part.trim().match(/^([a-z][a-z0-9_-]*)\s*=\s*(https?:\/\/\S+)$/i);
+    if (!m) continue;
+    let url = m[2].replace(/\/+$/, "");
+    if (!/\/chat\/completions$/.test(url)) url = `${url.replace(/\/v1$/, "")}/v1/chat/completions`;
+    out[m[1].toLowerCase()] = url;
+  }
+  return out;
+}
+
+export function registerLocalEndpoints(map) {
+  const added = [];
+  for (const [name, url] of Object.entries(map)) {
+    if (PROVIDERS[name] && !PROVIDERS[name].endpoint) continue; // never shadow a built-in provider
+    PROVIDERS[name] = { baseUrl: url, auth: () => "Bearer local", needsKey: false, local: true, endpoint: true, models: [] };
+    added.push(name);
+  }
+  return added;
+}
+registerLocalEndpoints(parseLocalEndpoints(envValue("LOCAL_ENDPOINTS", "")));
 
 // Model -> human label for reports. Optional; override by editing this map.
 const MODEL_LABELS = {
@@ -213,8 +240,10 @@ export function resolveClients(spec, { modelParams = {} } = {}) {
 
 // Ask an Ollama-compatible server what it actually has loaded, so the UI offers real models
 // instead of a list that drifts out of date. Returns null when unreachable.
-export async function probeLocalModels({ timeoutMs = 1500 } = {}) {
-  const url = PROVIDERS.local.baseUrl.replace(/\/chat\/completions$/, "/models");
+export async function probeLocalModels({ timeoutMs = 1500, provider = "local" } = {}) {
+  const cfg = PROVIDERS[provider];
+  if (!cfg) return null;
+  const url = cfg.baseUrl.replace(/\/chat\/completions$/, "/models");
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
     if (!res.ok) return null;
@@ -229,7 +258,11 @@ export async function probeLocalModels({ timeoutMs = 1500 } = {}) {
 // Provider metadata for the web UI: which providers are usable, and what models to offer.
 // `live` is null for hosted providers, true/false for the local daemon.
 export async function describeProviders({ probe = true } = {}) {
-  const live = probe ? await probeLocalModels() : null;
+  // Every local provider (Ollama and any named endpoint) is probed; hosted ones are not.
+  const live = {};
+  if (probe) {
+    await Promise.all(Object.entries(PROVIDERS).filter(([, c]) => c.local).map(async ([name]) => { live[name] = await probeLocalModels({ provider: name }); }));
+  }
   return Object.entries(PROVIDERS).map(([name, cfg]) => ({
     name,
     baseUrl: cfg.baseUrl,
@@ -237,8 +270,10 @@ export async function describeProviders({ probe = true } = {}) {
     harness: cfg.harness ?? null,
     needsKey: cfg.needsKey !== false,
     hasKey: hasCredentials(name),
-    live: name === "local" ? live !== null : null,
-    models: (name === "local" && live ? live : cfg.models).map((model) => ({
+    local: !!cfg.local,
+    endpoint: !!cfg.endpoint,
+    live: cfg.local ? (live[name] ?? null) !== null : null,
+    models: (cfg.local && live[name] ? live[name] : cfg.models).map((model) => ({
       id: model,
       label: labelModel(model),
       client: `${name}:${model}`,

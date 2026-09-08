@@ -13,6 +13,7 @@ import { listSkills, parseSkillSuffix } from "../skills.js";
 import { parseAgentsSuffix } from "../agents.js";
 import { parseStressSuffix } from "../stress.js";
 import { parseConstraintsSuffix } from "../constraints.js";
+import { lineageOf, loadLineage } from "../lineage.js";
 import { createServer } from "node:http";
 import { readFile, stat } from "node:fs/promises";
 import { extname, join, normalize, dirname, resolve } from "node:path";
@@ -86,7 +87,7 @@ function startRun({ tasks, modes, clients, count, parallel = 1, instanceSeed = n
     finishedAt: null,
     status: "running",
     source: "web",
-    config: { tasks, modes, clients: clientObjs.map((c) => c.name), count, parallel, instanceSeed, modelParams, judge: judge?.name ?? null },
+    config: { tasks, modes, clients: clientObjs.map((c) => c.name), count, parallel, instanceSeed, modelParams, judge: judge?.name ?? null, lineage: lineageOf(clientObjs.map((c) => c.name)) },
     versions: benchVersions(),
     warnings: missing.length ? [`skipped (no API key or unknown provider): ${missing.join(", ")}`] : [],
     // The real total arrives with the runner's "start" event, once undeclared (task, mode) pairs
@@ -229,7 +230,7 @@ async function handle(req, res) {
 
   if (req.method === "GET" && path === "/api/meta") {
     const [providers, sut] = await Promise.all([describeProviders(), probeSUT()]);
-    return sendJSON(res, 200, { tasks: listTasks(), skills: listSkills(), modes: MODE_NAMES, defaultModes: DEFAULT_MODES, providers, sut });
+    return sendJSON(res, 200, { tasks: listTasks(), skills: listSkills(), modes: MODE_NAMES, defaultModes: DEFAULT_MODES, providers, sut, lineage: loadLineage().entries });
   }
 
   if (req.method === "GET" && path === "/api/sut") {
@@ -237,7 +238,7 @@ async function handle(req, res) {
   }
 
   if (req.method === "GET" && path === "/api/runs") {
-    const filters = ["q", "task", "client", "mode", "since"].filter((k) => url.searchParams.get(k));
+    const filters = ["q", "task", "client", "mode", "since", "seed"].filter((k) => url.searchParams.get(k));
     if (filters.length) {
       // Filtered listings come from the index (kept current on every save); the plain listing stays
       // file-based so it never depends on the index existing.
