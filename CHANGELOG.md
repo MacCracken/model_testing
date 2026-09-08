@@ -4,6 +4,58 @@ What shipped, by date. Full measurement tables live in [docs/results.md](docs/re
 forward roadmap is [plan.md](plan.md). Dates are the commit dates; item numbers ([1]–[20]) are the
 roadmap tiers as they were numbered while being built.
 
+## 2026-09-07 (later) — generated reasoning families, instance seeds, capability tags
+
+### Added
+- **Generated task families** ([21]): `wordmath2/4/6` (multi-step stock word problems; the harness
+  axis is an exact calculator tool), `datecalc1/3` (calendar arithmetic; a date tool), `logicgrid3/4`
+  (pet-and-drink deductions, unique and minimal by construction, checked by enumeration; no tools)
+  and `tally20/60` (count / sum / max over an inline table; a per-trial query tool). Each mints its
+  instance from the trial's seed in `setup`, scores by code, and carries a difficulty knob.
+  `src/tasks/gen.js` (seeded RNG, `seedFor`, lenient answer readers), `src/calc.js`.
+- **Instance seeds**: `runMatrix` draws one seed per run or takes `--instance-seed N` (web: "instance
+  seed"); every trial gets `seedFor(instanceSeed, task, index)`, so all modes and clients in a run see
+  the same instance — a paired design — and the seed re-mints the run later. Recorded on the run,
+  the row (`seed`), the index and the CSV.
+- **Capability tags**: every task declares `capabilities` (tool-use, multi-step, arithmetic,
+  deduction, counting, extraction, planning, state, …), exposed by `listTasks` for the scorecard to
+  come; generated families are marked `seeded`.
+- Tests: 204 (`test/gen`, `test/reasoning`: generator determinism, truth replay from the recorded
+  operations, brute-force uniqueness and clue minimality, tool ↔ truth agreement, seed pairing).
+
+### Measured (four trials per cell, instance seed 2026 — every model saw the same problems)
+- **The four modes on the generated families**, hosted models (correct/4 as noHarness · schemaOnly ·
+  toolOnly · harness), with the original answer-only schemas:
+
+  | task | gpt-4o-mini | gpt-5.4-mini | claude-haiku-4-5 |
+  |---|---|---|---|
+  | wordmath2 | 4 · 2 · 4 · 4 | 4 · 3 · 4 · 4 | 4 · 4 · 4 · 4 |
+  | wordmath4 | 4 · **0** · 4 · 3 | 4 · **1** · 4 · 4 | 4 · 4 · 4 · 4 |
+  | wordmath6 | 4 · **0** · 4 · 4 | 4 · **1** · 3 · 3 | 4 · 4 · 4 · 4 |
+  | datecalc1 | 2 · 2 · 4 · 4 | 3 · 4 · 4 · 4 | 3 · 3 · 4 · 4 |
+  | datecalc3 | 3 · 0 · 2 · 2 | 3 · 2 · 3 · 4 | 3 · 3 · 4 · 4 |
+  | logicgrid3 | 3 · 2 · — · 2 | 4 · 2 · — · 2 | 4 · 4 · — · 4 |
+  | logicgrid4 | 2 · 0 · — · 0 | 3 · 1 · — · 1 | 4 · 4 · — · 4 |
+  | tally20 | 3 · 1 · 4 · 4 | 4 · 4 · 4 · 4 | 4 · 4 · 4 · 3 |
+  | tally60 | **1** · 1 · 4 · 4 | 3 · 1 · 4 · 4 | 3 · 4 · 4 · 4 |
+
+  Readings: the calculator, date and query tools do their job — `tally60` by eye is 1/4 for
+  gpt-4o-mini and 4/4 with `query_rows`; tool-argument verdicts were 100 % everywhere. But
+  **schema-only collapsed on anything that needs working** (gpt-4o-mini 4/4 → 0/4 on wordmath4 and
+  6, both OpenAI models to 1–2/4 on logic grids), while Haiku held 4/4 across the board. The
+  mechanism is the harness's own instruction — "reply with the JSON value only, no prose" — and a
+  schema whose first field is the answer: the model commits before it thinks.
+- **The fix, measured paired**: the four families' schemas gained a `work: string[]` field placed
+  before the answer, and the same instances were re-run in schema-only and harness mode on the two
+  OpenAI models. Schema-only: **26 instances flipped wrong → right, 2 right → wrong** (gpt-4o-mini
+  wordmath4 0/4 → 4/4, wordmath6 0/4 → 4/4, logicgrid3 2/4 → 4/4; gpt-5.4-mini wordmath6 1/4 → 4/4,
+  logicgrid4 1/4 → 3/4). Harness mode moved 8 up, 5 down — noise, with one caveat: gpt-4o-mini's
+  wordmath6 harness went 4/4 → 1/4, and its transcripts show bookkeeping slips between calculator
+  results while it also narrates the working (73 copied as 51; a final ×10 forgotten). For the weak
+  model, writing the work and driving the tool at once costs attention on six-step chains. The
+  `work` field stays: without it schema mode measures answering without thinking.
+- The 9 B local model's run on the same seed is recorded in docs/results.md when it lands.
+
 ## 2026-09-07 — parallel trials, variance, multi-step tasks, skills, sub-agents, stressors
 
 ### Added

@@ -20,8 +20,15 @@ import { task as chainTask } from "./chain.js";
 import { task as transformTask } from "./transform.js";
 import { task as explainTask } from "./explain.js";
 import { restockTasks } from "./restock.js";
+import { wordmathTasks } from "./wordmath.js";
+import { datecalcTasks } from "./datecalc.js";
+import { logicgridTasks } from "./logicgrid.js";
+import { tallyTasks } from "./tally.js";
 
-export const tasks = [healthTask, helloTask, reasonTask, lookupTask, regexTask, chainTask, transformTask, explainTask, ...restockTasks];
+export const tasks = [
+  healthTask, helloTask, reasonTask, lookupTask, regexTask, chainTask, transformTask, explainTask,
+  ...restockTasks, ...wordmathTasks, ...datecalcTasks, ...logicgridTasks, ...tallyTasks,
+];
 
 export function getTask(name) {
   const t = tasks.find((x) => x.name === name);
@@ -41,5 +48,7 @@ export function listTasks() {
     tools: (typeof t.harness?.tools === "function" ? t.harness.tools({}) : t.harness?.tools ?? []).map((tool) => tool.name),
     needsJudge: !!t.eval?.needsJudge,
     skill: t.skill ?? t.name, // the playbook name a @skill variant looks for under skills/
+    capabilities: t.capabilities ?? [], // what the task measures, for the scorecard
+    generated: typeof t.setup === "function" && !!t.seeded,
   }));
 }

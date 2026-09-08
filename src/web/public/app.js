@@ -204,7 +204,7 @@ const CATEGORY_LABEL = {
   "multi-step": "Multi-step",
   "extract-transform": "Extract & transform",
   "open-ended": "Open-ended · judged",
-};
+ "reasoning": "Reasoning · generated" };
 
 // The panel folds to a rail; the choice is remembered per browser.
 function setSetupCollapsed(collapsed) {
@@ -497,6 +497,7 @@ async function launch() {
     count: plan().count,
     parallel: Math.max(1, Math.min(16, Number($("#parallel").value) || 1)),
   };
+  if ($("#instance-seed").value !== "") body.instanceSeed = Number($("#instance-seed").value);
   for (const key of ["temperature", "seed"]) {
     const raw = $(`#${key}`).value;
     if (raw !== "") body[key] = Number(raw);
@@ -625,6 +626,7 @@ function renderHeadline(s) {
   const knobs = [
     ...Object.entries(run.config?.modelParams ?? {}).map(([k, v]) => `${k} ${v}`),
     (run.config?.parallel ?? 1) > 1 ? `${run.config.parallel} in parallel` : "",
+    run.config?.instanceSeed !== undefined && run.config?.instanceSeed !== null ? `instances #${run.config.instanceSeed}` : "",
   ].filter(Boolean).join(" · ");
   const progress = (run.status === "running" ? `${done} of ${total} trials · running` : `${plural(done, "trial")} · ${run.status}`) + (knobs ? ` · ${knobs}` : "");
 

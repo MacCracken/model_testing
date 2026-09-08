@@ -15,6 +15,7 @@ export function parseArgs(argv) {
       case "--clients": args.clients = next(); break;
       case "--count": args.count = Number(next()); break;
       case "--parallel": args.parallel = Number(next()); break;
+      case "--instance-seed": args.instanceSeed = Number(next()); break;
       case "--port": args.port = Number(next()); break;
       case "--host": args.host = next(); break;
       case "--open": args.open = true; break;

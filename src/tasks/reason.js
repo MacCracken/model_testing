@@ -74,6 +74,7 @@ function answersFrom(out) {
 export const task = {
   name: "reason",
   category: "pure-reasoning",
+  capabilities: ["arithmetic","deduction"],
   description: "Answer a few unambiguous logic/arithmetic questions. Control task with no tools.",
   model: labelModel,
 

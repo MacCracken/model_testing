@@ -48,6 +48,7 @@ function freeFormVerdict(out) {
 export const task = {
   name: "health",
   category: "api-call",
+  capabilities: ["tool-use"],
   description: "Report the live status and uptime of the webserver.",
   model: labelModel,
 

@@ -24,11 +24,17 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
   streams by default (SSE chunks, tool-call deltas merged by index, usage from the trailing chunk) and
   records `ttftMs` / `ttfaMs`; `stream: false` keeps the plain path.
 - `src/tasks/` — task specs: prompt/tools/schema per mode + `eval` block (ground + scorers).
-  `tasks/util.js` holds what they share: the webserver `BASE` URL and `unwrapList`.
+  `tasks/util.js` holds what they share: the webserver `BASE` URL and `unwrapList`. Generated
+  families (`wordmath`, `datecalc`, `logicgrid`, `tally`) mint an instance per trial from the trial's
+  seed in `setup` (`seeded: true`); `tasks/gen.js` holds the seeded RNG, `seedFor` and lenient answer
+  readers, `src/calc.js` the exact calculator that is the harness axis for arithmetic. Every task
+  carries `capabilities` (what it measures) for the scorecard.
 - `src/runner.js` — **the execution core**: runs one (task, mode, client) trial, scores it,
   aggregates the matrix, and owns the statistics. Every surface (CLI and web) goes through this so
   they can't disagree — the web server serves it to the browser as `/lib/runner.js`, so it must
-  stay free of Node-specific imports. `runMatrix` runs up to `parallel` trials at once; a
+  stay free of Node-specific imports. `runMatrix` draws one `instanceSeed` per run (or takes
+  `--instance-seed`) and gives every trial `seedFor(instanceSeed, task, index)` — the same instance for
+  every mode and client, so comparisons are paired and a run can be re-minted. It runs up to `parallel` trials at once; a
   `structuredOnly` client (a real-harness arm) always runs alone, because arms are scored from the
   webserver's time-windowed log and a concurrent trial would pollute it.
 - `src/results.js` — run persistence (`results/runs/<id>.json`); `onRunSaved` lets the store index
@@ -110,11 +116,12 @@ export const task = {
     canon,          // optional: (answer, { mode, structured }) => string — the answer's canonical form, for
                     //   agreement across repeated trials; only tasks with fixed truth define one
   },
-  // optional, for stateful tasks (restock): setup runs before every trial (it also gets the client,
-  // whose `stress` names a profile) and returns a context; prompt / system / goal / tools may then
-  // be functions of it, and ground, scorers and toolUse receive it as ctx. maxRounds raises the
-  // synthetic tool loop's budget for long dependent chains.
-  setup: async ({ mode, index, client }) => ({ scenario: "scn-…", items: [...] }),
+  // optional: setup runs before every trial with { mode, index, client, seed } and returns a context;
+  // prompt / system / goal / tools may then be functions of it, and ground, scorers and toolUse
+  // receive it as ctx. Stateful tasks (restock) create server state here; generated families mint
+  // their instance from `seed` and mark `seeded: true`. maxRounds raises the tool loop's budget.
+  setup: async ({ mode, index, client, seed }) => ({ scenario: "scn-…", items: [...] }),
+  capabilities: ["multi-step", "tool-use"], // what the task measures, for the scorecard
   maxRounds: 14,
   skill: "restock",        // optional: the playbook under skills/ a @skill variant loads (default: the task name)
 };
@@ -133,6 +140,10 @@ truth (`reason`) uses a constant instead of a function.
 
 `harness.schema` is injected into the system prompt (the schema is part of the harness under
 test) and used to compute `schemaValid` (null when a mode has no schema to check against).
+The schema instruction says "JSON only — no prose", so a task that needs working must give the
+model room for it inside the JSON: a `work` array **before** the answer field (the generated families
+do this). Without it schema-only mode measures answering without thinking — gpt-4o-mini went 4/4 →
+0/4 on four-step word problems, and back to 4/4 with the field.
 Scorers judge content, not wrappers: use `unwrapList` so a list under `results`, `data` or the
 schema's own `items` key scores the same as a bare array.
 
@@ -178,6 +189,7 @@ node src/cli.js query cell --task chain --client openai:gpt-4o-mini   # one cell
 node src/bench.js --task chain --modes harness --clients local:ornith-1.5:9b --count 4 --temperature 0 --seed 7
 node src/bench.js --task all --modes harness --clients openai:gpt-4o-mini
 node src/bench.js --task health,reason,regex --modes noHarness,harness --clients openai:gpt-4o-mini --count 8 --parallel 8
+node src/bench.js --task wordmath4,tally60 --clients openai:gpt-4o-mini --count 4 --instance-seed 7   # generated, same problems every run
 node src/aggregate.js --tasks health,hello --modes noHarness,harness --clients local
 ```
 

@@ -702,3 +702,47 @@ what a harness buys on **harder** work, where the axes belong to the agent rathe
   in the synthetic harness and reuses [17]'s tasks; [18] last, because it needs each arm's delegation
   driven and observed.
 
+
+## Generated reasoning families (2026-09-07, instance seed 2026, four trials per cell)
+
+Every model saw the same nine instances per task (paired by seed). Cells are correct/4 as
+noHarness · schemaOnly · toolOnly · harness, with the **answer-only** schemas the families shipped with:
+
+| task | gpt-4o-mini | gpt-5.4-mini | claude-haiku-4-5 |
+|---|---|---|---|
+| wordmath2 | 4 · 2 · 4 · 4 | 4 · 3 · 4 · 4 | 4 · 4 · 4 · 4 |
+| wordmath4 | 4 · 0 · 4 · 3 | 4 · 1 · 4 · 4 | 4 · 4 · 4 · 4 |
+| wordmath6 | 4 · 0 · 4 · 4 | 4 · 1 · 3 · 3 | 4 · 4 · 4 · 4 |
+| datecalc1 | 2 · 2 · 4 · 4 | 3 · 4 · 4 · 4 | 3 · 3 · 4 · 4 |
+| datecalc3 | 3 · 0 · 2 · 2 | 3 · 2 · 3 · 4 | 3 · 3 · 4 · 4 |
+| logicgrid3 | 3 · 2 · — · 2 | 4 · 2 · — · 2 | 4 · 4 · — · 4 |
+| logicgrid4 | 2 · 0 · — · 0 | 3 · 1 · — · 1 | 4 · 4 · — · 4 |
+| tally20 | 3 · 1 · 4 · 4 | 4 · 4 · 4 · 4 | 4 · 4 · 4 · 3 |
+| tally60 | 1 · 1 · 4 · 4 | 3 · 1 · 4 · 4 | 3 · 4 · 4 · 4 |
+
+Pooled 2×2 over the three models (108 trials per mode): tools +19.8 pp, schema −18.9 pp,
+interaction +17.7 pp; no harness 84.3 %, schema only 56.5 %, tools only 95.2 %, harness 85.2 %.
+Tool-argument verdicts were 100 % in every tool cell.
+
+**Answer-only versus answer-with-`work` schemas**, the same instances re-run in schema-only and
+harness mode on the two OpenAI models after `work: string[]` was placed before the answer field:
+
+| model · task | schemaOnly before → after | harness before → after |
+|---|---|---|
+| gpt-4o-mini · wordmath4 | 0/4 → 4/4 | 3/4 → 4/4 |
+| gpt-4o-mini · wordmath6 | 0/4 → 4/4 | 4/4 → 1/4 |
+| gpt-4o-mini · logicgrid3 | 2/4 → 4/4 | 2/4 → 1/4 |
+| gpt-4o-mini · logicgrid4 | 0/4 → 2/4 | 0/4 → 4/4 |
+| gpt-4o-mini · tally60 | 1/4 → 2/4 | 4/4 → 4/4 |
+| gpt-4o-mini · datecalc3 | 0/4 → 2/4 | 2/4 → 2/4 |
+| gpt-5.4-mini · wordmath4 | 1/4 → 3/4 | 4/4 → 4/4 |
+| gpt-5.4-mini · wordmath6 | 1/4 → 4/4 | 3/4 → 4/4 |
+| gpt-5.4-mini · logicgrid3 | 2/4 → 3/4 | 2/4 → 2/4 |
+| gpt-5.4-mini · logicgrid4 | 1/4 → 3/4 | 1/4 → 3/4 |
+| gpt-5.4-mini · tally60 | 1/4 → 2/4 | 4/4 → 4/4 |
+| gpt-5.4-mini · datecalc3 | 2/4 → 2/4 | 4/4 → 3/4 |
+
+Paired outcomes over the 48 schema-only instances: 26 wrong → right, 2 right → wrong, 9 right
+both times, 11 wrong both times. Harness mode: 8 up, 5 down, 28 right both times, 7 wrong both
+times. The gpt-4o-mini wordmath6 harness regression is bookkeeping between calculator results
+while narrating the working (a 73 copied as 51; a final ×10 forgotten).

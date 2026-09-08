@@ -4,6 +4,7 @@
 //   node src/bench.js --task health --mode harness --clients openai:gpt-4o-mini
 //   node src/bench.js --task all --modes noHarness,harness --clients local:ornith-1.5:9b --count 3
 //   node src/bench.js --task health,reason,regex --modes noHarness,harness --clients openai:gpt-4o-mini --count 8 --parallel 8
+//   node src/bench.js --task wordmath4,tally60 --modes noHarness,harness --clients openai:gpt-4o-mini --count 4 --instance-seed 7   # same problems every run
 //   node src/bench.js --task hello --clients local            # every local model
 //
 // Every run is saved under results/runs/ (so the web UI can review it too); --json also prints
@@ -115,12 +116,13 @@ async function main() {
     if (!plan.total) fail("nothing to run — no selected task declares any of the selected modes");
   }
 
-  const { rows, summary, skipped } = await runMatrix({
+  const { rows, summary, skipped, instanceSeed } = await runMatrix({
     tasks: taskList,
     modes: modeList,
     clients,
     count,
     parallel,
+    instanceSeed: Number.isInteger(args.instanceSeed) ? args.instanceSeed : null,
     judge,
     onEvent: quiet ? undefined : (ev) => {
       if (ev.type !== "trial") return;
@@ -146,6 +148,7 @@ async function main() {
       clients: clients.map((c) => c.name),
       count,
       parallel,
+      instanceSeed,
       modelParams,
       judge: judge?.name ?? null,
     },

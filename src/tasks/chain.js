@@ -49,6 +49,7 @@ function chainVerdict(ground) {
 export const task = {
   name: "chain",
   category: "multi-step",
+  capabilities: ["multi-step","tool-use"],
   description:
     "Greet alice, then greet the id that came back, and report the second greeting. The second call depends on the first.",
   model: labelModel,

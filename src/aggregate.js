@@ -38,12 +38,13 @@ export async function main() {
   const label = `${taskList.length} task(s) x ${modeList.length} mode(s) x ${clients.length} client(s) x ${count}`;
   console.log(`running ${label} = ${plan.total} trials\n`);
 
-  const { rows, summary, skipped } = await runMatrix({
+  const { rows, summary, skipped, instanceSeed } = await runMatrix({
     tasks: taskList,
     modes: modeList,
     clients,
     count,
     parallel,
+    instanceSeed: Number.isInteger(args.instanceSeed) ? args.instanceSeed : null,
     judge,
     onEvent: (ev) => {
       if (ev.type !== "trial") return;
@@ -67,7 +68,7 @@ export async function main() {
     finishedAt: new Date().toISOString(),
     status: "done",
     source: "aggregate",
-    config: { tasks: taskList.map((t) => t.name), modes: modeList, clients: clients.map((c) => c.name), count, parallel, modelParams, judge: judge?.name ?? null },
+    config: { tasks: taskList.map((t) => t.name), modes: modeList, clients: clients.map((c) => c.name), count, parallel, instanceSeed, modelParams, judge: judge?.name ?? null },
     versions: benchVersions(),
     warnings: describeSkipped(skipped),
     progress: { completed: rows.length, total: rows.length },

@@ -108,6 +108,7 @@ function verdictsFrom(out) {
 export const task = {
   name: "regex",
   category: "tool-reasoning",
+  capabilities: ["tool-use","tool-selection"],
   description:
     "Report which strings match a target regex. Uses a correct regex tool plus a decoy tool; the " +
     "model must select the right tool and pass typed args.",

@@ -33,7 +33,9 @@ const SUT_BASE = `http://localhost:${SUT_PORT}`;
 
 // Source modules the browser may import, so the UI summarizes runs with the runner's own code
 // (see runner.js). Served under /lib/ and nowhere else.
-const BROWSER_LIB = new Set(["runner.js", "schema.js"]);
+// Every module runner.js imports (transitively) must be listed here, or the browser's import graph
+// fails and the UI goes blank — test/browser-lib.test.js checks it.
+const BROWSER_LIB = new Set(["runner.js", "schema.js", "tasks/gen.js"]);
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -58,7 +60,7 @@ function broadcast(id, event) {
   }
 }
 
-function startRun({ tasks, modes, clients, count, parallel = 1, modelParams = {}, judge: judgeSpec = null }) {
+function startRun({ tasks, modes, clients, count, parallel = 1, instanceSeed = null, modelParams = {}, judge: judgeSpec = null }) {
   const taskObjs = tasks.map(getTask);
   const clientObjs = resolveClients(clients, { modelParams });
   const judge = resolveJudge(judgeSpec);
@@ -81,7 +83,7 @@ function startRun({ tasks, modes, clients, count, parallel = 1, modelParams = {}
     finishedAt: null,
     status: "running",
     source: "web",
-    config: { tasks, modes, clients: clientObjs.map((c) => c.name), count, parallel, modelParams, judge: judge?.name ?? null },
+    config: { tasks, modes, clients: clientObjs.map((c) => c.name), count, parallel, instanceSeed, modelParams, judge: judge?.name ?? null },
     versions: benchVersions(),
     warnings: missing.length ? [`skipped (no API key or unknown provider): ${missing.join(", ")}`] : [],
     // The real total arrives with the runner's "start" event, once undeclared (task, mode) pairs
@@ -102,11 +104,13 @@ function startRun({ tasks, modes, clients, count, parallel = 1, modelParams = {}
         clients: clientObjs,
         count,
         parallel,
+        instanceSeed,
         judge,
         signal: controller.signal,
         onEvent: (ev) => {
           if (ev.type === "start") {
             run.progress = { completed: 0, total: ev.total };
+            run.config.instanceSeed = ev.instanceSeed; // chosen by the runner when none was given
             run.warnings.push(...describeSkipped(ev.skipped));
             saveRun(run);
           } else if (ev.type === "trial-start") {
@@ -195,6 +199,8 @@ function validateLaunch(body) {
   const clients = Array.isArray(body.clients) ? body.clients.filter(Boolean) : [];
   const count = Math.max(1, Math.min(20, Number(body.count) || 1));
   const parallel = Math.max(1, Math.min(16, Math.floor(Number(body.parallel)) || 1));
+  const instanceSeed = body.instanceSeed === undefined || body.instanceSeed === null || body.instanceSeed === "" ? null : Math.floor(Number(body.instanceSeed));
+  if (instanceSeed !== null && !Number.isFinite(instanceSeed)) throw new Error("instance seed must be an integer");
 
   if (!tasks.length) throw new Error("select at least one task");
   if (!modes.length) throw new Error("select at least one mode");
@@ -211,7 +217,7 @@ function validateLaunch(body) {
     modelParams[key] = n;
   }
   const judgeSpec = typeof body.judge === "string" && body.judge.trim() ? body.judge.trim() : null;
-  return { tasks, modes, clients, count, parallel, modelParams, judge: judgeSpec };
+  return { tasks, modes, clients, count, parallel, instanceSeed, modelParams, judge: judgeSpec };
 }
 
 async function handle(req, res) {

@@ -25,13 +25,14 @@ question: how much scaffolding does this checkpoint need to be useful?
 Design decisions that still hold: one OpenAI-compatible client and no SDKs; tools hit real
 implementations; identical scoring across modes; statistics before conclusions; zero runtime
 dependencies outside Node; the JSON run files are the source of truth and the SQLite index is
-rebuildable.
+rebuildable. One learned this week: a structured schema for a task that needs thinking must have a
+`work` field before the answer, or the schema measures answering-without-thinking, not the task.
 
 ## Where we stand
 
 | Dimension | What exists today |
 |---|---|
-| Tasks | 12: `health`, `hello`, `reason`, `lookup`, `regex`, `chain`, `transform`, `explain` (judged), `restock3/6/12/30` (stateful, end-state scored) |
+| Tasks | 21: `health`, `hello`, `reason`, `lookup`, `regex`, `chain`, `transform`, `explain` (judged), `restock3/6/12/30` (stateful, end-state scored), and the generated `wordmath2/4/6`, `datecalc1/3`, `logicgrid3/4`, `tally20/60` (minted per trial from the run's instance seed) |
 | Modes | `noHarness`, `harness`, `schemaOnly`, `toolOnly` — the tools × schema 2×2 |
 | Models | OpenAI, Anthropic, Groq, DeepSeek, Ollama (live-probed); real-harness arms Thoth, Claude Code, Pi, Codex |
 | Treatments | client variants paired against their base: `@skill:preload/ondemand/native`, `@agents:available/required`, `@stress:flaky/budget/haystack/distractors` |
@@ -41,7 +42,7 @@ rebuildable.
 | Data | one JSON per run, SQLite index (`index`, `query`, `--sql`, `compact`), CSV, versions on every run, cross-run cell history |
 | UI | Ledger design, live grid, dumbbell matrix, trial drawer with transcript and children, history filter |
 | SUT | the webserver: hello/health, the `/api/recent` log, inventory scenarios with tickets, confirm rules, stress profiles, op log |
-| Tests | 195, none needing a model; the webserver runs in-process |
+| Tests | 204, none needing a model; the webserver runs in-process |
 
 ## What the field measures that we do not
 
@@ -65,7 +66,7 @@ with a priority for the stated purpose:
 |---|---|---|---|---|
 | Tool use / function calling | BFCL v4 (AST + executable checks, parallel calls, irrelevance detection, 200 multi-turn trajectories), τ²-bench, MCP-Bench | six tool tasks, decoys, restock, stress profiles | parallel-call correctness at scale, irrelevance ("no tool fits") detection, nested chains of length k, tool-result injection | **high** |
 | Agentic multi-step | SWE-bench Verified, Terminal-Bench, GAIA, BrowseComp, OSWorld | restock family (3–30 steps), four real arms | other domains (files, terminal, scheduling), longer horizons, policy constraints | **high** |
-| Reasoning / math | GPQA Diamond, HLE, ARC-AGI-2, FrontierMath, LiveBench math | `reason` (three fixed problems) | seeded generators for verifiable reasoning at controllable difficulty; a calculator tool as the harness axis | **high** |
+| Reasoning / math | GPQA Diamond, HLE, ARC-AGI-2, FrontierMath, LiveBench math | `reason` plus the generated `wordmath`, `datecalc`, `logicgrid`, `tally` families with a calculator / date / query tool as the harness axis | harder tiers, unit conversions, spatial and ordering puzzles | medium (was high) |
 | Instruction following | IFEval (verifiable constraints), LiveBench IF | schema validity, format parsing | constraint families checkable by code, composed on any task | **high** (cheap) |
 | Long context | RULER / needle-in-a-haystack (multi-key, multi-value, aggregation) at 4 k–1 M | haystack of 60 items (a few k tokens) | generated logs at 8 k–128 k, position sweeps, aggregation, a search tool as the harness axis | high |
 | Structured extraction | LiveBench data analysis, enterprise extraction evals | `transform`, schema modes | generated documents with exact truth, joins across two sources | medium |
@@ -93,15 +94,19 @@ against it (the restock lengths are the prototype); seeds are private, so nothin
 a training set we do not control; the LLM judge is used only where no code can decide; every family
 declares the capability it measures and runs in the four modes where they mean something.
 
-- **[21] Reasoning and arithmetic generators.** Multi-step word problems with parameterized
-  quantities, unit / date / time arithmetic, counting and set logic, small logic-grid deductions,
-  constrained ordering. Free-form versus schema versus a **calculator tool** — the harness question
-  applied to reasoning: does a tool fix the arithmetic gpt-4o-mini gets wrong in prose and right in
-  JSON? Canonical answers come for free, so agreement measures stability here too.
-- **[22] Instruction-following constraints.** IFEval-style verifiable constraints composed on top of
-  any task's prompt: length in words or sentences, required and forbidden words, casing, key order in
-  JSON, bullet counts, a language. Scored by code; a *constraint adherence* rate next to correctness,
-  so "did the job" and "did it as told" stay separate.
+- **[21] Reasoning and arithmetic generators.** Shipped 2026-09-07 (see the changelog): `wordmath`,
+  `datecalc`, `logicgrid`, `tally`, instance seeds and capability tags. Left for later: unit
+  conversions, spatial/ordering puzzles, and harder difficulty tiers once the current ones saturate.
+- **[22] Instruction-following constraints and format effects.** IFEval-style verifiable constraints
+  composed on top of any task's prompt: length in words or sentences, required and forbidden words,
+  casing, key order in JSON, bullet counts, a language. Scored by code; a *constraint adherence* rate
+  next to correctness, so "did the job" and "did it as told" stay separate. Alongside it, **format
+  effects** as a first-class axis: the [21] runs showed that a JSON-only answer format ("no prose")
+  suppresses the working a problem needs — gpt-4o-mini fell from 4/4 to 0/4 on four-step word problems
+  in schema-only mode — and that a `work` field placed before the answer restores it (26 paired
+  instances flipped right, 2 wrong). The schemas of the generated families now carry that field;
+  the axis to measure is answer-only versus answer-with-work versus prose, per model, because it
+  decides how a checkpoint should be prompted in production.
 - **[23] Long-context retrieval and aggregation.** Generated logs and records served by the SUT
   (`GET /api/logs?scenario=…`) or inlined, from 8 k to 128 k tokens; single and multi needle, a
   position sweep, aggregation (count / sum over matches); with and without a search tool, so the
@@ -180,10 +185,10 @@ declares the capability it measures and runs in the four modes where they mean s
 
 ## Decisions needed
 
-1. **Order for the next month.** Recommendation: [21] reasoning generators and [22] constraints
-   first (cheap, verifiable, immediately useful on any checkpoint), [25] tool-use breadth with
-   injection, then [31]/[33] scorecards and paired statistics, and [35]/[36] own-model plumbing
-   before the first trained checkpoint exists.
+1. **Order for the next month.** [21] is done; recommendation for the rest: [22] constraints (cheap,
+   verifiable, immediately useful on any checkpoint), [25] tool-use breadth with injection, then
+   [31]/[33] scorecards and paired statistics, and [35]/[36] own-model plumbing before the first
+   trained checkpoint exists.
 2. **Code sandbox.** Worker-thread isolation keeps the zero-dependency rule but is weaker; Docker is
    stronger and a dependency. This gates [27].
 3. **Scope of knowledge and safety.** Exclude closed-book knowledge as an axis? Include tool-result

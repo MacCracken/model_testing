@@ -75,6 +75,7 @@ function fetched(ground) {
 export const task = {
   name: "lookup",
   category: "api-call",
+  capabilities: ["tool-use","extraction"],
   description:
     "Fetch the live server id for three names. The ids are random and only the tool can produce them.",
   model: labelModel,

@@ -71,6 +71,7 @@ function messageOf(entry) {
 export const task = {
   name: "hello",
   category: "api-call",
+  capabilities: ["tool-use","extraction"],
   description: "Fetch the real greeting for three names and report them verbatim.",
   model: labelModel,
 

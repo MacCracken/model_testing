@@ -8,6 +8,7 @@
 // `/lib/runner.js`, so the UI summarizes runs with this exact code instead of a copy that drifts.
 
 import { validateSchema, schemaHint } from "./schema.js";
+import { seedFor } from "./tasks/gen.js";
 
 // Every mode the benchmark knows. `noHarness` vs `harness` is the headline pair; `schemaOnly` and
 // `toolOnly` are the two axes the bundle decomposes into. A task supports a mode by carrying a spec
@@ -49,7 +50,10 @@ async function resolveGround(task, ctx) {
 }
 
 /** Run a single (task, mode, client) trial once and score it. Never throws. */
-export async function runTrial({ task, mode, client, index = 1, signal, maxRounds = 4, judge = null }) {
+export async function runTrial({ task, mode, client, index = 1, signal, maxRounds = 4, judge = null, seed = null }) {
+  // The instance seed: a generated task mints its problem from it, so the same seed re-mints the same
+  // problem for every mode, client and later checkpoint. runMatrix derives it from the run's seed.
+  const instance = Number.isInteger(seed) ? seed >>> 0 : seedFor(0, task.name, index);
   // A task carries a spec per mode (task[mode]). planMatrix only schedules the modes a task
   // declares, so a missing spec here means runTrial was called directly with a bad pair.
   const spec = task[mode];
@@ -93,6 +97,7 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
     agents: client.agents ? { how: client.agents, applied: false, delegations: 0, childCalls: 0, childTokens: 0, children: [] } : null,
     stress: client.stress ? { how: client.stress, applied: false } : null,
     baseClient: client.baseName ?? null,
+    seed: instance,
     error: null,
   };
 
@@ -105,7 +110,7 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
   try {
     // Per-trial context: a task with `setup` prepares isolated state (an inventory scenario, say),
     // and its prompts, goal, truth and scorers may be functions of it.
-    const ctx = typeof task.setup === "function" ? await task.setup({ mode, index, signal, client }) : null;
+    const ctx = typeof task.setup === "function" ? await task.setup({ mode, index, signal, client, seed: instance }) : null;
     record.ctx = ctx;
     const text = (v) => (typeof v === "function" ? v(ctx ?? {}) : v);
     const rspec = { ...spec, prompt: text(spec.prompt), system: text(spec.system), tools: text(spec.tools) };
@@ -253,9 +258,11 @@ export function planMatrix({ tasks, modes, clients, count = 1 }) {
  * Run the full tasks x modes x clients matrix, `count` trials per cell.
  * `onEvent` receives { type: "start" | "trial" | "done", ... } as work completes.
  */
-export async function runMatrix({ tasks, modes, clients, count = 1, parallel = 1, onEvent, signal, maxRounds, judge = null }) {
+export async function runMatrix({ tasks, modes, clients, count = 1, parallel = 1, instanceSeed = null, onEvent, signal, maxRounds, judge = null }) {
   const { cells, skipped, total } = planMatrix({ tasks, modes, clients, count });
   const limit = Math.max(1, Math.floor(Number(parallel)) || 1);
+  // One seed per run mints every generated instance; recorded so a run can be replayed exactly.
+  const runSeed = Number.isInteger(Number(instanceSeed)) && instanceSeed !== null ? Number(instanceSeed) >>> 0 : Math.floor(Math.random() * 2 ** 31);
   const rows = [];
   let completed = 0;
 
@@ -268,6 +275,7 @@ export async function runMatrix({ tasks, modes, clients, count = 1, parallel = 1
     clients: clients.map((c) => c.name),
     count,
     parallel: limit,
+    instanceSeed: runSeed,
   });
 
   // Trials in plan order (task → mode → client → index). Up to `limit` are in flight at once,
@@ -283,7 +291,7 @@ export async function runMatrix({ tasks, modes, clients, count = 1, parallel = 1
   const running = new Set();
   const start = (item) => {
     onEvent?.({ type: "trial-start", task: item.task.name, mode: item.mode, client: item.client.name, index: item.index, total });
-    const p = runTrial({ ...item, signal, maxRounds, judge })
+    const p = runTrial({ ...item, seed: seedFor(runSeed, item.task.name, item.index), signal, maxRounds, judge })
       .then((row) => {
         rows.push(row);
         completed += 1;
@@ -308,8 +316,8 @@ export async function runMatrix({ tasks, modes, clients, count = 1, parallel = 1
   await Promise.all(running);
 
   const summary = summarize(rows);
-  onEvent?.({ type: "done", completed, total, summary, skipped, cancelled: !!signal?.aborted });
-  return { rows, summary, skipped };
+  onEvent?.({ type: "done", completed, total, summary, skipped, cancelled: !!signal?.aborted, instanceSeed: runSeed });
+  return { rows, summary, skipped, instanceSeed: runSeed };
 }
 
 // ---- statistical significance --------------------------------------------------------------
