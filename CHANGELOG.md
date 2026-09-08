@@ -1,8 +1,8 @@
 # Changelog
 
 What shipped, by date. Full measurement tables live in [docs/results.md](docs/results.md); the
-forward roadmap is [plan.md](plan.md). Dates are the commit dates; item numbers ([1]–[20]) are the
-roadmap tiers as they were numbered while being built.
+forward roadmap is [plan.md](plan.md). Dates are the commit dates; item numbers ([1]–[49]) are the
+roadmap's, stable across the plan, this file and the results.
 
 ## 2026-09-08 (night) — difficulty curves and regression detection
 
@@ -40,6 +40,11 @@ roadmap tiers as they were numbered while being built.
   model changing, which is what the per-task balance is for.
 - Tests: 239 (curves and breaking points, series, regressions with a task-mix change and a lopsided
   pool, parent gaps, and every family task carrying its knob).
+
+### Changed
+- `plan.md` lists open work only: the shipped items ([21]–[23], [25], [31]–[36] and the preset half
+  of [37]) were removed, their leftovers collected as [48] (follow-ups on the shipped families) and
+  [49] (scorecard and trend views), and a "Start here" handoff section opens the file.
 
 ## 2026-09-08 (evening) — long context
 

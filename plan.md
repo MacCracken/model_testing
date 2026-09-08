@@ -1,8 +1,30 @@
 # LLM Harness Benchmark — roadmap
 
 Forward-facing only. What shipped, by date, is in [CHANGELOG.md](CHANGELOG.md); every measurement
-table is in [docs/results.md](docs/results.md). This file says what the project is for now, what it
-has, what the field measures that it does not, and what to build next.
+table is in [docs/results.md](docs/results.md). This file says what the project is for, where it
+stands, what the field measures that it does not, and what to build next.
+
+## Start here (handoff, 2026-09-08)
+
+- **Run it.** `npm test` (239 tests; no model or server needed), then `node src/cli.js serve` for
+  the UI on :4000 and `node webserver/server.js` for the system under test on :3000 (`SUT_PORT`).
+  Keys and `LOCAL_ENDPOINTS` live in `.env`; runs land in `results/runs/`, the SQLite index beside
+  them (`node src/cli.js index --full` rebuilds it).
+- **Read it.** `node src/cli.js show <run> --table` for one run; `scorecard <client>`,
+  `curve <family>`, `regressions` and `compare` for questions across runs. Every table ever quoted
+  is in docs/results.md; the "Measured" sections of the changelog carry the conclusions.
+- **Conventions.** This file holds open work only; an item moves to the changelog the day it
+  lands, its numbers to docs/results.md; every claim is tied to a test or a saved run; zero
+  runtime dependencies; the JSON run files are the source of truth and the index is rebuildable;
+  a schema for a task that needs thinking has a `work` field before the answer.
+- **Next**, in the recommended order: the gates half of [37], then [39] replay, then [24]
+  extraction and [26] multi-turn. [48] and [49] collect follow-ups on shipped work for any spare
+  hour. The decisions at the end are the user's; two of them block work ([27]'s sandbox, the
+  hosted-model budget).
+- **Environment notes.** Ollama on :11434 serves `ornith-1.5:9b` (at ceiling on the easy tool
+  tasks, 100 % on restock3); `qwen3.5` is parked on its thinking output. The arms need their own
+  logins (`codex login`, Claude Code, Pi); Thoth runs on the arch host (README, "Thoth"). The
+  webserver keeps scenarios and logs in memory, so restarting it mid-run loses them.
 
 ## Purpose (restated 2026-09-07)
 
@@ -25,7 +47,7 @@ question: how much scaffolding does this checkpoint need to be useful?
 Design decisions that still hold: one OpenAI-compatible client and no SDKs; tools hit real
 implementations; identical scoring across modes; statistics before conclusions; zero runtime
 dependencies outside Node; the JSON run files are the source of truth and the SQLite index is
-rebuildable. One learned this week: a structured schema for a task that needs thinking must have a
+rebuildable. Learned on 2026-09-07: a structured schema for a task that needs thinking must have a
 `work` field before the answer, or the schema measures answering-without-thinking, not the task.
 
 ## Where we stand
@@ -35,13 +57,13 @@ rebuildable. One learned this week: a structured schema for a task that needs th
 | Tasks | 29: `health`, `hello`, `reason`, `lookup`, `regex`, `chain`, `transform`, `explain` (judged), `restock3/6/12/30` (stateful, end-state scored), the generated `wordmath2/4/6`, `datecalc1/3`, `logicgrid3/4`, `tally20/60`, the scenario-backed `fanout4/8`, `follow3/6`, `norelevant`, and the long-context `needle8k/32k/100k` (all minted per trial from the run's instance seed); every family with a knob carries `family` and `level` |
 | Modes | `noHarness`, `harness`, `schemaOnly`, `toolOnly` — the tools × schema 2×2 |
 | Models | OpenAI, Anthropic, Groq, DeepSeek, Ollama (live-probed), any named OpenAI-compatible endpoint (`LOCAL_ENDPOINTS`); real-harness arms Thoth, Claude Code, Pi, Codex; lineage per client from `models/lineage.json` |
-| Treatments | client variants paired against their base: `@skill:preload/ondemand/native`, `@agents:available/required`, `@stress:flaky/budget/haystack/distractors`, `@constraints:light/medium/heavy`; stress adds `injected` (prompt injection through tool output) |
-| Scoring | deterministic scorers per task; truth from the trial (tool results) or the server's end state; tool-use verdicts; one judged task |
+| Treatments | client variants paired against their base: `@skill:preload/ondemand/native`, `@agents:available/required`, `@stress:flaky/budget/haystack/distractors/injected`, `@constraints:light/medium/heavy` |
+| Scoring | deterministic scorers per task; truth from the trial (tool results) or the server's end state; tool-use verdicts; hijack verdicts from the op log; one judged task |
 | Statistics | Fisher exact with the "inconclusive" floor, Wilson bands, 2×2 decomposition, per-arm and per-variant deltas, McNemar + bootstrap on paired instances, power guidance, Bonferroni over cells, stability (agreement, flaky cells), a capability scorecard per run and over the index, difficulty curves with breaking points, regression flags over the index (latest against earlier runs per task, checkpoint against parent) |
 | Throughput | parallel trials (arms run alone), 48 trials in 8 s on a hosted model |
-| Data | one JSON per run, SQLite index (`index`, `query`, `--sql`, `compact`), CSV, versions on every run, cross-run cell history |
+| Data | one JSON per run, SQLite index (`index`, `query`, `--sql`, `compact`), CSV, versions and lineage on every run, cross-run cell history, suite presets `smoke|standard|full` |
 | UI | Ledger design, live grid, dumbbell matrix, capability scorecard with regression lines, difficulty curves, paired comparison block, trial drawer with transcript and children, history filter |
-| SUT | the webserver: hello/health, the `/api/recent` log, inventory scenarios with tickets, confirm rules, stress profiles, op log |
+| SUT | the webserver: hello/health, the `/api/recent` log, inventory scenarios with tickets, confirm rules, stress profiles and op log, text logs with grep and count |
 | Tests | 239, none needing a model; the webserver runs in-process |
 
 ## What the field measures that we do not
@@ -64,58 +86,42 @@ with a priority for the stated purpose:
 
 | Capability area | What the field runs | What we have | Gap | Priority |
 |---|---|---|---|---|
-| Tool use / function calling | BFCL v4 (AST + executable checks, parallel calls, irrelevance detection, 200 multi-turn trajectories), τ²-bench, MCP-Bench | six tool tasks, decoys, restock, stress profiles, `fanout` (parallel calls), `follow` (dependency chains), `norelevant` (irrelevance), the `injected` profile | argument-type strictness, harder near-miss irrelevance, partial-result recovery, multi-turn trajectories | medium (was high) |
+| Tool use / function calling | BFCL v4 (AST + executable checks, parallel calls, irrelevance detection, 200 multi-turn trajectories), τ²-bench, MCP-Bench | six tool tasks, decoys, restock, stress profiles, `fanout` (parallel calls), `follow` (dependency chains), `norelevant` (irrelevance), the `injected` profile | argument-type strictness, harder near-miss irrelevance, partial-result recovery ([48]), multi-turn trajectories ([26]) | medium |
 | Agentic multi-step | SWE-bench Verified, Terminal-Bench, GAIA, BrowseComp, OSWorld | restock family (3–30 steps), four real arms | other domains (files, terminal, scheduling), longer horizons, policy constraints | **high** |
-| Reasoning / math | GPQA Diamond, HLE, ARC-AGI-2, FrontierMath, LiveBench math | `reason` plus the generated `wordmath`, `datecalc`, `logicgrid`, `tally` families with a calculator / date / query tool as the harness axis | harder tiers, unit conversions, spatial and ordering puzzles | medium (was high) |
-| Instruction following | IFEval (verifiable constraints), LiveBench IF | `@constraints` variants: eleven requirement families checked by code on any task, adherence beside correctness | more families (sentences, language), requirements across turns, a `@format` variant | low (was high) |
-| Long context | RULER / needle-in-a-haystack (multi-key, multi-value, aggregation) at 4 k–1 M | `needle8k/32k/100k`: single needle with recorded depth, multi-needle, aggregation; grep/count tools as the harness axis | larger sizes, a depth-sweep view, multi-hop questions | medium (was high) |
-| Structured extraction | LiveBench data analysis, enterprise extraction evals | `transform`, schema modes | generated documents with exact truth, joins across two sources | medium |
-| Statistics & reproducibility | HELM CIs, Inspect logs, lm-eval fixed prompts and versions | Fisher, Wilson, seeds, versions, canonical answers, index, McNemar + bootstrap on paired instances, power guidance, Bonferroni, `cli compare` | lineage-aware pooling of the scorecard | low (was high) |
-| Own-model workflow | lm-eval HF/vLLM backends; W&B / MLflow tracking; per-checkpoint scoreboards | named endpoints for any OpenAI-compatible server, `docs/serving.md`, `models/lineage.json` on every run and in the index, `cli models` / `suite` / `compare --parent`, the UI compare block | gates with exit codes, contamination policy ([38]), replay ([39]), per-family scorecards | medium (was high) |
-| Coding | HumanEval → LiveCodeBench → SWE-bench | none | sandboxed execution of generated specs with hidden tests | medium (needs a sandbox decision) |
-| Calibration & abstention | HELM calibration (ECE); "answer or abstain" splits | hedge detection in one scorer | confidence elicitation, Brier/ECE per cell, unanswerable variants | medium |
-| Robustness / consistency | HELM perturbations; paraphrase suites | agreement, flaky cells, stressors | paraphrase and ordering perturbations minted by generators | medium |
-| Multi-turn & user simulation | τ²-bench user simulator, MT-Bench | single-turn goals | scripted user turns driven by scenario state | medium |
-| Safety for agents | AgentDojo (prompt injection through tool results), over-refusal suites | none | injection as a stress profile; over-refusal on benign borderline tasks | medium (injection) |
-| Preference / open-ended | LMArena, Arena-Hard-Auto (pairwise judge, Bradley-Terry) | absolute judge score on one task | position-swapped pairwise judging, ratings, judge calibration against human labels | low–medium |
+| Reasoning / math | GPQA Diamond, HLE, ARC-AGI-2, FrontierMath, LiveBench math | `reason` plus the generated `wordmath`, `datecalc`, `logicgrid`, `tally` families with a calculator / date / query tool as the harness axis | harder tiers, unit conversions, spatial and ordering puzzles ([48]) | medium |
+| Instruction following | IFEval (verifiable constraints), LiveBench IF | `@constraints` variants: eleven requirement families checked by code on any task, adherence beside correctness | more families (sentences, language), requirements across turns, a `@format` variant ([48]) | low |
+| Long context | RULER / needle-in-a-haystack (multi-key, multi-value, aggregation) at 4 k–1 M | `needle8k/32k/100k`: single needle with recorded depth, multi-needle, aggregation; grep/count tools as the harness axis | larger sizes, a depth-sweep view, multi-hop questions ([48]) | medium |
+| Structured extraction | LiveBench data analysis, enterprise extraction evals | `transform`, schema modes | generated documents with exact truth, joins across two sources ([24]) | medium |
+| Statistics & reproducibility | HELM CIs, Inspect logs, lm-eval fixed prompts and versions | Fisher, Wilson, seeds, versions, canonical answers, index, McNemar + bootstrap on paired instances, power guidance, Bonferroni, curves, regression flags, `cli compare` | lineage-pooled scorecards and trend views ([49]), replay ([39]) | low |
+| Own-model workflow | lm-eval HF/vLLM backends; W&B / MLflow tracking; per-checkpoint scoreboards | named endpoints for any OpenAI-compatible server, `docs/serving.md`, `models/lineage.json` on every run and in the index, `cli models` / `suite` / `compare --parent` / `regressions`, the UI compare block | gates with exit codes ([37]), contamination policy ([38]), replay ([39]) | medium |
+| Coding | HumanEval → LiveCodeBench → SWE-bench | none | sandboxed execution of generated specs with hidden tests ([27]) | medium (needs a sandbox decision) |
+| Calibration & abstention | HELM calibration (ECE); "answer or abstain" splits | hedge detection in one scorer, `norelevant`'s unanswerable half | confidence elicitation, Brier/ECE per cell, unanswerable variants everywhere ([28]) | medium |
+| Robustness / consistency | HELM perturbations; paraphrase suites | agreement, flaky cells, stressors | paraphrase and ordering perturbations minted by generators ([29]) | medium |
+| Multi-turn & user simulation | τ²-bench user simulator, MT-Bench | single-turn goals | scripted user turns driven by scenario state ([26]) | medium |
+| Safety for agents | AgentDojo (prompt injection through tool results), over-refusal suites | the `injected` stress profile (two payloads, hijack verdicts) | over-refusal on benign borderline tasks; injection through documents once [24] exists | medium |
+| Preference / open-ended | LMArena, Arena-Hard-Auto (pairwise judge, Bradley-Terry) | absolute judge score on one task | position-swapped pairwise judging, ratings, judge calibration against human labels ([30]) | low–medium |
 | Knowledge / factuality | MMLU-Pro, SimpleQA, HLE | none, by design | only open-book (facts served by the SUT) — closed-book knowledge is the most contaminated axis and the least ours | low |
 | Multimodal | MMMU and successors | none | out of scope unless the trained models are multimodal | low |
-| Cost | tokens everywhere, currency in some | tokens, latency, TTFT | a price table → cost per correct answer | low (easy) |
+| Cost | tokens everywhere, currency in some | tokens, latency, TTFT | a price table → cost per correct answer ([45]) | low (easy) |
 
 ## Roadmap
 
-Items continue the numbering from the shipped tiers ([1]–[20], see the changelog).
+Numbers are stable across this file, the changelog and the results. [1]–[23], [25] and [31]–[36]
+have shipped and are described in the changelog, as is the preset half of [37]; only open work is
+listed here.
 
 ### Tier 8 — Capability families by generator
 
 Principles for every family: a **generator** takes a seed and a difficulty and mints an instance
 with its truth; a **scorer in code** decides; a **difficulty knob** exists so success can be drawn
-against it (the restock lengths are the prototype); seeds are private, so nothing here can leak into
-a training set we do not control; the LLM judge is used only where no code can decide; every family
-declares the capability it measures and runs in the four modes where they mean something.
+against it (`family` / `level` on the task, which the curves read); seeds are private, so nothing
+here can leak into a training set we do not control; the LLM judge is used only where no code can
+decide; every family declares the capabilities it measures and runs in the four modes where they
+mean something; a structured schema carries `work` before the answer.
 
-- **[21] Reasoning and arithmetic generators.** Shipped 2026-09-07 (see the changelog): `wordmath`,
-  `datecalc`, `logicgrid`, `tally`, instance seeds and capability tags. Left for later: unit
-  conversions, spatial/ordering puzzles, and harder difficulty tiers once the current ones saturate.
-- **[22] Instruction-following constraints and format effects.** Shipped 2026-09-07 (see the
-  changelog): `@constraints:light|medium|heavy` with eight free-form and three JSON requirement
-  families checked by code, adherence beside the correctness delta; the format-effects measurement
-  (answer-only versus answer-with-`work` schemas) is in docs/results.md. Left for later: a `@format`
-  variant that strips or adds the `work` field on any schema so the axis can be run on demand,
-  language and length-in-sentences families, and requirements composed across turns.
-- **[23] Long-context retrieval and aggregation.** Shipped 2026-09-08 (see the changelog): the
-  `needle8k/32k/100k` family with single, multi and aggregation questions, a recorded needle depth,
-  and grep/count tools over the same log on the server. Left for later: sizes past 100 k for models
-  that take them, a depth-sweep view over the rows, and multi-hop questions (find a line, then a
-  second line it refers to).
 - **[24] Structured extraction from generated documents.** Invoices, tickets and tables with known
   truth → JSON under a schema; joins across two documents; tolerance rules for numbers and dates.
-- **[25] Tool-use breadth.** Shipped 2026-09-08 (see the changelog): `fanout4/8` (parallel-call
-  correctness, with the verdict reading rounds), `follow3/6` (dependency chains), `norelevant`
-  (irrelevance detection with an answerable half), and the `injected` stress profile (instructions
-  inside tool output, scored as a hijack). Left for later: argument-type strictness (a tool whose
-  server rejects wrong types), a harder irrelevance set (near-miss questions about fields that
-  almost exist), and recovery from partial results.
+  The natural place for injection through documents rather than tool output.
 - **[26] Multi-turn with a scripted user.** The SUT plays the user from a scenario script —
   information revealed over turns, a change of mind mid-job — with τ²-style policy constraints
   ("never restock above target") whose violations are scored.
@@ -123,39 +129,32 @@ declares the capability it measures and runs in the four modes where they mean s
   (worker threads with limits, or a container — see decisions); repository-scale tasks later.
 - **[28] Calibration and abstention.** A stated confidence with every answer → Brier score and ECE
   per cell; generators mint unanswerable variants so abstention is rewarded over fabrication (the
-  `lookup` refuse-versus-fabricate split, made systematic).
+  `lookup` refuse-versus-fabricate split and `norelevant`'s unanswerable half, made systematic).
 - **[29] Robustness perturbations.** Paraphrase, ordering and format perturbations minted by the
   generators; consistency across perturbations as a metric beside agreement.
 - **[30] Pairwise mode for open-ended tasks.** Position-swapped pairwise judging with Bradley-Terry
   ratings across models; the judge calibrated against a small human-labelled set before it is trusted.
+- **[48] Follow-ups on the shipped families.** Generators: unit conversions, spatial and ordering
+  puzzles, harder tiers once the current ones saturate (Haiku 4.5 already sits at ceiling on most).
+  Constraints: a `@format` variant that strips or adds the `work` field on any schema so the format
+  axis runs on demand; language and length-in-sentences families; requirements composed across
+  turns. Long context: sizes past 100 k for models that take them, a depth-sweep view over the
+  recorded needle depths, multi-hop questions (a line that refers to a second line). Tool breadth:
+  argument-type strictness (a tool whose server rejects wrong types), near-miss irrelevance
+  (questions about fields that almost exist), recovery from partial results.
 
 ### Tier 9 — Scorecards and the statistics of judgment
 
-- **[31] Capability map and scorecard.** Shipped 2026-09-08 (see the changelog): tags on every
-  task, `capabilityStats`, the per-run panel, `cli scorecard` and `/api/scorecard` over the index.
-  Left for later: a radar per model in the UI, and pooling by model lineage once [36] exists.
-- **[32] Difficulty curves.** Shipped 2026-09-08 (see the changelog): `family` / `level` on every
-  knobbed family, `curves` in `summarize`, the UI panel, the report and `cli curve` over the index,
-  with the breaking point (first level whose band tops out under 50 %).
-- **[33] Paired comparisons.** Shipped 2026-09-08 (see the changelog): McNemar's exact test and a
-  bootstrap band on every paired delta, power guidance, Bonferroni over a run's cells, and
-  `cli compare` for two clients or two runs on the same seed.
-- **[34] Trend and regression detection.** Shipped 2026-09-08 (see the changelog): `src/trends.js`,
-  `cli trend` / `cli regressions`, `/api/regressions` and the lines under the UI scorecard — a
-  model's latest run of each task against its earlier runs, balanced per task, and a checkpoint
-  against its lineage parent; flagged when the later band lies under the earlier one. Left for
-  later: a sparkline per capability in the UI, and alerts pushed somewhere other than the report.
+- **[49] Scorecard and trend views.** A radar per model; the scorecard pooled by lineage family
+  across checkpoints; a sparkline per capability from the series behind `cli trend`; regression
+  flags delivered somewhere other than the report (a file CI reads, or a webhook); a lineage graph
+  in the UI.
 
 ### Tier 10 — Own-model workflow
 
-- **[35] Serving recipes** and **[36] model registry and lineage.** Shipped 2026-09-08 (see the
-  changelog): `LOCAL_ENDPOINTS` providers, `docs/serving.md` (vLLM / llama.cpp / MLX / Ollama with
-  tool calling on), `models/lineage.json`, lineage on runs and in the index, `cli models`, `compare
-  --parent`, the paired-comparison block in the UI with B from any run on the same seed. Left for
-  later: pooling the scorecard by family across checkpoints, and a lineage graph in the UI.
-- **[37] Suites and gates.** Presets shipped 2026-09-08 (`cli suite smoke|standard|full`, recorded as
-  `config.suite`). Open: `--gate` thresholds per capability with exit codes so a checkpoint can fail
-  CI, time-boxing, and a nightly definition.
+- **[37] Gates.** `--gate` thresholds per capability (and per family level) with exit codes, so a
+  checkpoint can fail CI — built on the suite presets, the scorecard and the regression rule that
+  already exist; time-boxing per suite; a nightly definition.
 - **[38] Contamination policy.** Private seed pools per training generation, a "minted after
   checkpoint" flag on instances, seeds never published, and an optional hook that hashes our
   instances against a training corpus before a run is trusted.
@@ -180,22 +179,21 @@ declares the capability it measures and runs in the four modes where they mean s
 - **[44]** Thoth's tool access (an operator decision) and running the bench beside hoosh on arch.
 - **[45]** Cost in currency: a provider price table → cost per trial and per correct answer; a
   correctness × cost × latency view.
-- **[46]** Providers: Gemini (OpenAI-compatible route), Mistral, xAI, local vLLM; a reasoning-effort
-  knob per provider (the qwen3.5 thinking problem).
+- **[46]** Providers: Gemini (OpenAI-compatible route), Mistral, xAI; a reasoning-effort knob per
+  provider (the qwen3.5 thinking problem).
 - **[47]** Variance across settings (the old [16]): agreement at temperature 0 versus default, flake
   rate over time, canonical answers for `transform` and `chain`.
 
 ## Decisions needed
 
-1. **Order for the next month.** [21], [22], [23], [25], [31], [32], [33], [34], [35] and [36] are
-   done, with suite presets from [37]; recommendation for the rest: the gates half of [37] (thresholds
-   per capability, exit codes) and [39] replay, then [24] extraction and [26] multi-turn.
+1. **Order for the next month.** Recommendation: the gates half of [37] and [39] replay, then [24]
+   extraction and [26] multi-turn, with [48] and [49] as fill-in.
 2. **Code sandbox.** Worker-thread isolation keeps the zero-dependency rule but is weaker; Docker is
    stronger and a dependency. This gates [27].
-3. **Scope of knowledge and safety.** Exclude closed-book knowledge as an axis? Include tool-result
-   injection and over-refusal?
-4. **Serving stack for trained checkpoints** (vLLM, llama.cpp, MLX) — decides which recipe in [35]
-   is written first.
+3. **Scope of knowledge and safety.** Exclude closed-book knowledge as an axis? Add over-refusal on
+   benign borderline tasks? (Injection through tool output is built, as the `injected` profile.)
+4. **Serving stack for trained checkpoints** (vLLM, llama.cpp, MLX) — decides which recipe in
+   docs/serving.md gets exercised first and which endpoint the suite presets default to.
 5. **Hosted-model budget** for standing matrices, and the Tier 5 leftovers: the cross-harness model
    set, and Thoth's tool policy.
 
