@@ -72,7 +72,7 @@ export class PiClient {
     throw new Error("the pi arm only runs structured modes; use a synthetic client for the free-form baseline");
   }
 
-  async runWithTools(prompt, _tools, system, { signal, task, mode, timeoutMs = this.timeoutMs } = {}) {
+  async runWithTools(prompt, _tools, system, { signal, task, mode, ctx = null, timeoutMs = this.timeoutMs } = {}) {
     const slash = this.model.indexOf("/");
     const providerName = slash === -1 ? null : this.model.slice(0, slash);
     const modelId = slash === -1 ? this.model : this.model.slice(slash + 1);
@@ -81,7 +81,7 @@ export class PiClient {
       ...(providerName ? ["--provider", providerName] : []), "--model", modelId,
       "--tools", this.tools,
       ...(this.apiKey ? ["--api-key", this.apiKey] : []),
-      goalPrompt(task, mode, prompt),
+      goalPrompt(task, mode, prompt, ctx),
     ];
     const env = { ...process.env };
     for (const k of Object.keys(env)) if (k === "CLAUDECODE" || k.startsWith("CLAUDE_CODE_")) delete env[k];

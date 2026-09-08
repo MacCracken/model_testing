@@ -84,9 +84,9 @@ export class ClaudeCodeClient {
     throw new Error("the claude-code arm only runs structured modes; use a synthetic client for the free-form baseline");
   }
 
-  async runWithTools(prompt, _tools, system, { signal, task, mode, timeoutMs = this.timeoutMs } = {}) {
+  async runWithTools(prompt, _tools, system, { signal, task, mode, ctx = null, timeoutMs = this.timeoutMs } = {}) {
     const argv = [
-      ...splitCommand(this.command), "-p", goalPrompt(task, mode, prompt),
+      ...splitCommand(this.command), "-p", goalPrompt(task, mode, prompt, ctx),
       "--bare", "--output-format", "stream-json", "--verbose", "--model", this.model, "--no-session-persistence",
       "--allowedTools", this.tools, "--permission-mode", "bypassPermissions",
     ];

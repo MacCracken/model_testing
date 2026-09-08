@@ -923,6 +923,16 @@ function renderDetail() {
     body.append(el("div", { className: "eyebrow" }, "Schema errors"), el("pre", { className: "bad-pre" }, r.schemaErrors.join("\n")));
   }
 
+  // Stateful tasks carry the context their trial ran against (restock: the scenario and its items).
+  if (r.ctx && typeof r.ctx === "object" && Object.keys(r.ctx).length) {
+    const items = Array.isArray(r.ctx.items) ? r.ctx.items : null;
+    const low = items ? items.filter((i) => i.qty < i.min).length : null;
+    body.append(
+      el("div", { className: "eyebrow" }, "Trial context"),
+      el("div", { className: "hint" }, items ? `scenario ${r.ctx.scenario} · ${plural(items.length, "item")} · ${plural(low, "low item")}` : JSON.stringify(r.ctx).slice(0, 200)),
+    );
+  }
+
   // The same task × model × mode cell across every saved run, from the index.
   const across = el("div", { className: "hint" }, "across runs: …");
   body.append(el("div", { className: "eyebrow" }, "Across runs"), across);

@@ -70,10 +70,10 @@ export class CodexClient {
     throw new Error("the codex arm only runs structured modes; use a synthetic client for the free-form baseline");
   }
 
-  async runWithTools(prompt, _tools, system, { signal, task, mode, timeoutMs = this.timeoutMs } = {}) {
+  async runWithTools(prompt, _tools, system, { signal, task, mode, ctx = null, timeoutMs = this.timeoutMs } = {}) {
     const argv = [
       ...splitCommand(this.command), "exec", "--json", "--ephemeral", "--skip-git-repo-check", "-C", this.cwd,
-      "-m", this.model, ...splitCommand(this.sandboxArgs), goalPrompt(task, mode, prompt),
+      "-m", this.model, ...splitCommand(this.sandboxArgs), goalPrompt(task, mode, prompt, ctx),
     ];
     const env = { ...process.env };
     for (const k of Object.keys(env)) if (k === "CLAUDECODE" || k.startsWith("CLAUDE_CODE_")) delete env[k];

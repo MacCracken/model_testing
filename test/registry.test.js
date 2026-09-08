@@ -19,7 +19,9 @@ test("every declared spec is well-formed for its mode", () => {
     for (const mode of MODE_NAMES) {
       const spec = t[mode];
       if (!spec) continue;
-      assert.ok(typeof spec.prompt === "string" && spec.prompt.length > 20, `${t.name}/${mode} has a prompt`);
+      // A prompt is a string, or a function of the trial context for tasks with a per-trial setup.
+      const prompt = typeof spec.prompt === "function" ? spec.prompt({ scenario: "scn-test", items: [], low: 3, size: 8 }) : spec.prompt;
+      assert.ok(typeof prompt === "string" && prompt.length > 20, `${t.name}/${mode} has a prompt`);
       if (isStructuredMode(mode)) {
         assert.ok(spec.schema && typeof spec.schema === "object", `${t.name}/${mode} carries a schema`);
       } else {

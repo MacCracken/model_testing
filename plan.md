@@ -477,16 +477,45 @@ cheap to get by running repeated trials in parallel instead of one after another
   unique name (a nonce in the goal prompt) and `recentGreetings` matched on it instead of on the
   time window.
 
-### Tier 7 — Agents: harder tasks, sub-agents, skills (OPEN — added 2026-09-07)
+### Tier 7 — Agents: harder tasks, sub-agents, skills (STARTED 2026-09-07 — [17] built; [18]–[20] open)
 
 Everything so far is one goal, one or two tool calls, one answer. The next capability question is
 what a harness buys on **harder** work, where the axes belong to the agent rather than the prompt:
 
-- **[17] Multi-step tasks.** Goals that need several dependent calls with state carried between
-  them — `chain` was the first, and Pi and Codex already failed it by skipping the dependent second
-  call. Grow the SUT by a few endpoints (list, create, update, verify) so a task can read "find every
-  X, change the ones that Y, confirm" and be scored on the **server's end state**, not only the final
-  message. Step count is a knob (3, 6, 12) so success-versus-length can be drawn per harness.
+- **[17] Multi-step tasks.** **BUILT** (2026-09-07; arms measured below as they come in). The
+  `restock` family — `restock3`, `restock6`, `restock12` — is one job at three lengths against a new
+  stateful corner of the SUT: **inventory scenarios** (`POST /api/scenarios` mints an isolated
+  inventory of 2K+2 items, K of them below their minimum; `GET …/items`, `PATCH …/items/:id` →
+  `{ item, ticket }`, `GET …/summary`, `POST …/confirm { tickets }`). The job: list, update every
+  low item to its target with status `reordered` (one dependent call each), confirm with the complete
+  ticket set, report the ids changed and the server's total afterwards. Two rules make it agentic
+  rather than clerical: the server **refuses to confirm while any item is still low** (409 with a
+  count, no ids — the agent has to go back and look), and truth is the **server's end state** read
+  after the answer (`GET /api/scenarios/:sid`), so a right-looking report over an unchanged inventory
+  scores wrong. Plumbing this needed: a per-trial `setup()` hook on tasks (the scenario is created
+  per trial, so parallel trials never share state), prompts/system/goal as functions of that context,
+  a task-level `maxRounds`, and `ctx` handed to ground, scorers and the tool-use judge. `noHarness`
+  is the control (no tools, nothing can change: 0 % by construction); `toolOnly` isolates the schema.
+  First curve, four trials per cell, synthetic harness, parallel 6:
+
+  | model · mode | restock3 | restock6 | restock12 | restock12 tokens · rounds · latency |
+  |---|---|---|---|---|
+  | gpt-4o-mini · harness | 2/4 | 1/4 | 0/4 | 113 k · 25 · 25.5 s |
+  | gpt-4o-mini · toolOnly | 1/4 | 0/4 | 0/4 | 48 k · 12 · 13.1 s |
+  | gpt-5.4-mini · harness | 4/4 | 4/4 | 3/4 | 10.9 k · 5 · 5.2 s |
+  | gpt-5.4-mini · toolOnly | 4/4 | 4/4 | 3/4 | 10.1 k · 5 · 5.5 s |
+  | claude-haiku-4-5 · harness | 4/4 | 4/4 | 4/4 | 19.6 k · 5 · 15.6 s |
+  | claude-haiku-4-5 · toolOnly | 4/4 | 4/4 | 4/4 | 17.4 k · 5 · 14.9 s |
+
+  What the failures are: before the confirm rule existed, gpt-4o-mini skipped the item whose qty was
+  only a few units under its min in every restock3 trial (it compares the two columns sloppily) and
+  confirmed anyway; with the rule it now goes back — and over-corrects, restocking items that were
+  never low (`N item(s) that were not low got modified`), burning 25 rounds and 113 k tokens at
+  K = 12 without finishing. gpt-5.4-mini's two misses at K = 12 are the same collateral edit, once
+  each. Haiku is clean at every length, at 2–3× gpt-5.4-mini's latency. Schema (harness vs toolOnly)
+  makes no difference on this task for the capable models; the whole delta is tools plus the loop.
+  The synthetic loop's own ceiling shows too: every capable run finishes in 5 rounds because the
+  models batch their updates as parallel tool calls.
 - **[18] Sub-agents.** Offloading work: the same multi-step goal with delegation available versus
   without. In the synthetic harness a `delegate(goal)` tool runs a fresh model turn with its own
   tools and returns its answer; the arms use their native mechanism (Claude Code's Agent tool, Pi and

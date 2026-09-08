@@ -91,6 +91,11 @@ export const task = {
     canon,          // optional: (answer, { mode, structured }) => string — the answer's canonical form, for
                     //   agreement across repeated trials; only tasks with fixed truth define one
   },
+  // optional, for stateful tasks (restock): setup runs before every trial and returns a context;
+  // prompt / system / goal may then be functions of it, and ground, scorers and toolUse receive it
+  // as ctx. maxRounds raises the synthetic tool loop's budget for long dependent chains.
+  setup: async ({ mode, index }) => ({ scenario: "scn-…", items: [...] }),
+  maxRounds: 14,
 };
 ```
 
@@ -150,8 +155,11 @@ node src/aggregate.js --tasks health,hello --modes noHarness,harness --clients l
 ```
 
 The `webserver/` directory is the **system under test**, not part of the benchmark harness —
-keep it minimal. Its one concession to the bench is `GET /api/recent?since=&until=`, a log of the
+keep it minimal. Its concessions to the bench are `GET /api/recent?since=&until=`, a log of the
 last few hundred `/api/hello` replies, which lets real-harness arms be scored against what the
-server actually served (`recentGreetings` in `harness/util.js`). Every run (CLI or web) is saved to `results/`, which is gitignored along
+server actually served (`recentGreetings` in `harness/util.js`), and the **inventory scenarios**
+(`/api/scenarios…`) the `restock` tasks run against: one isolated inventory per trial, tickets per
+update, a confirm that is refused while anything is still low, and `GET /api/scenarios/:sid` as the
+end state a trial is scored on. `test/sut.test.js` pins that contract in-process. Every run (CLI or web) is saved to `results/`, which is gitignored along
 with `.env`. `plan.md` is the roadmap; keep its "done" claims tied to what the tests and saved runs
 actually show.

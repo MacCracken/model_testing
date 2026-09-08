@@ -86,6 +86,7 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
     judgeReason: "",
     usage: null,
     ground: null,
+    ctx: null,
     error: null,
   };
 
@@ -96,7 +97,15 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
   }
 
   try {
-    const system = buildSystemPrompt(spec, mode);
+    // Per-trial context: a task with `setup` prepares isolated state (an inventory scenario, say),
+    // and its prompts, goal, truth and scorers may be functions of it.
+    const ctx = typeof task.setup === "function" ? await task.setup({ mode, index, signal }) : null;
+    record.ctx = ctx;
+    const text = (v) => (typeof v === "function" ? v(ctx ?? {}) : v);
+    const rspec = { ...spec, prompt: text(spec.prompt), system: text(spec.system) };
+    record.prompt = rspec.prompt ?? null;
+
+    const system = buildSystemPrompt(rspec, mode);
     record.system = system || null;
 
     // A mode that is structured (schema-aware) scores the parsed JSON. A mode that carries tools
@@ -108,7 +117,7 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
     if (structured || hasTools) {
       // Tools run (if any) and the final message is parsed as JSON. What gets scored is the
       // model's final message written after it saw real tool output — never the tool args.
-      resp = await client.runWithTools(spec.prompt, spec.tools ?? [], system, { maxRounds, signal, task, mode });
+      resp = await client.runWithTools(rspec.prompt, spec.tools ?? [], system, { maxRounds: task.maxRounds ?? maxRounds, signal, task, mode, ctx });
       record.toolCalls = resp.toolCalls ?? [];
       record.toolResults = resp.toolResults ?? [];
       record.rounds = resp.rounds ?? 0;
@@ -126,7 +135,7 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
       }
     } else {
       resp = await client.chat(
-        [...(system ? [{ role: "system", content: system }] : []), { role: "user", content: spec.prompt }],
+        [...(system ? [{ role: "system", content: system }] : []), { role: "user", content: rspec.prompt }],
         undefined,
         { signal },
       );
@@ -147,6 +156,7 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
       toolResults: record.toolResults,
       structured: record.structured,
       answerText: record.answerText,
+      ctx,
     });
     record.ground = ground;
 
@@ -154,7 +164,7 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
     const scorer = structured ? task.eval.scoreHarness : task.eval.scoreNoHarness;
     const answer = structured ? record.structured : record.answerText;
     // Scorers get the judge (when one is configured) so an open-ended task can grade with it.
-    const score = await scorer(answer, ground, { judge, mode });
+    const score = await scorer(answer, ground, { judge, mode, ctx });
 
     record.correct = !!score.correct;
     record.reason = score.reason ?? "";
@@ -181,7 +191,7 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
     // A real-harness arm brings its own tools, so a judge written against the bench's tools has
     // nothing to say about it; the verdict stays null there.
     if (hasTools && typeof task.eval.toolUse === "function" && !resp.harness) {
-      const use = await task.eval.toolUse({ mode, toolCalls: record.toolCalls, toolResults: record.toolResults });
+      const use = await task.eval.toolUse({ mode, toolCalls: record.toolCalls, toolResults: record.toolResults, ctx });
       record.toolUseOk = !!use.ok;
       record.toolUseReason = use.reason ?? "";
     }

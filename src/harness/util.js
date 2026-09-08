@@ -11,8 +11,8 @@ import { schemaHint } from "../schema.js";
 
 // The prompt a real harness gets: the task's goal plus the same schema instruction the synthetic
 // harness receives (the schema is part of the treatment, so both arms see it worded the same).
-export function goalPrompt(task, mode, fallback) {
-  const goal = task?.goal ?? fallback;
+export function goalPrompt(task, mode, fallback, ctx = null) {
+  const goal = typeof task?.goal === "function" ? task.goal(ctx ?? {}) : (task?.goal ?? fallback);
   const schema = task?.[mode]?.schema;
   if (!schema) return goal;
   return `${goal}\n\nReturn your final answer as a JSON value that is an instance of this JSON Schema (a value that validates against it — not the schema itself):\n${schemaHint(schema)}\nReply with that JSON value only — no prose, no markdown fences.`;

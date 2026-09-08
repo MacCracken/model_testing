@@ -36,6 +36,7 @@ output.
 | `lookup` | api-call | Three server-minted random ids. **Tool-essential**: there is nothing to memorize, so free text floors at 0 and truth is whatever the tool returned during the trial. |
 | `regex` | tool-reasoning | Which of six strings match an anchored regex, with a correct `regex_match` tool and a `word_count` decoy. Tests tool *selection* and typed arguments, not just firing. |
 | `chain` | multi-step | Greet alice, then greet the id that came back, and report the second greeting. The second call depends on the first; the id is random, so nothing but the chain produces the answer. |
+| `restock3` / `restock6` / `restock12` | multi-step | One job at three lengths against an isolated inventory scenario minted per trial: list, update every low item (each update returns a ticket), confirm with the complete ticket set (refused while anything is still low), report the server's total. Scored on the server's **end state**, not the report alone. |
 | `transform` | extract-transform | Fetch three greetings, then report each name with the first 8 characters of its id and the greeting in upper case. Tool-essential, plus two transformations of what came back. |
 | `explain` | open-ended | Explain the server's health and running time to a non-engineer. Graded by a **judge model** against the live facts; needs `--judge`. |
 
@@ -92,6 +93,7 @@ node src/bench.js --task health --mode harness --clients openai:gpt-4o-mini
 # Everything, both modes, 3 trials per cell
 node src/bench.js --task all --modes noHarness,harness --clients local:ornith-1.5:9b --count 3
 node src/bench.js --task health,reason,regex --modes noHarness,harness --clients openai:gpt-4o-mini --count 8 --parallel 8
+node src/bench.js --task restock3,restock6,restock12 --modes harness,toolOnly --clients openai:gpt-5.4-mini,anthropic:claude-haiku-4-5 --count 4 --parallel 6
 
 # A bare provider name expands to all of its models
 node src/aggregate.js --tasks health,hello --clients local
