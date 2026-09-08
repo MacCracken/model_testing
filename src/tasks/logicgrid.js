@@ -87,6 +87,8 @@ function makeLogicgrid(n) {
   const spec = { system: "You are a careful logician. Return the requested JSON.", prompt: (ctx) => `${problem(ctx)} Answer with a JSON object { "work": ["<deduction>", …], "answer": "<one word>" } — write the deductions in "work" first, then the answer.`, tools: [], schema, extract: "structured" };
   return {
     name: `logicgrid${n}`,
+    family: "logicgrid",
+    level: n,
     category: "reasoning",
     seeded: true,
     capabilities: ["deduction"],

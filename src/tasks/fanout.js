@@ -34,6 +34,8 @@ function makeFanout(n) {
   const ask = (ctx) => `Scenario ${ctx.scenario}. Report the current qty of each of these ${n} items: ${ctx.ids.join(", ")}.`;
   return {
     name: `fanout${n}`,
+    family: "fanout",
+    level: n,
     category: "tool-reasoning",
     capabilities: ["tool-use", "parallel-calls"],
     seeded: true,

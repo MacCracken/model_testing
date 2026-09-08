@@ -83,6 +83,8 @@ function makeTally(n) {
   const problem = (ctx) => `Here is a table of ${ctx.rows.length} support tickets:\n\n${table(ctx.rows)}\n\n${ctx.question}`;
   return {
     name: `tally${n}`,
+    family: "tally",
+    level: n,
     category: "reasoning",
     seeded: true,
     capabilities: ["counting", "attention"],

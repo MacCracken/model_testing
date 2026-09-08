@@ -4,6 +4,43 @@ What shipped, by date. Full measurement tables live in [docs/results.md](docs/re
 forward roadmap is [plan.md](plan.md). Dates are the commit dates; item numbers ([1]–[20]) are the
 roadmap tiers as they were numbered while being built.
 
+## 2026-09-08 (night) — difficulty curves and regression detection
+
+### Added
+- **Difficulty curves** ([32]): every family with a knob tags its tasks with `family` and `level`
+  (restock items 3/6/12/30, wordmath steps 2/4/6, datecalc 1/3, logicgrid 3/4, tally 20/60, fanout
+  4/8, follow 3/6, needle 8k/32k/100k), exposed by the registry and `/api/meta`. `curves` in
+  `runner.js` (`summarize`'s `curves`, from `levelsOf`) gives, per family, client and mode, success
+  per level with its Wilson band and the **breaking point**: the first level whose band tops out
+  under 50 % — conservative by construction (three trials can never break a model; 0/4 can). The
+  report prints the curves, the UI draws them (a "Difficulty curves" panel: one small chart per
+  family, a line per model, the break as a hollow square, the mode switchable) and
+  `node src/cli.js curve <family> [--mode] [--client] [--since]` pools the same over every saved run.
+- **Trend and regression detection** ([34]): `src/trends.js` — `seriesFor` (a client's capabilities
+  per run over time, behind `cli trend --client <c> [--capability] [--mode]`), `regressionsFor` and
+  `parentGaps` behind `cli regressions [--client] [--since]` and `GET /api/regressions?client=`.
+  Per capability and mode, a client's latest run of each task is set against its earlier runs of
+  the same task, with the same number of trials per task on both sides (the most recent earlier
+  ones), so neither a change of task mix nor a side heavy in the hardest task reads as a change in
+  the model; a checkpoint is compared with its lineage parent the same way. A flag needs the later
+  Wilson band to lie entirely under the earlier one, and carries the per-task split, the drop in
+  points, Fisher's p and the runs involved. The UI shows the flags as lines under the capability
+  scorecard, fetched per model when a run is opened.
+
+### Measured (the index as of tonight)
+- Two breaking points: **gpt-4o-mini at six restock items** in the synthetic loop (4/12, 5/28,
+  0/16 over 3/6/12 items) and **gpt-5.4-mini at six follow hops** (3/4, then 0/12; Codex's loop
+  takes the same model to 6/6 at that level). gpt-5.4-mini at 30 items is 0/3 but not a break:
+  three trials cannot push a band under 50 %. Haiku 4.5 breaks nowhere the index has run it. The
+  pooled tables are in docs/results.md.
+- **No regressions** in the index by the balanced rule (ornith: 14 capability × mode comparisons;
+  gpt-4o-mini: 24 runs). Before balancing, the same band rule flagged two — ornith's free-form
+  tool-use pool (62 % → 29 %) and gpt-4o-mini's harness arithmetic (95 % → 69 %) — and both were
+  the later side leaning on the harder task (free-form `lookup`, `wordmath6`) rather than the
+  model changing, which is what the per-task balance is for.
+- Tests: 239 (curves and breaking points, series, regressions with a task-mix change and a lopsided
+  pool, parent gaps, and every family task carrying its knob).
+
 ## 2026-09-08 (evening) — long context
 
 ### Added

@@ -117,6 +117,8 @@ function makeNeedle(tokens, label) {
   const fmt = (ctx) => (ctx.kind === "multi" ? "the host names, comma-separated" : "the number");
   return {
     name: `needle${label}`,
+    family: "needle",
+    level: tokens,
     category: "long-context",
     capabilities: ["long-context", "retrieval"],
     seeded: true,

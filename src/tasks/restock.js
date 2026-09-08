@@ -180,6 +180,8 @@ function makeRestock(low) {
 
   return {
     name,
+    family: "restock",
+    level: low,
     skill: "restock", // the family shares skills/restock.md
     category: "multi-step",
     capabilities: ["multi-step","planning","tool-use","state"],

@@ -57,6 +57,17 @@ export function printSummary(summary, { log = console.log } = {}) {
     }
   }
 
+  if (summary.curves && Object.keys(summary.curves).length) {
+    log("\n-- difficulty curves (harness; break = first level whose band tops out under 50%)");
+    for (const [family, c] of Object.entries(summary.curves)) {
+      for (const [client, byMode] of Object.entries(c.byClient)) {
+        const m = byMode.harness ?? Object.values(byMode)[0];
+        if (!m) continue;
+        log(`   ${family.padEnd(10)} ${client.padEnd(30)} ${m.points.map((p) => `${p.level}: ${p.correct}/${p.runs}`).join("  ").padEnd(40)} break ${m.breakingPoint ?? "none"}`);
+      }
+    }
+  }
+
   if (summary.delta.skill) {
     log("\n-- skill delta (same task, mode and model: without → with the playbook)");
     for (const [how, d] of Object.entries(summary.delta.skill)) {

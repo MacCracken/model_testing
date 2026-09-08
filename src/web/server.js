@@ -270,6 +270,28 @@ async function handle(req, res) {
     }
   }
 
+  // A client's regressions: latest run against earlier runs, and against its lineage parent.
+  if (req.method === "GET" && path === "/api/regressions") {
+    const client = url.searchParams.get("client");
+    if (!client) return sendJSON(res, 400, { error: "client is required" });
+    try {
+      indexRuns();
+      const { rawQuery } = await import("../store.js");
+      const { regressionsFor, parentGaps } = await import("../trends.js");
+      const { parentOf } = await import("../lineage.js");
+      const q = (s) => s.replace(/'/g, "''");
+      const fetchRows = (c) => rawQuery(`select t.run_id as runId, r.created_at as createdAt, t.task, t.mode, t.client, t.correct from trials t join runs r on r.id = t.run_id where t.client = '${q(c)}' and t.error is null and t.base_client is null`).map((r) => ({ ...r, correct: !!r.correct }));
+      const caps = Object.fromEntries(listTasks().map((t) => [t.name, t.capabilities]));
+      const rows = fetchRows(client);
+      const own = new Set(rows.map((r) => r.runId)).size >= 2 ? regressionsFor(rows, caps) : { flags: [], compared: 0, latestRuns: [] };
+      const parent = parentOf(client);
+      const vsParent = parent ? { parent, ...parentGaps(rows, fetchRows(parent), caps) } : null;
+      return sendJSON(res, 200, { client, runs: new Set(rows.map((r) => r.runId)).size, own, vsParent });
+    } catch (err) {
+      return sendJSON(res, 500, { error: err?.message ?? "index unavailable" });
+    }
+  }
+
   // One task × client × mode cell across every run.
   if (req.method === "GET" && path === "/api/cells") {
     const task = url.searchParams.get("task"), client = url.searchParams.get("client"), mode = url.searchParams.get("mode") ?? "harness";

@@ -38,6 +38,8 @@ function makeFollow(hops) {
   const ask = (ctx) => `Scenario ${ctx.scenario}. Start at item ${ctx.start} and follow its "next" pointer ${hops} times (each item's record names the next id). Report the id and qty of the item you land on after exactly ${hops} hops.`;
   return {
     name: `follow${hops}`,
+    family: "follow",
+    level: hops,
     category: "tool-reasoning",
     capabilities: ["tool-use", "multi-step", "dependent-calls"],
     seeded: true,

@@ -112,9 +112,16 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
   presets behind `cli suite` (a suite run is a bench run with `config.suite`). Named local endpoints
   (`LOCAL_ENDPOINTS`, `parseLocalEndpoints` / `registerLocalEndpoints` in `providers/index.js`)
   make any OpenAI-compatible server a provider like `local`; see docs/serving.md.
+- `src/trends.js` — capabilities over time from the index: `seriesFor` (per run, per capability,
+  per mode), `regressionsFor` (per task, a client's latest run against its earlier runs of the same
+  task, the same number of trials per task on each side, pooled per capability; a flag when the
+  later Wilson band lies entirely under the earlier one) and `parentGaps` (a checkpoint against
+  its lineage parent the same way). Pure functions over indexed rows; `cli trend` /
+  `cli regressions` and `/api/regressions` fetch the rows from the store.
 - `src/web/` — the control plane: `server.js` (node:http, zero deps) + `public/` (the UI).
 - `src/cli.js` — entry point (`list` / `show` / `export` / `index` / `query` / `scorecard` /
-  `compare` / `models` / `suite` / `compact` / `serve` / `bench` / `aggregate`).
+  `compare` / `curve` / `trend` / `regressions` / `models` / `suite` / `compact` / `serve` /
+  `bench` / `aggregate`).
 - `test/` — `npm test` (node:test, no deps). Scorers are tested with synthetic ground values, the
   runner with a fake client; nothing in the suite needs a model or the webserver.
 
@@ -146,6 +153,7 @@ export const task = {
   // their instance from `seed` and mark `seeded: true`. maxRounds raises the tool loop's budget.
   setup: async ({ mode, index, client, seed }) => ({ scenario: "scn-…", items: [...] }),
   capabilities: ["multi-step", "tool-use"], // what the task measures, for the scorecard
+  family: "restock", level: 6,             // the family's knob, for difficulty curves (families with a knob only)
   maxRounds: 14,
   skill: "restock",        // optional: the playbook under skills/ a @skill variant loads (default: the task name)
 };
@@ -195,7 +203,11 @@ discordant pairs (`mcnemarExact`), a seeded bootstrap band (`bootstrapDelta`), p
 `describePaired`. `sampleSizeFor` / `describePower` give the "run about n per side" guidance,
 `multipleComparisons` the Bonferroni count over a run's cells, `compareRows` the two-client or
 two-run comparison behind `cli compare`, and `capabilityStats` the scorecard behind `summarize`'s
-`capabilities`, `cli scorecard` and `/api/scorecard`.
+`capabilities`, `cli scorecard` and `/api/scorecard`. Families with a knob tag their tasks with
+`family` and `level` (restock items, wordmath steps, datecalc level, logicgrid size, tally length,
+fanout width, follow hops, needle tokens); `curves` (`summarize`'s `curves`, from `levelsOf`) gives
+success per level per client and mode with the **breaking point** — the first level whose Wilson
+band tops out under 50 % — behind the UI panel, the report and `cli curve` over the index.
 
 The headline delta carries a two-sided **Fisher exact** p-value (`fisherExact` in `runner.js`),
 exact at the handful of trials this bench actually runs; the z-test and Wilson intervals are kept

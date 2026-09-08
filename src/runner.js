@@ -329,7 +329,10 @@ export async function runMatrix({ tasks, modes, clients, count = 1, parallel = 1
   }
   await Promise.all(running);
 
-  const summary = summarize(rows, { capabilitiesOf: Object.fromEntries(tasks.map((t) => [t.name, t.capabilities ?? []])) });
+  const summary = summarize(rows, {
+    capabilitiesOf: Object.fromEntries(tasks.map((t) => [t.name, t.capabilities ?? []])),
+    levelsOf: Object.fromEntries(tasks.filter((t) => t.family).map((t) => [t.name, { family: t.family, level: t.level }])),
+  });
   onEvent?.({ type: "done", completed, total, summary, skipped, cancelled: !!signal?.aborted, instanceSeed: runSeed });
   return { rows, summary, skipped, instanceSeed: runSeed };
 }
@@ -786,7 +789,36 @@ export function capabilityStats(rows, capabilitiesOf = {}) {
   return out;
 }
 
-export function summarize(rows, { capabilitiesOf = null } = {}) {
+// Success against a family's difficulty knob. `levelsOf` maps task name → { family, level }. Per
+// family, per client, per mode: one point per level with its Wilson band, and the *breaking point* —
+// the first level, ascending, whose band's upper bound is under 50 % (null when none is).
+export function curves(rows, levelsOf = {}) {
+  const out = {};
+  const tagged = rows.filter((r) => levelsOf[r.task]?.family);
+  for (const family of [...new Set(tagged.map((r) => levelsOf[r.task].family))]) {
+    const fam = tagged.filter((r) => levelsOf[r.task].family === family);
+    const levels = [...new Set(fam.map((r) => levelsOf[r.task].level))].sort((a, b) => a - b);
+    const byClient = {};
+    for (const client of [...new Set(fam.map((r) => r.client))]) {
+      const byMode = {};
+      for (const mode of [...new Set(fam.filter((r) => r.client === client).map((r) => r.mode))]) {
+        const points = levels.map((level) => {
+          const ps = fam.filter((r) => r.client === client && r.mode === mode && levelsOf[r.task].level === level);
+          if (!ps.length) return null;
+          const correct = ps.filter((r) => r.correct).length;
+          return { level, task: ps[0].task, runs: ps.length, correct, correctPct: (correct / ps.length) * 100, wilson: wilsonInterval(correct, ps.length) };
+        }).filter(Boolean);
+        const breaking = points.find((p) => p.wilson.high < 0.5);
+        byMode[mode] = { points, breakingPoint: breaking ? breaking.level : null };
+      }
+      byClient[client] = byMode;
+    }
+    out[family] = { levels, byClient };
+  }
+  return out;
+}
+
+export function summarize(rows, { capabilitiesOf = null, levelsOf = null } = {}) {
   const modes = [...new Set(rows.map((r) => r.mode))];
   const taskNames = [...new Set(rows.map((r) => r.task))];
   const clientNames = [...new Set(rows.map((r) => r.client))];
@@ -862,6 +894,7 @@ export function summarize(rows, { capabilitiesOf = null } = {}) {
     cells,
     stability,
     capabilities,
+    curves: levelsOf && Object.keys(levelsOf).length ? curves(rows, levelsOf) : {},
     multiple: multipleComparisons(byTaskClient),
     delta: {
       overall: deltaFor(rows),

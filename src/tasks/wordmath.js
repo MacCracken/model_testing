@@ -86,6 +86,8 @@ function makeWordmath(steps) {
   const problem = (ctx) => `${ctx.story} ${ctx.question}`;
   return {
     name: `wordmath${steps}`,
+    family: "wordmath",
+    level: steps,
     category: "reasoning",
     seeded: true,
     capabilities: ["arithmetic", "multi-step"],

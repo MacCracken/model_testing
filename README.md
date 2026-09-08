@@ -85,6 +85,9 @@ the right; the panel folds to a slim rail (the button in its header) and remembe
   full story as a timeline — system and user prompts, every tool call with the real response,
   the final message, the scorer's verdict — plus the answer and the ground truth side by side, and
   any schema errors. ← / → step between trials, esc closes;
+- a **capability scorecard** per model, **difficulty curves** per family (success against the
+  family's knob per model, the breaking point marked) and, under the scorecard, a line for every
+  capability where a model's latest run fell under its earlier runs or its lineage parent;
 - reopen any past run from the header dropdown, including runs launched from the CLI;
 - **light / dark / system** theme switch in the header, remembered per browser;
 - optional **temperature**, **seed** and **judge** under Settings, and an **export csv** link on every
@@ -136,6 +139,9 @@ node src/cli.js compact --older-than 30 # dry run; --yes strips prompts/transcri
 node src/cli.js scorecard openai:gpt-4o-mini            # capability scorecard pooled over every saved run (Wilson bands, harness delta)
 node src/cli.js compare <run> --a <client> --b <client> --mode harness   # paired: McNemar + bootstrap band per task
 node src/cli.js compare <run-A> <run-B> --mode schemaOnly               # two runs on the same instance seed
+node src/cli.js curve restock [--mode harness] [--client <c>]           # success per difficulty level over every saved run, with each model's breaking point
+node src/cli.js trend --client openai:gpt-4o-mini [--capability arithmetic]   # a model's capabilities per run over time
+node src/cli.js regressions [--client <c>] [--since D]                  # latest results against earlier runs, and checkpoint against lineage parent
 ```
 
 Every delta also carries a **paired** reading when both sides ran the same instances (McNemar's
@@ -143,6 +149,16 @@ exact test on the discordant pairs and a bootstrap band on the delta), power gui
 not significant, and a Bonferroni count over the run's task × model cells. The **capability
 scorecard** pools each run's tasks by the capabilities they carry (tool use, multi-step, arithmetic,
 deduction, planning, …) per model, and `cli scorecard` does the same over every saved run.
+
+**Curves and regressions.** Every family with a knob (restock items, wordmath steps, datecalc
+level, logicgrid size, tally length, fanout width, follow hops, needle tokens) tags its tasks with a
+`family` and a `level`; a run's report and the UI draw success against the level per model and
+mark the **breaking point**, the first level whose Wilson band tops out under 50 %, and
+`cli curve <family>` pools the same over every saved run. `cli regressions` compares, per
+capability and mode, a model's latest run of each task with its earlier runs of the same task —
+the same number of trials per task on both sides, so a change of task mix never reads as a change
+in the model — and a checkpoint with its lineage parent; a flag needs the later band to lie
+entirely under the earlier one, and names the per-task split behind it.
 
 `--instance-seed N` fixes the seed the generated families mint their problems from: every mode
 and model in the run sees the same instances (a paired design), and the same seed on another day

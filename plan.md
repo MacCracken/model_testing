@@ -32,17 +32,17 @@ rebuildable. One learned this week: a structured schema for a task that needs th
 
 | Dimension | What exists today |
 |---|---|
-| Tasks | 26: `health`, `hello`, `reason`, `lookup`, `regex`, `chain`, `transform`, `explain` (judged), `restock3/6/12/30` (stateful, end-state scored), the generated `wordmath2/4/6`, `datecalc1/3`, `logicgrid3/4`, `tally20/60`, and the scenario-backed `fanout4/8`, `follow3/6`, `norelevant` (all minted per trial from the run's instance seed) |
+| Tasks | 29: `health`, `hello`, `reason`, `lookup`, `regex`, `chain`, `transform`, `explain` (judged), `restock3/6/12/30` (stateful, end-state scored), the generated `wordmath2/4/6`, `datecalc1/3`, `logicgrid3/4`, `tally20/60`, the scenario-backed `fanout4/8`, `follow3/6`, `norelevant`, and the long-context `needle8k/32k/100k` (all minted per trial from the run's instance seed); every family with a knob carries `family` and `level` |
 | Modes | `noHarness`, `harness`, `schemaOnly`, `toolOnly` — the tools × schema 2×2 |
 | Models | OpenAI, Anthropic, Groq, DeepSeek, Ollama (live-probed), any named OpenAI-compatible endpoint (`LOCAL_ENDPOINTS`); real-harness arms Thoth, Claude Code, Pi, Codex; lineage per client from `models/lineage.json` |
 | Treatments | client variants paired against their base: `@skill:preload/ondemand/native`, `@agents:available/required`, `@stress:flaky/budget/haystack/distractors`, `@constraints:light/medium/heavy`; stress adds `injected` (prompt injection through tool output) |
 | Scoring | deterministic scorers per task; truth from the trial (tool results) or the server's end state; tool-use verdicts; one judged task |
-| Statistics | Fisher exact with the "inconclusive" floor, Wilson bands, 2×2 decomposition, per-arm and per-variant deltas, McNemar + bootstrap on paired instances, power guidance, Bonferroni over cells, stability (agreement, flaky cells), a capability scorecard per run and over the index |
+| Statistics | Fisher exact with the "inconclusive" floor, Wilson bands, 2×2 decomposition, per-arm and per-variant deltas, McNemar + bootstrap on paired instances, power guidance, Bonferroni over cells, stability (agreement, flaky cells), a capability scorecard per run and over the index, difficulty curves with breaking points, regression flags over the index (latest against earlier runs per task, checkpoint against parent) |
 | Throughput | parallel trials (arms run alone), 48 trials in 8 s on a hosted model |
 | Data | one JSON per run, SQLite index (`index`, `query`, `--sql`, `compact`), CSV, versions on every run, cross-run cell history |
-| UI | Ledger design, live grid, dumbbell matrix, trial drawer with transcript and children, history filter |
+| UI | Ledger design, live grid, dumbbell matrix, capability scorecard with regression lines, difficulty curves, paired comparison block, trial drawer with transcript and children, history filter |
 | SUT | the webserver: hello/health, the `/api/recent` log, inventory scenarios with tickets, confirm rules, stress profiles, op log |
-| Tests | 235, none needing a model; the webserver runs in-process |
+| Tests | 239, none needing a model; the webserver runs in-process |
 
 ## What the field measures that we do not
 
@@ -70,7 +70,7 @@ with a priority for the stated purpose:
 | Instruction following | IFEval (verifiable constraints), LiveBench IF | `@constraints` variants: eleven requirement families checked by code on any task, adherence beside correctness | more families (sentences, language), requirements across turns, a `@format` variant | low (was high) |
 | Long context | RULER / needle-in-a-haystack (multi-key, multi-value, aggregation) at 4 k–1 M | `needle8k/32k/100k`: single needle with recorded depth, multi-needle, aggregation; grep/count tools as the harness axis | larger sizes, a depth-sweep view, multi-hop questions | medium (was high) |
 | Structured extraction | LiveBench data analysis, enterprise extraction evals | `transform`, schema modes | generated documents with exact truth, joins across two sources | medium |
-| Statistics & reproducibility | HELM CIs, Inspect logs, lm-eval fixed prompts and versions | Fisher, Wilson, seeds, versions, canonical answers, index, McNemar + bootstrap on paired instances, power guidance, Bonferroni, `cli compare` | lineage-aware pooling, regression alerts over time ([34]) | medium (was high) |
+| Statistics & reproducibility | HELM CIs, Inspect logs, lm-eval fixed prompts and versions | Fisher, Wilson, seeds, versions, canonical answers, index, McNemar + bootstrap on paired instances, power guidance, Bonferroni, `cli compare` | lineage-aware pooling of the scorecard | low (was high) |
 | Own-model workflow | lm-eval HF/vLLM backends; W&B / MLflow tracking; per-checkpoint scoreboards | named endpoints for any OpenAI-compatible server, `docs/serving.md`, `models/lineage.json` on every run and in the index, `cli models` / `suite` / `compare --parent`, the UI compare block | gates with exit codes, contamination policy ([38]), replay ([39]), per-family scorecards | medium (was high) |
 | Coding | HumanEval → LiveCodeBench → SWE-bench | none | sandboxed execution of generated specs with hidden tests | medium (needs a sandbox decision) |
 | Calibration & abstention | HELM calibration (ECE); "answer or abstain" splits | hedge detection in one scorer | confidence elicitation, Brier/ECE per cell, unanswerable variants | medium |
@@ -134,13 +134,17 @@ declares the capability it measures and runs in the four modes where they mean s
 - **[31] Capability map and scorecard.** Shipped 2026-09-08 (see the changelog): tags on every
   task, `capabilityStats`, the per-run panel, `cli scorecard` and `/api/scorecard` over the index.
   Left for later: a radar per model in the UI, and pooling by model lineage once [36] exists.
-- **[32] Difficulty curves.** Success versus the family's knob; a model's *breaking point* is the
-  first difficulty where the band's upper bound falls under 50 %.
+- **[32] Difficulty curves.** Shipped 2026-09-08 (see the changelog): `family` / `level` on every
+  knobbed family, `curves` in `summarize`, the UI panel, the report and `cli curve` over the index,
+  with the breaking point (first level whose band tops out under 50 %).
 - **[33] Paired comparisons.** Shipped 2026-09-08 (see the changelog): McNemar's exact test and a
   bootstrap band on every paired delta, power guidance, Bonferroni over a run's cells, and
   `cli compare` for two clients or two runs on the same seed.
-- **[34] Trend and regression detection.** Per capability per model over time from the index; an
-  alert when a checkpoint falls below its parent by more than the band.
+- **[34] Trend and regression detection.** Shipped 2026-09-08 (see the changelog): `src/trends.js`,
+  `cli trend` / `cli regressions`, `/api/regressions` and the lines under the UI scorecard — a
+  model's latest run of each task against its earlier runs, balanced per task, and a checkpoint
+  against its lineage parent; flagged when the later band lies under the earlier one. Left for
+  later: a sparkline per capability in the UI, and alerts pushed somewhere other than the report.
 
 ### Tier 10 — Own-model workflow
 
@@ -183,10 +187,9 @@ declares the capability it measures and runs in the four modes where they mean s
 
 ## Decisions needed
 
-1. **Order for the next month.** [21], [22], [23], [25], [31], [33], [35] and [36] are done, with
-   suite presets from [37]; recommendation for the rest: [32]/[34] difficulty curves and regression
-   detection over the index, then the gates half of [37] and [39] replay once a checkpoint exists to
-   gate, then [24] extraction and [26] multi-turn.
+1. **Order for the next month.** [21], [22], [23], [25], [31], [32], [33], [34], [35] and [36] are
+   done, with suite presets from [37]; recommendation for the rest: the gates half of [37] (thresholds
+   per capability, exit codes) and [39] replay, then [24] extraction and [26] multi-turn.
 2. **Code sandbox.** Worker-thread isolation keeps the zero-dependency rule but is weaker; Docker is
    stronger and a dependency. This gates [27].
 3. **Scope of knowledge and safety.** Exclude closed-book knowledge as an axis? Include tool-result

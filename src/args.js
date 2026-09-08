@@ -37,6 +37,7 @@ export function parseArgs(argv) {
       case "--a": args.a = next(); break;
       case "--b": args.b = next(); break;
       case "--parent": args.parent = true; break;
+      case "--capability": args.capability = next(); break;
       case "--cells": args.cells = true; break;
       case "--out": args.out = next(); break;
       default: args._.push(a);

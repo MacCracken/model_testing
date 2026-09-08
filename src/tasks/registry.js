@@ -54,6 +54,8 @@ export function listTasks() {
     needsJudge: !!t.eval?.needsJudge,
     skill: t.skill ?? t.name, // the playbook name a @skill variant looks for under skills/
     capabilities: t.capabilities ?? [], // what the task measures, for the scorecard
+    family: t.family ?? null, // the difficulty family (restock, wordmath, …) and this task's knob value
+    level: t.level ?? null,
     generated: typeof t.setup === "function" && !!t.seeded,
   }));
 }

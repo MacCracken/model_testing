@@ -67,7 +67,11 @@ async function main() {
       // Summaries are recomputed from the rows, so a run saved before a scorer's *reporting* changed
       // still prints with today's aggregation; the verdicts themselves are whatever was recorded.
       const { listTasks: tasksForTags } = await import("./tasks/registry.js");
-      const summary = summarize(run.rows, { capabilitiesOf: Object.fromEntries(tasksForTags().map((t) => [t.name, t.capabilities])) });
+      const tagged = tasksForTags();
+      const summary = summarize(run.rows, {
+        capabilitiesOf: Object.fromEntries(tagged.map((t) => [t.name, t.capabilities])),
+        levelsOf: Object.fromEntries(tagged.filter((t) => t.family).map((t) => [t.name, { family: t.family, level: t.level }])),
+      });
       printSummary(summary);
       if (args.table) console.log(`\n${summaryTable(summary)}`);
       break;
@@ -132,6 +136,87 @@ async function main() {
         console.log(`${cap.padEnd(22)} ${cell(st.byMode.harness)} ${cell(st.byMode.noHarness)} ${(st.delta ? `${st.delta.deltaPp >= 0 ? "+" : ""}${st.delta.deltaPp.toFixed(0)}pp ${st.delta.significant ? "*" : ""}` : "—").padEnd(14)} ${st.tasks.join(",")}`);
       }
       console.log("\nbands are 95% Wilson intervals; * = Fisher p < 0.05 for the harness delta");
+      break;
+    }
+
+    // Difficulty curve of one family pooled over the index: success per level per client, and the
+    // breaking point (first level whose Wilson band tops out under 50 %).
+    case "curve": {
+      const args = parseArgs(rest);
+      const family = args._[0];
+      const { listTasks } = await import("./tasks/registry.js");
+      const families = [...new Set(listTasks().map((t) => t.family).filter(Boolean))];
+      if (!family || !families.includes(family)) { console.error(`usage: node src/cli.js curve <${families.join("|")}> [--mode harness] [--client <c>] [--since D]`); process.exit(1); }
+      const { indexRuns, rawQuery } = await import("./store.js");
+      const { curves } = await import("./runner.js");
+      indexRuns();
+      const levelsOf = Object.fromEntries(listTasks().filter((t) => t.family === family).map((t) => [t.name, { family, level: t.level }]));
+      const q = (s) => s.replace(/'/g, "''");
+      const rows = rawQuery(`select t.task, t.mode, t.client, t.correct from trials t join runs r on r.id = t.run_id where t.task in (${Object.keys(levelsOf).map((n) => `'${q(n)}'`).join(",")}) and t.error is null${args.client ? ` and t.client = '${q(args.client)}'` : ""}${args.since ? ` and r.created_at >= '${q(args.since)}'` : ""}`).map((r) => ({ ...r, correct: !!r.correct }));
+      if (!rows.length) { console.log(`no trials for ${family}`); break; }
+      const c = curves(rows, levelsOf)[family];
+      const modes = args.mode ? [args.mode] : ["harness", "noHarness"];
+      for (const mode of modes) {
+        console.log(`\n${family} · ${mode} — correct/trials per level (95% Wilson band); break = first level whose band tops out under 50%`);
+        console.log(`${"client".padEnd(34)} ${c.levels.map((l) => String(l).padEnd(20)).join("")} break`);
+        for (const [client, byMode] of Object.entries(c.byClient)) {
+          const m = byMode[mode];
+          if (!m) continue;
+          const cells = c.levels.map((l) => { const p = m.points.find((x) => x.level === l); return p ? `${p.correct}/${p.runs} ${p.correctPct.toFixed(0)}% [${(p.wilson.low * 100).toFixed(0)}–${(p.wilson.high * 100).toFixed(0)}]`.padEnd(20) : "—".padEnd(20); });
+          console.log(`${client.padEnd(34)} ${cells.join("")} ${m.breakingPoint ?? "none"}`);
+        }
+      }
+      break;
+    }
+
+    // A client's capabilities over time, from the index.
+    case "trend": {
+      const args = parseArgs(rest);
+      if (!args.client) { console.error("usage: node src/cli.js trend --client <c> [--capability <cap>] [--mode harness] [--since D]"); process.exit(1); }
+      const { indexRuns, rawQuery } = await import("./store.js");
+      const { seriesFor } = await import("./trends.js");
+      const { listTasks } = await import("./tasks/registry.js");
+      indexRuns();
+      const q = (s) => s.replace(/'/g, "''");
+      const rows = rawQuery(`select t.run_id as runId, r.created_at as createdAt, t.task, t.mode, t.client, t.correct from trials t join runs r on r.id = t.run_id where t.client = '${q(args.client)}' and t.error is null${args.since ? ` and r.created_at >= '${q(args.since)}'` : ""}`).map((r) => ({ ...r, correct: !!r.correct }));
+      if (!rows.length) { console.log(`no trials for ${args.client}`); break; }
+      const caps = Object.fromEntries(listTasks().map((t) => [t.name, t.capabilities]));
+      const series = seriesFor(rows, caps, { capability: args.capability ?? null, mode: args.mode ?? "harness" });
+      const names = [...new Set(series.flatMap((s) => Object.keys(s.byCapability)))].sort();
+      console.log(`${args.client} · ${args.mode ?? "harness"} — correct/trials per run\n`);
+      console.log(`${"run".padEnd(24)} ${"date".padEnd(11)} ${names.map((n) => n.slice(0, 12).padEnd(13)).join("")}`);
+      for (const s of series) console.log(`${s.runId.padEnd(24)} ${String(s.createdAt).slice(0, 10).padEnd(11)} ${names.map((n) => { const m = s.byCapability[n]?.[args.mode ?? "harness"]; return (m ? `${m.correct}/${m.runs} ${m.correctPct.toFixed(0)}%` : "").padEnd(13); }).join("")}`);
+      break;
+    }
+
+    // Regressions: each client's latest run against its earlier runs, and each checkpoint against its
+    // lineage parent — flagged when the later band lies entirely under the earlier one.
+    case "regressions": {
+      const args = parseArgs(rest);
+      const { indexRuns, rawQuery } = await import("./store.js");
+      const { regressionsFor, parentGaps } = await import("./trends.js");
+      const { listTasks } = await import("./tasks/registry.js");
+      const { loadLineage } = await import("./lineage.js");
+      indexRuns();
+      const q = (s) => s.replace(/'/g, "''");
+      const caps = Object.fromEntries(listTasks().map((t) => [t.name, t.capabilities]));
+      const all = rawQuery(`select t.run_id as runId, r.created_at as createdAt, t.task, t.mode, t.client, t.correct from trials t join runs r on r.id = t.run_id where t.error is null and t.base_client is null${args.since ? ` and r.created_at >= '${q(args.since)}'` : ""}`).map((r) => ({ ...r, correct: !!r.correct }));
+      const clients = args.client ? [args.client] : [...new Set(all.map((r) => r.client))].sort();
+      let any = false;
+      for (const client of clients) {
+        const rows = all.filter((r) => r.client === client);
+        if (new Set(rows.map((r) => r.runId)).size < 2) continue;
+        const reg = regressionsFor(rows, caps);
+        for (const f of reg.flags) { any = true; console.log(`${client.padEnd(34)} ${f.capability.padEnd(20)} ${f.mode.padEnd(10)} ${f.earlier.correctPct.toFixed(0)}% (${f.earlier.correct}/${f.earlier.runs} over ${f.earlierRuns} earlier runs) → ${f.later.correctPct.toFixed(0)}% (${f.later.correct}/${f.later.runs} in ${f.latestRuns.join("+")}, ${String(f.latestAt).slice(0, 10)})  −${f.dropPp.toFixed(0)}pp  p=${f.delta.pValue.toFixed(3)}  ${f.perTask.map((t) => `${t.task} ${t.earlier}→${t.later}/${t.n}`).join(", ")}`); }
+      }
+      for (const e of Object.values(loadLineage().entries)) {
+        if (!e.parent || (args.client && e.id !== args.client)) continue;
+        const child = all.filter((r) => r.client === e.id), parent = all.filter((r) => r.client === e.parent);
+        if (!child.length || !parent.length) continue;
+        const gaps = parentGaps(child, parent, caps);
+        for (const f of gaps.flags) { any = true; console.log(`${e.id.padEnd(34)} ${f.capability.padEnd(20)} ${f.mode.padEnd(10)} parent ${e.parent} ${f.parent.correctPct.toFixed(0)}% → ${f.child.correctPct.toFixed(0)}%  −${f.dropPp.toFixed(0)}pp  p=${f.delta.pValue.toFixed(3)}  ${f.perTask.map((t) => `${t.task} ${t.earlier}→${t.later}/${t.n}`).join(", ")}`); }
+      }
+      if (!any) console.log(`no regressions: no capability's latest band lies under its earlier band${args.client ? ` for ${args.client}` : ""}`);
       break;
     }
 
@@ -254,6 +339,9 @@ async function main() {
       console.log("  node src/cli.js scorecard <client> [--since D]       # capability scorecard pooled over the index");
       console.log("  node src/cli.js compare <run> --a <c1> --b <c2> | compare <runA> <runB>   # paired comparison (McNemar)");
       console.log("  node src/cli.js models                                # the lineage registry and what the index holds per checkpoint");
+      console.log("  node src/cli.js curve <family> [--mode] [--client]   # success per difficulty level, with the breaking point");
+      console.log("  node src/cli.js trend --client <c> [--capability]    # a client's capabilities per run over time");
+      console.log("  node src/cli.js regressions [--client <c>]           # latest run vs earlier runs, and checkpoint vs parent");
       console.log("  node src/cli.js suite smoke|standard|full --clients … # preset runs for a fresh checkpoint");
       console.log("  node src/cli.js serve [--port 4000] [--host 127.0.0.1] [--open]");
       console.log("  node src/cli.js bench --task <name|all> --modes noHarness,harness,schemaOnly,toolOnly --clients <p:model,...> [--count N] [--temperature T] [--seed S] [--model-param k=v]... [--json]");

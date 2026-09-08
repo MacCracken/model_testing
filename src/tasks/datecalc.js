@@ -104,6 +104,8 @@ function makeDatecalc(level) {
   const format = (ctx) => (ctx.wantsTime ? "YYYY-MM-DD HH:MM and the weekday" : "YYYY-MM-DD and the weekday");
   return {
     name: `datecalc${level}`,
+    family: "datecalc",
+    level,
     category: "reasoning",
     seeded: true,
     capabilities: ["arithmetic", "calendar"],

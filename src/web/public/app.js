@@ -134,6 +134,7 @@ function wire() {
   $("#stress").addEventListener("change", updatePlan);
   $("#constraints").addEventListener("change", updatePlan);
   for (const id of ["compare-a", "compare-b", "compare-mode"]) $(`#${id}`).addEventListener("change", (e) => { state.compare[{ "compare-a": "a", "compare-b": "b", "compare-mode": "mode" }[id]] = e.target.value; renderReport(); });
+  $("#curves-mode").addEventListener("change", () => renderReport());
   $("#compare-run").addEventListener("change", async (e) => {
     state.compare.runId = e.target.value;
     state.compare.b = null;
@@ -548,6 +549,7 @@ async function openRun(id) {
     if (msg.type === "snapshot") {
       state.run = msg.run;
       state.compare = { a: null, b: null, runId: "", rows: null, mode: "", seedRuns: null };
+      state.regressions = {};
       state.inFlight = new Set();
       state.filter = "all";
       closeDetail();
@@ -622,10 +624,14 @@ function renderReport() {
   warn.hidden = !run.warnings?.length;
   warn.replaceChildren(...(run.warnings ?? []).map((w) => el("div", {}, w)));
 
-  const s = summarize(run.rows, { capabilitiesOf: Object.fromEntries((state.meta?.tasks ?? []).map((t) => [t.name, t.capabilities ?? []])) });
+  const s = summarize(run.rows, {
+    capabilitiesOf: Object.fromEntries((state.meta?.tasks ?? []).map((t) => [t.name, t.capabilities ?? []])),
+    levelsOf: Object.fromEntries((state.meta?.tasks ?? []).filter((t) => t.family).map((t) => [t.name, { family: t.family, level: t.level }])),
+  });
   renderHeadline(s);
   renderTwoByTwo(s);
   renderScorecard(s);
+  renderCurves(s);
   renderCompare(s);
   renderLive();
   renderMatrix(s);
@@ -827,6 +833,22 @@ function renderScorecard(s) {
   $("#scorecard-legend").replaceChildren(el("span", {}, "harness % with its 95% band · raw % · delta — pooled over the run's tasks carrying the tag"));
   box.style.gridTemplateColumns = `170px repeat(${clients.length}, minmax(150px, 1fr))`;
   box.append(el("div", { className: "mh" }, "capability"), ...clients.map((c) => el("div", { className: "mh ellipsis", title: c }, c)));
+  if (state.run.status !== "running") {
+    for (const client of clients) {
+      if (state.regressions?.[client] !== undefined) continue;
+      (state.regressions ??= {})[client] = null;
+      getJSON(`/api/regressions?client=${encodeURIComponent(client)}`).then((r) => { state.regressions[client] = r; renderReport(); }).catch(() => { state.regressions[client] = { own: { flags: [] }, vsParent: null }; });
+    }
+    const lines = clients.flatMap((client) => {
+      const r = state.regressions?.[client];
+      if (!r) return [];
+      return [
+        ...(r.own?.flags ?? []).map((f) => `↓ ${client}: ${f.capability} ${MODE_LABEL[f.mode] ?? f.mode} ${fmtPct(f.earlier.correctPct)} over ${plural(f.earlierRuns, "earlier run")} → ${fmtPct(f.later.correctPct)} in its latest run (${String(f.latestAt).slice(0, 10)}): ${f.perTask.map((t) => `${t.task} ${t.earlier}→${t.later}/${t.n}`).join(", ")}`),
+        ...(r.vsParent?.flags ?? []).map((f) => `↓ ${client}: ${f.capability} ${MODE_LABEL[f.mode] ?? f.mode} ${fmtPct(f.child.correctPct)} against parent ${r.vsParent.parent} at ${fmtPct(f.parent.correctPct)}: ${f.perTask.map((t) => `${t.task} ${t.earlier}→${t.later}/${t.n}`).join(", ")}`),
+      ];
+    });
+    for (const line of lines) box.append(el("div", { className: "regress", title: "the later Wilson band lies entirely under the earlier one" }, line));
+  }
   for (const [cap, c] of caps) {
     box.append(el("div", { className: "cap", title: c.tasks.join(", ") }, cap, el("small", {}, ` · ${plural(c.tasks.length, "task")}`)));
     for (const client of clients) {
@@ -841,6 +863,52 @@ function renderScorecard(s) {
         el("div", { className: "sub" }, [h ? `harness ${band(h)}` : "", r ? `raw ${band(r)}` : "", st.delta ? signedPp(st.delta.deltaPp, 0) : ""].filter(Boolean).join(" · ")),
       ));
     }
+  }
+}
+
+// Difficulty curves: per family with a knob, success per level per client, drawn as small SVG
+// lines; the breaking point (first level whose Wilson band tops out under 50 %) is a hollow square.
+const SERIES = ["var(--accent)", "var(--pass)", "var(--fail)", "var(--ink-3)", "#d97706", "#0891b2"];
+function svgEl(tag, attrs = {}, ...children) {
+  const n = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, String(v));
+  for (const c of children) n.append(typeof c === "string" ? document.createTextNode(c) : c);
+  return n;
+}
+const shortLevel = (family, l) => (family === "needle" ? `${Math.round(l / 1000)}k` : String(l));
+
+function renderCurves(s) {
+  const block = $("#curves-block");
+  const box = $("#curves");
+  box.replaceChildren();
+  const families = Object.entries(s.curves ?? {}).filter(([, c]) => c.levels.length >= 2);
+  block.hidden = !families.length;
+  if (!families.length) return;
+  const modesPresent = [...new Set(families.flatMap(([, c]) => Object.values(c.byClient).flatMap((bm) => Object.keys(bm))))];
+  const sel = $("#curves-mode");
+  const cur = sel.value && modesPresent.includes(sel.value) ? sel.value : (modesPresent.includes("harness") ? "harness" : modesPresent[0]);
+  sel.replaceChildren(...modesPresent.map((m) => el("option", { value: m }, MODE_LABEL[m] ?? m)));
+  sel.value = cur;
+  const clients = s.clients;
+  $("#curves-legend").replaceChildren(...clients.map((c, i) => el("span", { title: c }, el("i", { className: "key", style: { background: SERIES[i % SERIES.length] } }), c.length > 26 ? c.slice(0, 25) + "…" : c)));
+  for (const [family, c] of families) {
+    const W = 300, H = 120, L = 30, R = 10, T = 8, B = 22;
+    const x = (i) => L + (i * (W - L - R)) / Math.max(1, c.levels.length - 1);
+    const y = (pct) => T + (1 - pct / 100) * (H - T - B);
+    const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": `${family} difficulty curve` });
+    for (const g of [0, 50, 100]) svg.append(svgEl("line", { class: g === 50 ? "grid" : "axis", x1: L, x2: W - R, y1: y(g), y2: y(g) }), svgEl("text", { x: L - 4, y: y(g) + 3, "text-anchor": "end" }, `${g}%`));
+    c.levels.forEach((l, i) => svg.append(svgEl("text", { x: x(i), y: H - 6, "text-anchor": "middle" }, shortLevel(family, l))));
+    const foot = [];
+    clients.forEach((client, ci) => {
+      const m = c.byClient[client]?.[cur];
+      if (!m) return;
+      const color = SERIES[ci % SERIES.length];
+      const pts = m.points.map((p) => [x(c.levels.indexOf(p.level)), y(p.correctPct), p]);
+      if (pts.length > 1) svg.append(svgEl("polyline", { class: "series", stroke: color, points: pts.map(([px, py]) => `${px},${py}`).join(" ") }));
+      for (const [px, py, p] of pts) svg.append(svgEl("circle", { class: "pt", cx: px, cy: py, r: 3, fill: color, stroke: "var(--surface)" }, svgEl("title", {}, `${client} · ${family} ${shortLevel(family, p.level)} · ${p.correct}/${p.runs} (${(p.wilson.low * 100).toFixed(0)}–${(p.wilson.high * 100).toFixed(0)}%)`)));
+      if (m.breakingPoint !== null) { const bp = pts.find(([, , p]) => p.level === m.breakingPoint); if (bp) svg.append(svgEl("rect", { class: "break", x: bp[0] - 6, y: bp[1] - 6, width: 12, height: 12, stroke: color })); foot.push(`${client.split(":").pop()} breaks at ${shortLevel(family, m.breakingPoint)}`); }
+    });
+    box.append(el("div", { className: "curve" }, el("h4", {}, `${family} · ${c.levels.map((l) => shortLevel(family, l)).join(" → ")}`), svg, el("div", { className: "foot" }, foot.length ? foot.join(" · ") : "no breaking point at these levels")));
   }
 }
 

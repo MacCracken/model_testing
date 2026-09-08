@@ -885,3 +885,49 @@ recalibration):
 
 Inline aggregation answers at 150 k: 37 and 70 for 47 and 61 (gpt-5.4-mini), 28 and 25 for 61 and
 47 (Haiku). Tool modes used 0.8–3.9 k tokens per trial.
+
+## Difficulty curves pooled over the index (2026-09-08, `cli curve`, harness mode)
+
+Correct/trials per level with the 95 % Wilson band; *break* is the first level whose band tops
+out under 50 %. Every saved run to date is pooled, so trial counts differ per cell; treatment
+variants (`@skill`, `@agents`, `@stress`) are left out here and appear in the command's output.
+
+**restock** (items to reorder):
+
+| client | 3 | 6 | 12 | 30 | break |
+|---|---|---|---|---|---|
+| anthropic:claude-haiku-4-5 | 4/4 100 % [51–100] | 16/16 100 % [81–100] | 16/16 100 % [81–100] | 2/3 67 % [21–94] | none |
+| claude-code:claude-haiku-4-5 | 3/3 100 % [44–100] | 11/11 100 % [74–100] | 6/6 100 % [61–100] | — | none |
+| codex:gpt-5.4-mini | 2/3 67 % [21–94] | 12/12 100 % [76–100] | 3/3 100 % [44–100] | — | none |
+| openai:gpt-4o-mini | 4/12 33 % [14–61] | 5/28 18 % [8–36] | 0/16 0 % [0–19] | — | **6** |
+| openai:gpt-5.4-mini | 4/4 100 % [51–100] | 14/16 88 % [64–97] | 11/16 69 % [44–86] | 0/3 0 % [0–56] | none |
+| pi:openai/gpt-4o-mini | 3/3 100 % [44–100] | 2/3 67 % [21–94] | 0/3 0 % [0–56] | — | none |
+| local:ornith-1.5:9b | 4/4 100 % [51–100] | — | — | — | none |
+
+**follow** (dependent hops):
+
+| client | 3 | 6 | break |
+|---|---|---|---|
+| anthropic:claude-haiku-4-5 | 4/4 100 % [51–100] | 11/12 92 % [65–99] | none |
+| openai:gpt-4o-mini | 4/4 100 % [51–100] | 10/12 83 % [55–95] | none |
+| openai:gpt-5.4-mini | 3/4 75 % [30–95] | 0/12 0 % [0–24] | **6** |
+| claude-code:claude-haiku-4-5 | — | 6/6 100 % [61–100] | none |
+| codex:gpt-5.4-mini | — | 6/6 100 % [61–100] | none |
+
+**needle** (tokens of log; harness = grep and count tools, no harness = the log inline):
+
+| client | mode | 8k | 32k | 100k | break |
+|---|---|---|---|---|---|
+| anthropic:claude-haiku-4-5 | harness | 6/6 | 6/6 | 3/3 | none |
+| openai:gpt-4o-mini | harness | 6/6 | 6/6 | 3/3 | none |
+| openai:gpt-5.4-mini | harness | 6/6 | 6/6 | 3/3 | none |
+| anthropic:claude-haiku-4-5 | no harness | 6/6 100 % | 4/6 67 % [30–90] | 1/3 33 % [6–79] | none |
+| openai:gpt-4o-mini | no harness | 2/6 33 % [10–70] | 1/6 17 % [3–56] | — (context errors) | none |
+| openai:gpt-5.4-mini | no harness | 4/6 67 % [30–90] | 4/6 67 % [30–90] | 1/3 33 % [6–79] | none |
+
+Reading: the two breaking points the index can show are gpt-4o-mini at six restock items in the
+synthetic loop (already 33 % at three, so the band at three is wide rather than high) and
+gpt-5.4-mini at six follow hops (its off-by-one, which Codex's loop removes: 6/6 at the same
+level). gpt-5.4-mini on 30 items is 0/3, but three trials cannot push a band under 50 %, so it is
+not a break yet — the rule is conservative by construction. Inline long-context reading has no
+formal break for the same reason; the drop with size is visible in the points.
