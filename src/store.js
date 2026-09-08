@@ -23,7 +23,7 @@ create table if not exists trials (
   trial_index integer, correct integer, reason text, error text, tool_calls integer, tool_use_ok integer,
   tool_use_reason text, schema_valid integer, judge_score real, judge_reason text, latency_ms integer,
   ttft_ms integer, ttfa_ms integer, prompt_tokens integer, completion_tokens integer, total_tokens integer,
-  rounds integer, finish_reason text, started_at text, canon text, skill text, base_client text, agents text, delegations integer, stress text, seed integer,
+  rounds integer, finish_reason text, started_at text, canon text, skill text, base_client text, agents text, delegations integer, stress text, seed integer, constraints text, adherence_pct real,
   primary key (run_id, idx)
 );
 create index if not exists trials_by_cell on trials(task, client, mode);
@@ -56,7 +56,7 @@ export function openStore() {
 // table alone, so each new column is added here when missing; the next `index --full` fills it.
 const LATER_COLUMNS = {
   runs: { parallel: "integer", instance_seed: "integer" },
-  trials: { canon: "text", skill: "text", base_client: "text", agents: "text", delegations: "integer", stress: "text", seed: "integer" },
+  trials: { canon: "text", skill: "text", base_client: "text", agents: "text", delegations: "integer", stress: "text", seed: "integer", constraints: "text", adherence_pct: "real" },
   cells: { agreement_pct: "real", distinct_answers: "integer", flaky: "integer" },
 };
 function migrate(d) {
@@ -98,8 +98,8 @@ export function indexRun(run, { mtime = null } = {}) {
     if (run.status !== "running") {
       const ins = d.prepare(`insert into trials
         (run_id, idx, task, mode, client, model, harness, trial_index, correct, reason, error, tool_calls, tool_use_ok, tool_use_reason,
-         schema_valid, judge_score, judge_reason, latency_ms, ttft_ms, ttfa_ms, prompt_tokens, completion_tokens, total_tokens, rounds, finish_reason, started_at, canon, skill, base_client, agents, delegations, stress, seed)
-        values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+         schema_valid, judge_score, judge_reason, latency_ms, ttft_ms, ttfa_ms, prompt_tokens, completion_tokens, total_tokens, rounds, finish_reason, started_at, canon, skill, base_client, agents, delegations, stress, seed, constraints, adherence_pct)
+        values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
       (run.rows ?? []).forEach((r, i) => ins.run(
         run.id, i, r.task ?? null, r.mode ?? null, r.client ?? null, r.model ?? null, r.harness ?? null,
         num(r.index), flag(!!r.correct), r.reason ?? null, r.error ?? null, (r.toolCalls ?? []).length,
@@ -108,6 +108,7 @@ export function indexRun(run, { mtime = null } = {}) {
         num(r.latencyMs), num(r.ttftMs), num(r.ttfaMs), num(r.usage?.prompt_tokens), num(r.usage?.completion_tokens),
         num(r.usage?.total_tokens), num(r.rounds), r.finishReason ?? null, r.startedAt ?? null, typeof r.canon === "string" ? r.canon : null,
         r.skill?.how ?? null, r.baseClient ?? null, r.agents?.how ?? null, r.agents ? num(r.agents.delegations) ?? 0 : null, r.stress?.how ?? null, num(r.seed),
+        r.constraints?.how ?? null, r.constraints?.total ? (100 * r.constraints.met) / r.constraints.total : null,
       ));
       const cell = d.prepare(`insert into cells
         (run_id, task, client, mode, runs, correct, correct_pct, tool_use_pct, tool_args_ok_pct, schema_valid_pct, error_pct,

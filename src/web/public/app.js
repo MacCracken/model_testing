@@ -131,6 +131,7 @@ function wire() {
   $("#skill").addEventListener("change", updatePlan);
   $("#agents").addEventListener("change", updatePlan);
   $("#stress").addEventListener("change", updatePlan);
+  $("#constraints").addEventListener("change", updatePlan);
   $("#run").addEventListener("click", launch);
   $("#cancel").addEventListener("click", cancel);
   $("#count").addEventListener("input", updatePlan);
@@ -411,11 +412,13 @@ function clientVariants(c) {
   const skill = pick($("#skill").value, "preload");
   const agents = pick($("#agents").value, "available");
   const stress = pick($("#stress").value, "flaky");
+  const constraints = pick($("#constraints").value, "light");
   const out = [];
-  if ((!skill.how && !agents.how && !stress.how) || skill.ab || agents.ab || stress.ab) out.push(c);
+  if ((!skill.how && !agents.how && !stress.how && !constraints.how) || skill.ab || agents.ab || stress.ab || constraints.ab) out.push(c);
   if (skill.how) out.push(`${c}@skill:${skill.how}`);
   if (agents.how) out.push(`${c}@agents:${agents.how}`);
   if (stress.how) out.push(`${c}@stress:${stress.how}`);
+  if (constraints.how) out.push(`${c}@constraints:${constraints.how}`);
   return out;
 }
 
@@ -465,6 +468,8 @@ function updatePlan() {
     }
     const agentsMode = $("#agents").value;
     if (agentsMode) node.append(el("div", { className: "hint" }, `${agentsMode.startsWith("ab") ? "each model also runs with a delegate tool" : "models run with a delegate tool"} · arms use their own sub-agents where they have them (Claude Code)`));
+    const constraintsMode = $("#constraints").value;
+    if (constraintsMode) node.append(el("div", { className: "hint" }, `${constraintsMode.startsWith("ab") ? "each model also runs with formatting requirements" : "models run with formatting requirements"} · adherence is reported next to correctness`));
     const stressMode = $("#stress").value;
     if (stressMode) {
       const noAxis = [...state.tasks].filter((n) => !n.startsWith("restock"));
@@ -662,6 +667,7 @@ function renderHeadline(s) {
     ...Object.entries(s.delta?.skill ?? {}).map(([how, d]) => ({ kind: "skill", how, d })),
     ...Object.entries(s.delta?.agents ?? {}).map(([how, d]) => ({ kind: "agents", how, d })),
     ...Object.entries(s.delta?.stress ?? {}).map(([how, d]) => ({ kind: "stress", how, d })),
+    ...Object.entries(s.delta?.constraints ?? {}).map(([how, d]) => ({ kind: "constraints", how, d })),
   ];
   const stressDetail = (how, d) => ({
     flaky: `${plural(d.failed, "failure")} served`,
@@ -670,12 +676,14 @@ function renderHeadline(s) {
     distractors: `${plural(d.distractorCalls, "distractor call")} · reorder-all ×${d.trap}`,
   }[how] ?? `${plural(d.requests, "request")}`);
   for (const { kind, how, d } of variantCols) {
-    const label = kind === "skill" ? `Skill delta · ${how === "ondemand" ? "on demand" : how}` : kind === "agents" ? `Sub-agents delta · ${how}` : `Stress delta · ${how}`;
+    const label = kind === "skill" ? `Skill delta · ${how === "ondemand" ? "on demand" : how}` : kind === "agents" ? `Sub-agents delta · ${how}` : kind === "stress" ? `Stress delta · ${how}` : `Constraints delta · ${how}`;
     const detail = kind === "skill"
       ? `without → with playbook${how === "ondemand" ? ` · loaded in ${d.loaded}/${d.treatRuns}` : ""}`
       : kind === "agents"
         ? `without → with delegation · delegated in ${d.used}/${d.treatRuns} · ${plural(d.delegations, "sub-agent")}`
-        : `plain → under stress · ${stressDetail(how, d)}`;
+        : kind === "stress"
+          ? `plain → under stress · ${stressDetail(how, d)}`
+          : `plain → with requirements · adherence ${d.total ? fmtPct((100 * d.met) / d.total) : "—"} (${d.met}/${d.total})`;
     box.append(el("div", { className: "hcol" },
       el("div", { className: "eyebrow" }, label),
       el("div", { className: `big ${d.deltaPp > 0 ? "up" : d.deltaPp < 0 ? "down" : "flat"}` },
@@ -1013,6 +1021,16 @@ function renderDetail() {
     body.append(el("div", { className: "eyebrow" }, "Sub-agents"), el("div", { className: "hint" }, "delegation was requested, but this client has no channel for it"));
   } else if (r.agents) {
     body.append(el("div", { className: "eyebrow" }, "Sub-agents"), el("div", { className: "hint" }, "a delegate tool was available and never used"));
+  }
+
+  // Constraints: each formatting requirement and whether the answer met it.
+  if (r.constraints) {
+    const c = r.constraints;
+    body.append(
+      el("div", { className: "eyebrow" }, "Constraints"),
+      el("div", { className: "hint" }, c.applied ? `${c.how} · ${c.met}/${c.total} met` : `${c.how} requested, none applied`),
+      ...(c.list ?? []).map((x) => el("div", { className: `hint ${x.met ? "ok" : "bad"}` }, `${x.met ? "✓" : "✗"} ${x.text}`)),
+    );
   }
 
   // Stress: what the environment did to this trial, from the scenario's op log.

@@ -126,3 +126,14 @@ test("parseTranscript accepts stream-json (one message per line) as well as the 
   assert.equal(fromLines.toolResults[0].content, "out");
   assert.equal(fromLines.model, "claude-haiku-4-5");
 });
+
+test("synthesizeToolResults copes with a task whose tools are a function of the trial context", async () => {
+  const { synthesizeToolResults } = await import("../src/harness/util.js");
+  const restockLike = { harness: { tools: () => [{ name: "list_items" }, { name: "update_item" }] } };
+  const served = [{ name: "alice", message: "Hello, alice!", id: "id-1" }];
+  // Greetings in the window (another process greeting the server) must not crash an arm trial of an
+  // unrelated task — and produce nothing for it, since it declares no hello/lookup tool.
+  assert.deepEqual(synthesizeToolResults(restockLike, "harness", [], served), []);
+  const helloLike = { harness: { tools: [{ name: "hello" }] } };
+  assert.equal(synthesizeToolResults(helloLike, "harness", [], served).length, 1);
+});

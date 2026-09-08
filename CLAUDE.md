@@ -89,6 +89,12 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
   for that profile (flaky / budget / haystack / distractors), and `ground` folds the scenario's op
   log into `row.stress` (`summarizeOps`). The environment carries the treatment; the client is
   untouched, so arms meet the same conditions.
+- `src/constraints.js` — instruction following as a treatment: `withConstraints(client, level)` draws
+  one / three / five verifiable requirements from the trial seed (text families for free-form modes,
+  JSON-shape families for structured ones), appends them to the prompt (arms: the goal prompt),
+  checks the answer, and puts `row.constraints` (met / total / list) on the row; `variantDeltas`
+  pools adherence next to the correctness delta. Both `chat` and `runWithTools` receive
+  `{ task, mode, ctx, seed }`, so wrappers behave the same on the free-form path.
 - `src/web/` — the control plane: `server.js` (node:http, zero deps) + `public/` (the UI).
 - `src/cli.js` — entry point (`list` / `show` / `export` / `index` / `query` / `compact` / `serve` /
   `bench` / `aggregate`).
@@ -153,9 +159,10 @@ schema's own `items` key scores the same as a bare array.
 own (a real-harness arm), its delta against the free-form rows of the same model from any other
 client in the run, matched on the model id with any `provider/` prefix stripped.
 
-A client run as `…@skill:<how>`, `…@agents:<how>` or `…@stress:<profile>` is paired by `summarize`
-with its base client on the same task and mode (`variantDeltas`): `delta.bySkill` / `delta.byAgents`
-/ `delta.byStress` per cell and `delta.skill[how]` / `delta.agents[how]` / `delta.stress[profile]`
+A client run as `…@skill:<how>`, `…@agents:<how>`, `…@stress:<profile>` or `…@constraints:<level>` is
+paired by `summarize` with its base client on the same task and mode (`variantDeltas`):
+`delta.bySkill` / `delta.byAgents` / `delta.byStress` / `delta.byConstraints` per cell and
+`delta.skill[how]` / `delta.agents[how]` / `delta.stress[profile]` / `delta.constraints[level]`
 pooled, the same shape as the harness delta (`deltaBetween` is the shared baseline-versus-treatment calculation; its
 `noHarness*`/`harness*` fields mean baseline/treatment, with `base*`/`treat*` aliases).
 

@@ -12,6 +12,7 @@ import { indexRuns, queryRuns, cellHistory } from "../store.js";
 import { listSkills, parseSkillSuffix } from "../skills.js";
 import { parseAgentsSuffix } from "../agents.js";
 import { parseStressSuffix } from "../stress.js";
+import { parseConstraintsSuffix } from "../constraints.js";
 import { createServer } from "node:http";
 import { readFile, stat } from "node:fs/promises";
 import { extname, join, normalize, dirname, resolve } from "node:path";
@@ -72,7 +73,9 @@ function startRun({ tasks, modes, clients, count, parallel = 1, instanceSeed = n
     const ag = parseAgentsSuffix(c);
     if (ag.how) return `${ag.base}@agents:${ag.how}`;
     const st = parseStressSuffix(c);
-    return st.how ? `${st.base}@stress:${st.how}` : c;
+    if (st.how) return `${st.base}@stress:${st.how}`;
+    const co = parseConstraintsSuffix(c);
+    return co.how ? `${co.base}@constraints:${co.how}` : c;
   };
   const missing = clients.filter((c) => !clientObjs.some((r) => r.name === canonical(c)));
   const controller = new AbortController();

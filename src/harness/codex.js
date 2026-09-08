@@ -73,7 +73,7 @@ export class CodexClient {
     throw new Error("the codex arm only runs structured modes; use a synthetic client for the free-form baseline");
   }
 
-  async runWithTools(prompt, _tools, system, { signal, task, mode, ctx = null, skill = null, timeoutMs = this.timeoutMs } = {}) {
+  async runWithTools(prompt, _tools, system, { signal, task, mode, ctx = null, skill = null, constraints = null, timeoutMs = this.timeoutMs } = {}) {
     // A native skill is the AGENTS.md of the working directory Codex runs in — its own channel for
     // project instructions — so the run gets a scratch directory holding just that file.
     const native = nativeSkill(skill);
@@ -81,7 +81,7 @@ export class CodexClient {
     if (native) writeFileSync(join(cwd, "AGENTS.md"), skillBlock(native));
     const argv = [
       ...splitCommand(this.command), "exec", "--json", "--ephemeral", "--skip-git-repo-check", "-C", cwd,
-      "-m", this.model, ...splitCommand(this.sandboxArgs), goalPrompt(task, mode, prompt, ctx, native ? null : skill),
+      "-m", this.model, ...splitCommand(this.sandboxArgs), goalPrompt(task, mode, prompt, ctx, native ? null : skill, constraints),
     ];
     const env = { ...process.env };
     for (const k of Object.keys(env)) if (k === "CLAUDECODE" || k.startsWith("CLAUDE_CODE_")) delete env[k];

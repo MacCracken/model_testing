@@ -96,6 +96,7 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
     skill: client.skill ? { how: client.skill, name: null, applied: false, loaded: null } : null,
     agents: client.agents ? { how: client.agents, applied: false, delegations: 0, childCalls: 0, childTokens: 0, children: [] } : null,
     stress: client.stress ? { how: client.stress, applied: false } : null,
+    constraints: client.constraints ? { how: client.constraints, applied: false, total: 0, met: 0, list: [] } : null,
     baseClient: client.baseName ?? null,
     seed: instance,
     error: null,
@@ -128,7 +129,7 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
     if (structured || hasTools) {
       // Tools run (if any) and the final message is parsed as JSON. What gets scored is the
       // model's final message written after it saw real tool output — never the tool args.
-      resp = await client.runWithTools(rspec.prompt, rspec.tools ?? [], system, { maxRounds: task.maxRounds ?? maxRounds, signal, task, mode, ctx });
+      resp = await client.runWithTools(rspec.prompt, rspec.tools ?? [], system, { maxRounds: task.maxRounds ?? maxRounds, signal, task, mode, ctx, seed: instance });
       record.toolCalls = resp.toolCalls ?? [];
       record.toolResults = resp.toolResults ?? [];
       record.rounds = resp.rounds ?? 0;
@@ -145,15 +146,18 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
         record.schemaErrors = resp.structured === null ? ["final message was not JSON"] : errors;
       }
     } else {
+      // Wrappers (skills, constraints) need the same context on this path as on the tool path.
       resp = await client.chat(
         [...(system ? [{ role: "system", content: system }] : []), { role: "user", content: rspec.prompt }],
         undefined,
-        { signal },
+        { signal, task, mode, ctx, seed: instance },
       );
     }
 
     if (resp.skill) record.skill = resp.skill;
     if (resp.agents) record.agents = resp.agents;
+    if (resp.constraints) record.constraints = resp.constraints;
+    if (typeof resp.effectivePrompt === "string") record.prompt = resp.effectivePrompt;
     // A variant that rewrote the system prompt reports what the model actually saw.
     if (typeof resp.effectiveSystem === "string") record.system = resp.effectiveSystem;
     record.answerText = resp.text ?? "";
@@ -610,6 +614,8 @@ function variantDeltas(rows, kind) {
     rejected: treat.reduce((a, r) => a + (r[kind]?.rejected ?? 0), 0),
     distractorCalls: treat.reduce((a, r) => a + (r[kind]?.distractorCalls ?? 0), 0),
     trap: treat.reduce((a, r) => a + (r[kind]?.trap ?? 0), 0),
+    met: treat.reduce((a, r) => a + (r[kind]?.met ?? 0), 0),                       // constraints: adherence
+    total: treat.reduce((a, r) => a + (r[kind]?.total ?? 0), 0),
   });
   for (const key of new Set(treated.map((r) => `${r.task}|${r.mode}|${r.client}`))) {
     const [task, mode, client] = key.split("|");
@@ -681,6 +687,7 @@ export function summarize(rows) {
   const skillD = variantDeltas(rows, "skill");
   const agentsD = variantDeltas(rows, "agents");
   const stressD = variantDeltas(rows, "stress");
+  const constraintsD = variantDeltas(rows, "constraints");
 
   return {
     runs: rows.length,
@@ -702,6 +709,8 @@ export function summarize(rows) {
       agents: agentsD.pooled,
       byStress: stressD.by,
       stress: stressD.pooled,
+      byConstraints: constraintsD.by,
+      constraints: constraintsD.pooled,
     },
   };
 }

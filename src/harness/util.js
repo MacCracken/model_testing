@@ -22,8 +22,11 @@ export function nativeSkill(skill) {
   return skill?.how === "native" && skill.text ? skill : null;
 }
 
-export function goalPrompt(task, mode, fallback, ctx = null, skill = null) {
+export function goalPrompt(task, mode, fallback, ctx = null, skill = null, constraints = null) {
   let goal = typeof task?.goal === "function" ? task.goal(ctx ?? {}) : (task?.goal ?? fallback);
+  // A constraints variant adds verifiable formatting requirements, the same ones the synthetic
+  // harness puts on its prompt.
+  if (Array.isArray(constraints) && constraints.length) goal = `${goal}\n\nFormatting requirements — every one of them must be met:\n${constraints.map((c, i) => `${i + 1}. ${c}`).join("\n")}`;
   // A skilled variant of an arm gets the playbook in the prompt (the arm brings its own tools, so
   // "on demand" means preload here; "native" arrives here only when the arm has no own channel).
   if (skill?.text) goal = `${goal}\n\n${skillBlock(skill)}`;
@@ -77,7 +80,9 @@ export function synthesizeToolResults(task, mode, texts, served = []) {
     greetings.push(g);
   }
   if (!greetings.length) return [];
-  const names = (task?.[mode]?.tools ?? []).map((t) => t.name).filter((n) => n === "hello" || n === "lookup");
+  // A task's tools may be a function of the trial context (restock under stress); only the names matter here.
+  const declared = typeof task?.[mode]?.tools === "function" ? task[mode].tools({}) : task?.[mode]?.tools ?? [];
+  const names = declared.map((t) => t.name).filter((n) => n === "hello" || n === "lookup");
   return names.map((name, i) => ({
     id: `synth_${i + 1}`,
     name,

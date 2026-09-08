@@ -4,6 +4,52 @@ What shipped, by date. Full measurement tables live in [docs/results.md](docs/re
 forward roadmap is [plan.md](plan.md). Dates are the commit dates; item numbers ([1]–[20]) are the
 roadmap tiers as they were numbered while being built.
 
+## 2026-09-07 (later still) — instruction-following constraints
+
+### Added
+- **Constraints as a treatment** ([22]): `src/constraints.js` wraps a client as
+  `<client>@constraints:light|medium|heavy` (one, three or five requirements drawn from the trial
+  seed). Free-form modes get text requirements — word limits, forbidden and required words, an
+  opening or closing phrase, no commas, bullet counts; structured modes get JSON-shape requirements —
+  key order, an attestation key, a single line. The answer is checked by code and the row records
+  `constraints` (met / total / each requirement); `delta.byConstraints` / `delta.constraints[level]`
+  carry **adherence** next to the correctness delta. Arms get the requirements through the goal
+  prompt. Web "constraints" setting with A/B choices; drawer lists each requirement ✓/✗; index and
+  CSV columns.
+- The row's `prompt` now shows what the model actually saw when a variant rewrote it.
+
+### Fixed
+- Wrappers (skills, constraints) were not given the task, mode, context or seed on the free-form
+  `chat` path, so a skill variant in `noHarness` mode silently ran plain. Both paths now receive the
+  same options. (No recorded skill measurement used the free-form path.)
+
+### Measured (seven tasks × noHarness and harness, three hosted models, four per cell, seed 2026)
+- **Models follow formatting requirements almost always**: adherence 94 % over 804 requirements
+  (gpt-4o-mini 97 %, haiku 98 %, gpt-5.4-mini 88 %). Requirements that were ever refused: padding
+  to a minimum word count (81 %), an exact bullet count (85 %), and the attestation key (80 %) —
+  the last mostly gpt-5.4-mini answering `hello` as a bare JSON array with nowhere to put a key,
+  a constraint-design artifact now fixed (`attest` is offered only to object schemas). Forbidden
+  and required words, opening and closing phrases, key order and single-line JSON: 100 %.
+- **Following them costs free-form correctness and nothing in harness mode.** Free-form, five
+  requirements: gpt-4o-mini 15/28 → 10/28, gpt-5.4-mini 16 → 12, haiku 15 → 14; harness mode
+  stayed at 24–28/28 for everyone. The loss concentrates where a requirement conflicts with the
+  task's verbatim answer — `hello` free-form fell 11/12 → 6/12 because "no commas" turns
+  "Hello, alice!" into "Hello alice!" — and the models chose the instruction over the quote. Pooled
+  correctness delta −5 pp (p = 0.4); adherence is the number that separates the models.
+- **Arms, harness mode, five requirements** (lookup, chain, restock6; three per cell): Claude Code
+  with Haiku met 15/15 requirements and stayed correct on every trial the bench scored; Codex with
+  gpt-5.4-mini met 20/24 (the misses are the attestation key on `lookup`'s array answer, the same
+  artifact) and lost one `chain` trial to the dependent second call it also skipped plain. Four
+  Claude Code `restock6` trials in this run errored in the bench, not the model: greetings served to
+  a concurrent local run landed in the arm's time window and hit a code path that assumed a task's
+  tools were a list (restock's are a function of the trial since the stress profiles). Fixed and
+  tested; the caveat that arms should not share a webserver with another running process stands.
+- **Local ornith-1.5:9b** (hello, regex, wordmath4, tally20): free-form adherence 88–94 % and the
+  same correctness cost as the hosted models (15/16 → 11/16 under five requirements); JSON
+  adherence only 65–69 % — it keeps pretty-printing when told to write one line (13/20) and half of
+  its attestation misses are the array-answer artifact. Key order, forbidden words, word limits and
+  opening phrases: 100 %.
+
 ## 2026-09-07 (later) — generated reasoning families, instance seeds, capability tags
 
 ### Added
@@ -54,7 +100,10 @@ roadmap tiers as they were numbered while being built.
   results while it also narrates the working (73 copied as 51; a final ×10 forgotten). For the weak
   model, writing the work and driving the tool at once costs attention on six-step chains. The
   `work` field stays: without it schema mode measures answering without thinking.
-- The 9 B local model's run on the same seed is recorded in docs/results.md when it lands.
+- **Local ornith-1.5:9b**, same seed (answer-only schemas): 89 % → 94 %, and **no schema-only
+  collapse** — the thinking model reasons before it writes JSON, so the answer-only schema cost it
+  nothing where the OpenAI models fell to 0–1/4. One wordmath4 instance was answered 576 for 288 in
+  all four modes: consistent and wrong. Table in docs/results.md.
 
 ## 2026-09-07 — parallel trials, variance, multi-step tasks, skills, sub-agents, stressors
 

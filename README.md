@@ -102,6 +102,7 @@ node src/bench.js --task restock3,restock6 --modes harness --clients openai:gpt-
 node src/bench.js --task restock12 --modes harness --clients anthropic:claude-haiku-4-5,anthropic:claude-haiku-4-5@agents:available --count 4      # sub-agents A/B
 node src/bench.js --task restock6 --modes harness --clients openai:gpt-5.4-mini,openai:gpt-5.4-mini@stress:budget,openai:gpt-5.4-mini@stress:distractors --count 4   # stress A/B
 node src/bench.js --task wordmath4,datecalc3,logicgrid4,tally60 --clients openai:gpt-4o-mini,anthropic:claude-haiku-4-5 --count 4 --instance-seed 7   # generated reasoning, paired
+node src/bench.js --task hello,regex,tally20 --clients openai:gpt-4o-mini,openai:gpt-4o-mini@constraints:heavy --count 4 --instance-seed 7   # instruction following
 
 # A bare provider name expands to all of its models
 node src/aggregate.js --tasks health,hello --clients local
@@ -145,6 +146,13 @@ calls in the same turn, and returns its answer; `@agents:required` tells the par
 per-item work that way. Children's tool calls and tokens fold into the parent's row, and the report
 shows the sub-agents delta with how often delegation was actually used. Claude Code runs the variant
 through its own Agent tool; other arms report that they have no channel.
+
+**Constraints.** `openai:gpt-4o-mini@constraints:light|medium|heavy` adds one, three or five verifiable
+formatting requirements to every prompt — word limits, forbidden or required words, an opening or
+closing phrase, no commas, bullet counts for free-form answers; key order, an attestation key and a
+single line for JSON answers — drawn from the instance seed so every model gets the same ones. The
+row records which were met, and the report shows **adherence** next to the correctness delta, so
+"did the job" and "did it as told" stay separate.
 
 **Stressors.** `openai:gpt-4o-mini@stress:flaky|budget|haystack|distractors` runs the restock family
 in a harder environment: transient 503s that need a retry, a request budget after which everything

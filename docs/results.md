@@ -746,3 +746,66 @@ Paired outcomes over the 48 schema-only instances: 26 wrong → right, 2 right �
 both times, 11 wrong both times. Harness mode: 8 up, 5 down, 28 right both times, 7 wrong both
 times. The gpt-4o-mini wordmath6 harness regression is bookkeeping between calculator results
 while narrating the working (a 73 copied as 51; a final ×10 forgotten).
+
+**local ornith-1.5:9b**, same seed and tasks (answer-only schemas — its run began before the `work`
+field landed), serial, four per cell:
+
+| task | noHarness | schemaOnly | toolOnly | harness |
+|---|---|---|---|---|
+| wordmath2 | 4/4 | 4/4 | 4/4 | 4/4 |
+| wordmath4 | 3/4 | 3/4 | 3/4 | 3/4 |
+| wordmath6 | 4/4 | 4/4 | 4/4 | 4/4 |
+| datecalc1 | 2/4 | 3/4 | 3/4 | 4/4 |
+| datecalc3 | 3/4 | 4/4 | 4/4 | 3/4 |
+| logicgrid3 | 4/4 | 4/4 | — | 4/4 |
+| logicgrid4 | 4/4 | 4/4 | — | 4/4 |
+| tally20 | 4/4 | 4/4 | 4/4 | 4/4 |
+| tally60 | 4/4 | 3/4 | 4/4 | 4/4 |
+
+89 % → 94 % (+6 pp, p = 0.67). The 9 B thinking model shows **no schema-only collapse**: it
+reasons internally before it writes JSON, so the answer-only schema cost it nothing where the
+OpenAI models fell to 0–1/4. Its one wordmath4 miss is the same instance answered 576 instead of
+288 in all four modes (a doubled step) — consistent and wrong, the agreement metric's case. Three
+free-form `datecalc1` trials hit the 120 s timeout thinking. Harness latency 5–22 s per trial.
+
+
+## Instruction-following constraints (2026-09-07, seed 2026, four trials per cell)
+
+Seven tasks (`hello`, `lookup`, `regex`, `chain`, `wordmath4`, `tally20`, `restock6`) in
+noHarness and harness mode, each model plain, with one requirement (light) and with five (heavy).
+Adherence is requirements met / requirements set.
+
+| model | mode | plain | light · adherence | heavy · adherence |
+|---|---|---|---|---|
+| gpt-4o-mini | noHarness | 15/28 | 14/28 · 93 % | 10/28 · 95 % |
+| gpt-4o-mini | harness | 25/28 | 24/28 · 100 % | 26/28 · 100 % |
+| gpt-5.4-mini | noHarness | 16/28 | 13/28 · 96 % | 12/28 · 96 % |
+| gpt-5.4-mini | harness | 27/28 | 28/28 · 86 % | 28/28 · 72 % |
+| claude-haiku-4-5 | noHarness | 15/28 | 12/28 · 93 % | 14/28 · 98 % |
+| claude-haiku-4-5 | harness | 28/28 | 28/28 · 96 % | 28/28 · 100 % |
+
+Per requirement family over every treated row: attest 80 % (101/126; mostly gpt-5.4-mini answering
+`hello` as a bare array — offered only to object schemas since), min_words 81 %, bullets 85 %,
+no_commas 97 %, max_words 98 %, forbid / include / start_with / end_with / minified / key_order
+100 %. Free-form correctness plain → heavy per task, pooled over the three models: hello 11/12 →
+6/12, regex 12/12 → 10/12, tally20 11/12 → 9/12, wordmath4 12/12 → 11/12; lookup, chain and
+restock6 0/12 both ways (tool-essential).
+
+**Arms, harness mode, plain versus five requirements** (`lookup`, `chain`, `restock6`; three per
+cell; errored trials excluded — four Claude Code `restock6` trials hit a bench bug since fixed):
+
+| arm · model | plain | heavy | adherence |
+|---|---|---|---|
+| claude-code · claude-haiku-4-5 | 8/8 | 6/6 | 100 % (15/15) |
+| codex · gpt-5.4-mini | 9/9 | 8/9 | 83 % (20/24; attestation on an array answer) |
+
+**local ornith-1.5:9b** (`hello`, `regex`, `wordmath4`, `tally20`; four per cell; run before the
+attestation fix, so half its attestation requirements were unmeetable array answers):
+
+| mode | plain | light · adherence | heavy · adherence |
+|---|---|---|---|
+| noHarness | 15/16 | 14/16 · 88 % | 11/16 · 94 % |
+| harness | 15/16 | 13/16 · 69 % | 15/16 · 65 % |
+
+Per family: attest 50 % (12/24), minified 65 % (13/20), bullets 69 %, end_with 91 %, include 92 %,
+no_commas 92 %, forbid / max_words / start_with / min_words / key_order 100 %.

@@ -84,11 +84,11 @@ export class ClaudeCodeClient {
     throw new Error("the claude-code arm only runs structured modes; use a synthetic client for the free-form baseline");
   }
 
-  async runWithTools(prompt, _tools, system, { signal, task, mode, ctx = null, skill = null, agents = null, timeoutMs = this.timeoutMs } = {}) {
+  async runWithTools(prompt, _tools, system, { signal, task, mode, ctx = null, skill = null, constraints = null, agents = null, timeoutMs = this.timeoutMs } = {}) {
     // A native skill goes in through Claude Code's own system-prompt flag instead of the goal text.
     const native = nativeSkill(skill);
     const argv = [
-      ...splitCommand(this.command), "-p", goalPrompt(task, mode, prompt, ctx, native ? null : skill),
+      ...splitCommand(this.command), "-p", goalPrompt(task, mode, prompt, ctx, native ? null : skill, constraints),
       "--bare", "--output-format", "stream-json", "--verbose", "--model", this.model, "--no-session-persistence",
       // A sub-agents variant lets Claude Code use its own Agent tool (Task in older builds).
       "--allowedTools", agents ? `${this.tools},Agent,Task` : this.tools, "--permission-mode", "bypassPermissions",

@@ -71,6 +71,14 @@ export function printSummary(summary, { log = console.log } = {}) {
     for (const [key, d] of Object.entries(summary.delta.byStress ?? {})) log(`   ${key.padEnd(52)} ${fmtDelta(d)}`);
   }
 
+  if (summary.delta.constraints) {
+    log("\n-- constraints delta (same task, mode and model: plain → with formatting requirements)");
+    for (const [how, d] of Object.entries(summary.delta.constraints)) {
+      log(`   ${how.padEnd(13)} ${fmtDelta(d)} · adherence ${d.total ? ((100 * d.met) / d.total).toFixed(0) : "—"}% (${d.met}/${d.total} requirements met)`);
+    }
+    for (const [key, d] of Object.entries(summary.delta.byConstraints ?? {})) log(`   ${key.padEnd(52)} ${fmtDelta(d)} · adherence ${d.total ? ((100 * d.met) / d.total).toFixed(0) : "—"}%`);
+  }
+
   const arms = Object.entries(summary.delta.byArm ?? {});
   if (arms.length) {
     log("\n-- harness arms vs the free-form baseline of the same model");
