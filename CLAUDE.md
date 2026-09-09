@@ -32,8 +32,9 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
   modes and posts it to the webserver for the tool modes' grep and count (`tasks/needle.js`); the
   record keeps a capped prompt (`capText` in the runner) and a ctx without the log (`recordCtx`;
   `remint` mints it again from the seed the row keeps), the model gets the whole log. The
-  extraction family (`extract1/2/3`, `tasks/extract.js`) mints an invoice, its line-item table, or a
-  purchase order plus the invoice billed against it, with exact truth; the free-form modes read the
+  extraction family (`extract1/2/3/4`, `tasks/extract.js`) mints an invoice, its line-item table, a
+  purchase order plus the invoice billed against it, or a month's account statement plus the open
+  invoices it settles, with exact truth; the free-form modes read the
   documents inline and the tool modes fetch them from the webserver with `get_document` (plus
   `calc`); scoring uses tolerance rules (amounts within a cent, four date formats read back to ISO,
   strings without case or punctuation); under `@stress:injected` the document itself carries the

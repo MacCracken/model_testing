@@ -4,6 +4,33 @@ What shipped, by date. Full measurement tables live in [docs/results.md](docs/re
 forward roadmap is [plan.md](plan.md). Dates are the commit dates; item numbers ([1]–[49]) are the
 roadmap's, stable across the plan, this file and the results.
 
+## 2026-09-09 (later that night) — a fourth extraction tier
+
+### Added
+- **`extract4`** ([48], the first follow-up: a harder tier where the current ones saturate): a
+  month's account statement — 20 to 30 lines with a running balance: payments against the open
+  invoices in full, in part, in two instalments that add up, one paid and then reversed; payments
+  from customers who are not on the list under references that look right; supplier payments, fees,
+  payroll — reconciled against the open-invoices list, the second document. The answer is each open
+  invoice's outcome (paid / partial / unpaid) with the net amount received, and the month's total
+  credits, total debits and closing balance; the statement prints the closing balance but never the
+  column totals, so the sums have to be made (the tool modes get `calc`). Same scoring rules and
+  injection profile as the family; `remint` from the seed as before. Tests cover the generator's
+  invariants (closing = opening + credits − debits, every outcome present, a reversal reads unpaid,
+  instalments add up, a distractor reference on every statement), the reader, the scorer, the
+  hijack, and the trial in all four modes.
+
+### Measured (seed 2026, four trials per cell; table in docs/results.md)
+- **It does not saturate**: 10 of 48 across the four modes — gpt-4o-mini 0/16, gpt-5.4-mini 2/16,
+  Haiku 8/16 — against 141 of 144 on the first three tiers. The failure is one thing: summing the
+  statement's columns. 36 of 38 misses have the total credits wrong and 35 the total debits, while
+  the invoice-by-invoice reconciliation is mostly right and the printed closing balance nearly
+  always read correctly. The generator re-sums to its own truth over sixty seeds and no miss is the
+  reversal netted out of both totals; the errors are transcription and addition over 25 lines, with
+  or without the calculator — the aggregation weakness the long-context family found, now in a
+  document a page long. The local 9B model gave no reading: every request hit the 120-second
+  timeout on the page-long prompt (error rows, not misses; `BENCH_TIMEOUT_MS` is the knob).
+
 ## 2026-09-09 (night) — multi-turn with a scripted user
 
 ### Added

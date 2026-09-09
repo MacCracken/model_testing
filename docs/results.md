@@ -1106,3 +1106,35 @@ none twice. The failures are about carrying state across turns, not about the ru
 
 By the curve rule gpt-4o-mini breaks at level 2 (0/8 pooled over the tool modes); gpt-5.4-mini
 does not break (7/8, 4/8, 4/8) but halves once the hold arrives; Haiku holds (8/8, 8/8, 7/8).
+
+## A fourth extraction tier: the statement reconciliation (2026-09-09, seed 2026, four trials per cell)
+
+Run `20260909T163810-4d7c`: `extract4` in all four modes on three hosted models. A month's account
+statement (20–30 lines, running balance, split payments, a reversal, payments from customers not on
+the list, fees) reconciled against the open-invoices list; the answer is each invoice's outcome and
+net amount received, plus the month's total credits, total debits and closing balance. Correct
+trials out of four per cell.
+
+| Mode | gpt-4o-mini | gpt-5.4-mini | claude-haiku-4-5 |
+|---|---|---|---|
+| noHarness | 0 | 0 | 0 |
+| schemaOnly | 0 | 1 | 2 |
+| toolOnly | 0 | 0 | 3 |
+| harness | 0 | 1 | 3 |
+
+10 of 48; by model gpt-4o-mini 0/16, gpt-5.4-mini 2/16, Haiku 8/16. The tier separates what the first
+three did not, and it separates on one thing: the column totals. Of the 38 misses, 36 have
+`total_credits` wrong and 35 `total_debits`, while the per-invoice reconciliation is mostly right
+(six wrong amounts and eight wrong statuses across some 220 invoice lines) and the printed closing
+balance is read correctly in all but two. The generator re-sums to its own truth on sixty seeds, and
+no miss is the reversal being netted out of both totals: the errors are transcription and addition
+over 25 lines — sometimes one line short, sometimes far off (a total of 49.49 for 11,822.16) — the
+same aggregation weakness the `needle` family found inline, here with a calculator on offer in the
+tool modes and still not carried through. Tokens per trial: 1.3–1.5 k inline, 4–6 k with tools for
+the OpenAI models, 17 k for Haiku, which calls the calculator line by line.
+
+The local 9B model (`local:ornith-1.5:9b`, run `20260909T164757-6c93`, two trials per cell under a
+15-minute box) produced no reading at this tier: every request hit the 120-second timeout (the
+harness trial ran 288 s across its rounds before its last request timed out). A 25-line statement is
+past what it answers in two minutes on this machine; a longer `BENCH_TIMEOUT_MS` is the knob, and
+the rows are error rows, not misses.
