@@ -226,6 +226,13 @@ norelevant). A trial that obeys is scored as hijacked. The profile is applied to
 same conditions; every row records what the environment did (failures served, requests refused,
 distractor calls) and the report shows the stress delta per profile.
 
+**Format.** `openai:gpt-4o-mini@format:nowork` strips the `work` field from any schema that has one
+(and tells the model to write no working), `@format:work` adds it to any schema that lacks one (and
+asks for the working first): the format axis on demand, on any task. The row records whether the
+treatment applied (the schema had, or lacked, the field) and whether the answer complied, and the
+report shows the format delta paired against the plain client. Free-form modes have no schema and
+are left alone.
+
 **Skills.** A playbook under `skills/<task>.md` can be handed to a model as a treatment:
 `openai:gpt-4o-mini@skill:preload` puts it in the prompt, `@skill:ondemand` offers it as a
 `load_skill` tool and records whether the model read it, and `@skill:native` hands it to a

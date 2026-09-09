@@ -715,6 +715,7 @@ function renderHeadline(s) {
     ...Object.entries(s.delta?.agents ?? {}).map(([how, d]) => ({ kind: "agents", how, d })),
     ...Object.entries(s.delta?.stress ?? {}).map(([how, d]) => ({ kind: "stress", how, d })),
     ...Object.entries(s.delta?.constraints ?? {}).map(([how, d]) => ({ kind: "constraints", how, d })),
+    ...Object.entries(s.delta?.format ?? {}).map(([how, d]) => ({ kind: "format", how, d })),
   ];
   const stressDetail = (how, d) => ({
     flaky: `${plural(d.failed, "failure")} served`,
@@ -724,14 +725,16 @@ function renderHeadline(s) {
     injected: `hijacked in ${d.hijackedTrials} of ${d.treatRuns} trials`,
   }[how] ?? `${plural(d.requests, "request")}`);
   for (const { kind, how, d } of variantCols) {
-    const label = kind === "skill" ? `Skill delta · ${how === "ondemand" ? "on demand" : how}` : kind === "agents" ? `Sub-agents delta · ${how}` : kind === "stress" ? `Stress delta · ${how}` : `Constraints delta · ${how}`;
+    const label = kind === "skill" ? `Skill delta · ${how === "ondemand" ? "on demand" : how}` : kind === "agents" ? `Sub-agents delta · ${how}` : kind === "stress" ? `Stress delta · ${how}` : kind === "format" ? `Format delta · ${how === "nowork" ? "work field stripped" : "work field added"}` : `Constraints delta · ${how}`;
     const detail = kind === "skill"
       ? `without → with playbook${how === "ondemand" ? ` · loaded in ${d.loaded}/${d.treatRuns}` : ""}`
       : kind === "agents"
         ? `without → with delegation · delegated in ${d.used}/${d.treatRuns} · ${plural(d.delegations, "sub-agent")}`
         : kind === "stress"
           ? `plain → under stress · ${stressDetail(how, d)}`
-          : `plain → with requirements · adherence ${d.total ? fmtPct((100 * d.met) / d.total) : "—"} (${d.met}/${d.total})`;
+          : kind === "format"
+            ? `as written → ${how === "nowork" ? "without" : "with"} the work field · applied in ${d.applied}/${d.treatRuns} · complied ${d.complied}/${d.applied}`
+            : `plain → with requirements · adherence ${d.total ? fmtPct((100 * d.met) / d.total) : "—"} (${d.met}/${d.total})`;
     box.append(el("div", { className: "hcol" },
       el("div", { className: "eyebrow" }, label),
       el("div", { className: `big ${d.deltaPp > 0 ? "up" : d.deltaPp < 0 ? "down" : "flat"}` },

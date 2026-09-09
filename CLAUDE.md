@@ -139,6 +139,12 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
   planted 999) for read-only tasks, whose scorers return `hijacked: true` when they see it; the
   runner adds that to the row's stress record. The environment carries the treatment; the client is
   untouched, so arms meet the same conditions.
+- `src/format.js` — the answer's format as a treatment: `withFormat(client, how)` names
+  `<client>@format:nowork|work`; the runner applies `applyFormat` to the spec before the schema hint
+  is built (the `work` field stripped from a schema that has it, or added first to one that lacks
+  it, with a line on the prompt), judges validity against the treated schema (a re-score re-applies
+  it from `row.format`), and records `row.format` (how / applied / complied). Free-form modes are
+  left alone.
 - `src/constraints.js` — instruction following as a treatment: `withConstraints(client, level)` draws
   one / three / five verifiable requirements from the trial seed (text families for free-form modes,
   JSON-shape families for structured ones), appends them to the prompt (arms: the goal prompt),
@@ -237,11 +243,11 @@ schema's own `items` key scores the same as a bare array.
 own (a real-harness arm), its delta against the free-form rows of the same model from any other
 client in the run, matched on the model id with any `provider/` prefix stripped.
 
-A client run as `…@skill:<how>`, `…@agents:<how>`, `…@stress:<profile>` or `…@constraints:<level>` is
-paired by `summarize` with its base client on the same task and mode (`variantDeltas`):
-`delta.bySkill` / `delta.byAgents` / `delta.byStress` / `delta.byConstraints` per cell and
-`delta.skill[how]` / `delta.agents[how]` / `delta.stress[profile]` / `delta.constraints[level]`
-pooled, the same shape as the harness delta (`deltaBetween` is the shared baseline-versus-treatment calculation; its
+A client run as `…@skill:<how>`, `…@agents:<how>`, `…@stress:<profile>`, `…@constraints:<level>` or
+`…@format:<how>` is paired by `summarize` with its base client on the same task and mode
+(`variantDeltas`): `delta.bySkill` / `delta.byAgents` / `delta.byStress` / `delta.byConstraints` /
+`delta.byFormat` per cell and `delta.skill[how]` / `delta.agents[how]` / `delta.stress[profile]` /
+`delta.constraints[level]` / `delta.format[how]` pooled, the same shape as the harness delta (`deltaBetween` is the shared baseline-versus-treatment calculation; its
 `noHarness*`/`harness*` fields mean baseline/treatment, with `base*`/`treat*` aliases).
 
 `summarize` also reports `stability` per mode from repeated cells: `flaky` (both passes and

@@ -13,6 +13,7 @@ import { listSkills, parseSkillSuffix } from "../skills.js";
 import { parseAgentsSuffix } from "../agents.js";
 import { parseStressSuffix } from "../stress.js";
 import { parseConstraintsSuffix } from "../constraints.js";
+import { parseFormatSuffix } from "../format.js";
 import { lineageOf, loadLineage } from "../lineage.js";
 import { createServer } from "node:http";
 import { readFile, stat } from "node:fs/promises";
@@ -37,7 +38,7 @@ const SUT_BASE = `http://localhost:${SUT_PORT}`;
 // (see runner.js). Served under /lib/ and nowhere else.
 // Every module runner.js imports (transitively) must be listed here, or the browser's import graph
 // fails and the UI goes blank — test/browser-lib.test.js checks it.
-const BROWSER_LIB = new Set(["runner.js", "schema.js", "tasks/gen.js"]);
+const BROWSER_LIB = new Set(["runner.js", "schema.js", "tasks/gen.js", "format.js"]);
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -76,7 +77,9 @@ function startRun({ tasks, modes, clients, count, parallel = 1, instanceSeed = n
     const st = parseStressSuffix(c);
     if (st.how) return `${st.base}@stress:${st.how}`;
     const co = parseConstraintsSuffix(c);
-    return co.how ? `${co.base}@constraints:${co.how}` : c;
+    if (co.how) return `${co.base}@constraints:${co.how}`;
+    const fo = parseFormatSuffix(c);
+    return fo.how ? `${fo.base}@format:${fo.how}` : c;
   };
   const missing = clients.filter((c) => !clientObjs.some((r) => r.name === canonical(c)));
   const controller = new AbortController();

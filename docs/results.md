@@ -1138,3 +1138,42 @@ The local 9B model (`local:ornith-1.5:9b`, run `20260909T164757-6c93`, two trial
 harness trial ran 288 s across its rounds before its last request timed out). A 25-line statement is
 past what it answers in two minutes on this machine; a longer `BENCH_TIMEOUT_MS` is the knob, and
 the rows are error rows, not misses.
+
+## The format axis on demand (2026-09-10, seed 2026, four trials per cell)
+
+Run `20260909T165817-0043`: six tasks whose schema carries a `work` field, in schema-only and
+harness mode, on gpt-4o-mini and claude-haiku-4-5, each plain and as `@format:nowork` (the field
+stripped from the schema, the prompt told to write no working). Correct trials out of four,
+plain → stripped; every treated trial had the treatment applied, and 94 of 96 answers complied.
+
+| Task | Mode | gpt-4o-mini | claude-haiku-4-5 |
+|---|---|---|---|
+| wordmath4 | schemaOnly | 4 → 0 | 4 → 1 |
+| | harness (calc) | 2 → 3 | 4 → 4 |
+| wordmath6 | schemaOnly | 4 → 0 | 4 → 0 |
+| | harness (calc) | 3 → 2 | 4 → 4 |
+| datecalc3 | schemaOnly | 2 → 0 | 2 → 0 |
+| | harness (date tool) | 2 → 3 | 4 → 4 |
+| logicgrid4 | schemaOnly | 0 → 0 | 4 → 1 |
+| | harness (no tools) | 1 → 0 | 4 → 0 |
+| tally60 | schemaOnly | 1 → 2 | 3 → 1 |
+| | harness (query tool) | 4 → 4 | 4 → 4 |
+| extract3 | schemaOnly | 4 → 4 | 4 → 4 |
+| | harness (fetch, calc) | 2 → 4 | 4 → 4 |
+
+Pooled: 77.1 % → 51.0 % (−26 pp, Fisher p < 0.001; paired over 96 instances). The effect is where
+the reasoning has nowhere else to go: with no tool in play, stripping the field takes wordmath6
+from 8/8 to 0/8 and datecalc3 from 4/8 to 0/8, and Haiku's logicgrid4 from 8/8 to 1/8. With a
+calculator or a date tool in the loop the field stops mattering — the tool calls are the working —
+and on extraction, which needs reading rather than working, it never mattered. Stripped answers
+cost about 40 % fewer tokens in schema-only mode. gpt-4o-mini wrote a `work` key anyway twice
+(complied 3/4 on wordmath4 and wordmath6 schema-only) and was wrong on both.
+
+Run `20260909T165931-5c41`: `@format:work` on five object-schema tasks that have no `work`
+field (reason, chain, health, restock6, dialogue2), harness mode, gpt-4o-mini: 70 % → 60 % (14/20
+→ 12/20), 0 pairs up and 2 down, McNemar p = 0.50. Nothing is gained where the task needs no
+working, and the answers cost 30–50 % more tokens; the field was applied in all 20 trials and used
+in 16 (dialogue2's final report ignored it all four times). A first run had applied the treatment
+to array-typed schemas too (regex, transform, hello), where a `work` property has no place and the
+list moved under a key the scorers do not read — the run was discarded and the treatment now
+applies to object schemas only.

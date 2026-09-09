@@ -105,6 +105,14 @@ export function printSummary(summary, { log = console.log } = {}) {
     for (const [key, d] of Object.entries(summary.delta.byConstraints ?? {})) log(`   ${key.padEnd(52)} ${fmtDelta(d)} · adherence ${d.total ? ((100 * d.met) / d.total).toFixed(0) : "—"}%`);
   }
 
+  if (summary.delta.format) {
+    log("\n-- format delta (same task, mode and model: the schema as written → with the work field stripped or added)");
+    for (const [how, d] of Object.entries(summary.delta.format)) {
+      log(`   ${how.padEnd(13)} ${fmtDelta(d)} · applied in ${d.applied}/${d.treatRuns} · complied in ${d.complied}/${d.applied}`);
+    }
+    for (const [key, d] of Object.entries(summary.delta.byFormat ?? {})) log(`   ${key.padEnd(52)} ${fmtDelta(d)} · applied ${d.applied}/${d.treatRuns} · complied ${d.complied}/${d.applied}`);
+  }
+
   const arms = Object.entries(summary.delta.byArm ?? {});
   if (arms.length) {
     log("\n-- harness arms vs the free-form baseline of the same model");

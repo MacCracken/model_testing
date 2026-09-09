@@ -9,6 +9,7 @@
 
 import { validateSchema, schemaHint } from "./schema.js";
 import { seedFor, rng } from "./tasks/gen.js";
+import { applyFormat, complied as formatComplied } from "./format.js";
 
 // Every mode the benchmark knows. `noHarness` vs `harness` is the headline pair; `schemaOnly` and
 // `toolOnly` are the two axes the bundle decomposes into. A task supports a mode by carrying a spec
@@ -84,9 +85,12 @@ function recordedCtx(task, ctx) {
  * `hasTools` says whether the spec carried tools, which decides the tool-use verdict, and is read
  * from the spec and the context when not given.
  */
-export async function scoreRecord(task, record, { judge = null, ctx = record.ctx ?? null, hasTools = null } = {}) {
+export async function scoreRecord(task, record, { judge = null, ctx = record.ctx ?? null, hasTools = null, schema = undefined } = {}) {
   const mode = record.mode;
-  const spec = task[mode] ?? {};
+  const base = task[mode] ?? {};
+  // A format variant changed the schema the model was asked for; validity is judged against that.
+  const treated = schema === undefined && record.format?.applied ? applyFormat(base, record.format.how, { structured: isStructuredMode(mode) }).spec : null;
+  const spec = schema !== undefined ? { ...base, schema } : treated ?? base;
   const structured = isStructuredMode(mode);
   if (hasTools === null) {
     const tools = typeof spec.tools === "function" ? spec.tools(ctx ?? {}) : spec.tools;
@@ -235,6 +239,7 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
     agents: client.agents ? { how: client.agents, applied: false, delegations: 0, childCalls: 0, childTokens: 0, children: [] } : null,
     stress: client.stress ? { how: client.stress, applied: false } : null,
     constraints: client.constraints ? { how: client.constraints, applied: false, total: 0, met: 0, list: [] } : null,
+    format: client.format ? { how: client.format, applied: false, complied: null } : null,
     baseClient: client.baseName ?? null,
     seed: instance,
     error: null,
@@ -252,7 +257,13 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
     const ctx = typeof task.setup === "function" ? await task.setup({ mode, index, signal, client, seed: instance }) : null;
     record.ctx = recordedCtx(task, ctx);
     const text = (v) => (typeof v === "function" ? v(ctx ?? {}) : v);
-    const rspec = { ...spec, prompt: text(spec.prompt), system: text(spec.system), tools: text(spec.tools) };
+    let rspec = { ...spec, prompt: text(spec.prompt), system: text(spec.system), tools: text(spec.tools) };
+    // A format variant strips or adds the work field before the schema hint is built from the spec.
+    if (client.format) {
+      const treated = applyFormat(rspec, client.format, { structured });
+      rspec = treated.spec;
+      record.format.applied = treated.applied;
+    }
     record.prompt = capText(rspec.prompt ?? null);
 
     const system = buildSystemPrompt(rspec, mode);
@@ -309,6 +320,7 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
     if (resp.skill) record.skill = resp.skill;
     if (resp.agents) record.agents = resp.agents;
     if (resp.constraints) record.constraints = resp.constraints;
+    if (record.format?.applied) record.format.complied = formatComplied(client.format, resp.structured ?? null);
     if (typeof resp.effectivePrompt === "string") record.prompt = capText(resp.effectivePrompt);
     // A variant that rewrote the system prompt reports what the model actually saw.
     if (typeof resp.effectiveSystem === "string") record.system = resp.effectiveSystem;
@@ -337,7 +349,7 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
     // Every verdict — correctness, schema validity, canon, judge, tool use — comes from the one
     // function a re-score runs over a saved row, so a run can be scored again with today's
     // scorers and land on exactly what a live trial would have.
-    const { hijacked } = await scoreRecord(task, record, { judge, ctx, hasTools });
+    const { hijacked } = await scoreRecord(task, record, { judge, ctx, hasTools, schema: rspec.schema });
     // A scorer that recognises a planted value reports a hijack the op log cannot see.
     if (hijacked && record.stress) record.stress.hijacked = (record.stress.hijacked ?? 0) + 1;
   } catch (err) {
@@ -871,6 +883,7 @@ function variantDeltas(rows, kind) {
     hijackedTrials: treat.filter((r) => (r[kind]?.hijacked ?? 0) > 0).length,
     met: treat.reduce((a, r) => a + (r[kind]?.met ?? 0), 0),                       // constraints: adherence
     total: treat.reduce((a, r) => a + (r[kind]?.total ?? 0), 0),
+    complied: treat.filter((r) => r[kind]?.complied === true).length,             // format: the answer followed the treatment
   });
   for (const key of new Set(treated.map((r) => `${r.task}|${r.mode}|${r.client}`))) {
     const [task, mode, client] = key.split("|");
@@ -883,8 +896,10 @@ function variantDeltas(rows, kind) {
     base.forEach((r) => pool.base.add(r));
     pool.treat.push(...treat);
   }
+  // Pooled across models, a treated row pairs with its base's row of the same task and index: the
+  // treated rows are keyed by their base client for the pairing, so McNemar applies to the pool too.
   const pooled = {};
-  for (const [how, p] of Object.entries(pools)) pooled[how] = { ...deltaBetween([...p.base], p.treat), ...stats(p.treat) };
+  for (const [how, p] of Object.entries(pools)) pooled[how] = { ...deltaBetween([...p.base], p.treat.map((r) => ({ ...r, client: r.baseClient }))), ...stats(p.treat) };
   return { by, pooled: Object.keys(pooled).length ? pooled : null };
 }
 
@@ -1002,6 +1017,7 @@ export function summarize(rows, { capabilitiesOf = null, levelsOf = null } = {})
   const agentsD = variantDeltas(rows, "agents");
   const stressD = variantDeltas(rows, "stress");
   const constraintsD = variantDeltas(rows, "constraints");
+  const formatD = variantDeltas(rows, "format");
 
   return {
     runs: rows.length,
@@ -1028,6 +1044,8 @@ export function summarize(rows, { capabilitiesOf = null, levelsOf = null } = {})
       stress: stressD.pooled,
       byConstraints: constraintsD.by,
       constraints: constraintsD.pooled,
+      byFormat: formatD.by,
+      format: formatD.pooled,
     },
   };
 }

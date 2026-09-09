@@ -4,6 +4,41 @@ What shipped, by date. Full measurement tables live in [docs/results.md](docs/re
 forward roadmap is [plan.md](plan.md). Dates are the commit dates; item numbers ([1]–[49]) are the
 roadmap's, stable across the plan, this file and the results.
 
+## 2026-09-10 — the format axis on demand
+
+### Added
+- **`@format:nowork` / `@format:work`** ([48]): the `work` field as a treatment on any task
+  (`src/format.js`). `nowork` strips the field from a schema that has one and tells the model to
+  write no working; `work` adds it, first, to a schema that lacks one and asks for the working
+  before the answer. The runner applies it to the spec before the schema hint is built, so the
+  schema the model is shown is the treated one; validity is judged against that schema (a re-score
+  re-applies the treatment from the row); the row records `format` (how, applied — the schema had
+  or lacked the field — and complied — no `work` key, or a `work` array that was used). Free-form
+  modes are left alone. `summarize` pairs the variant with its base like the other treatments
+  (`delta.byFormat` / `delta.format[how]`, with applied and complied counts), the report and the
+  headline show the format delta, the index and the CSV carry the variant.
+- Pooled treatment deltas now pair across models: a treated row is keyed by its base client for
+  the pooled pairing, so the pooled McNemar reading exists for every treatment, not only per cell.
+- Tests: 281 (the suffix and the resolver, the wrapper, stripping and adding with the prompt note,
+  the no-ops including an array schema, compliance, a trial under each variant with the treated
+  schema hint and validity, the re-score path, the paired summary per cell and pooled over models).
+
+### Measured (seed 2026, four trials per cell; tables in docs/results.md)
+- **Stripping the field** on six tasks that carry one (wordmath4/6, datecalc3, logicgrid4, tally60,
+  extract3; schema-only and harness; gpt-4o-mini and Haiku): 77.1 % → 51.0 %, −26 pp, p < 0.001
+  over 96 paired instances, 94 of 96 answers complying. The whole effect sits where the reasoning
+  has nowhere else to go: with no tool in play, wordmath6 goes 8/8 → 0/8 and datecalc3 4/8 → 0/8
+  for both models, Haiku's logicgrid4 8/8 → 1/8; with a calculator or date tool in the loop the
+  field stops mattering, and on extraction it never did. Stripped answers cost about 40 % fewer
+  tokens. The 2026-09-07 finding (4/4 → 0/4 on wordmath4) now stands as a treatment anyone can
+  apply to any task.
+- **Adding the field** to five object-schema tasks without one (reason, chain, health, restock6,
+  dialogue2; gpt-4o-mini, harness): 70 % → 60 %, 0 up and 2 down of 20 pairs, McNemar p = 0.50 —
+  nothing gained where no working is needed, 30–50 % more tokens.
+- A first `work` run had applied the field to array-typed schemas (regex, transform, hello) and
+  broke them (the list moved under a key the scorers do not read); the treatment now applies only to
+  object schemas, and that run was discarded.
+
 ## 2026-09-09 (later that night) — a fourth extraction tier
 
 ### Added

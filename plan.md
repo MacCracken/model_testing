@@ -6,7 +6,7 @@ stands, what the field measures that it does not, and what to build next.
 
 ## Start here (handoff, 2026-09-08)
 
-- **Run it.** `npm test` (275 tests; no model or server needed), then `node src/cli.js serve` for
+- **Run it.** `npm test` (281 tests; no model or server needed), then `node src/cli.js serve` for
   the UI on :4000 and `node webserver/server.js` for the system under test on :3000 (`SUT_PORT`).
   Keys and `LOCAL_ENDPOINTS` live in `.env`; runs land in `results/runs/`, the SQLite index beside
   them (`node src/cli.js index --full` rebuilds it).
@@ -61,14 +61,14 @@ rebuildable. Learned on 2026-09-07: a structured schema for a task that needs th
 | Tasks | 36: `health`, `hello`, `reason`, `lookup`, `regex`, `chain`, `transform`, `explain` (judged), `restock3/6/12/30` (stateful, end-state scored), the generated `wordmath2/4/6`, `datecalc1/3`, `logicgrid3/4`, `tally20/60`, the scenario-backed `fanout4/8`, `follow3/6`, `norelevant`, the long-context `needle8k/32k/100k`, the extraction `extract1/2/3/4`, and the multi-turn `dialogue2/3/4` (a scripted user over the restock scenario, with policy constraints) — all minted per trial from the run's instance seed; every family with a knob carries `family` and `level` |
 | Modes | `noHarness`, `harness`, `schemaOnly`, `toolOnly` — the tools × schema 2×2 |
 | Models | OpenAI, Anthropic, Groq, DeepSeek, Ollama (live-probed), any named OpenAI-compatible endpoint (`LOCAL_ENDPOINTS`); real-harness arms Thoth, Claude Code, Pi, Codex; lineage per client from `models/lineage.json` |
-| Treatments | client variants paired against their base: `@skill:preload/ondemand/native`, `@agents:available/required`, `@stress:flaky/budget/haystack/distractors/injected`, `@constraints:light/medium/heavy` |
+| Treatments | client variants paired against their base: `@skill:preload/ondemand/native`, `@agents:available/required`, `@stress:flaky/budget/haystack/distractors/injected`, `@constraints:light/medium/heavy`, `@format:nowork/work` (the `work` field stripped from or added to any schema) |
 | Scoring | deterministic scorers per task; truth from the trial (tool results) or the server's end state; tool-use verdicts; hijack verdicts from the op log; one judged task |
 | Statistics | Fisher exact with the "inconclusive" floor, Wilson bands, 2×2 decomposition, per-arm and per-variant deltas, McNemar + bootstrap on paired instances, power guidance, Bonferroni over cells, stability (agreement, flaky cells), a capability scorecard per run and over the index, difficulty curves with breaking points, regression flags over the index (latest against earlier runs per task, checkpoint against parent) |
 | Throughput | parallel trials (arms run alone), 48 trials in 8 s on a hosted model |
 | Data | one JSON per run, SQLite index (`index`, `query`, `--sql`, `compact`), CSV, versions and lineage on every run, cross-run cell history, suite presets `smoke|standard|full`; every row keeps the model's turns (or an arm's raw transcript) beside its calls and results; `replay` (a new run parented to its original, paired against it), `rescore` (today's scorers over saved rows, in place), a trial as a timeline or a JSONL event log; gate verdicts on the run and in the index |
 | UI | Ledger design, live grid, dumbbell matrix, capability scorecard with regression lines, difficulty curves, paired comparison block, trial drawer with transcript and children, history filter |
 | SUT | the webserver: hello/health, the `/api/recent` log, inventory scenarios with tickets, confirm rules, stress profiles and op log, text logs with grep and count |
-| Tests | 275, none needing a model; the webserver runs in-process |
+| Tests | 281, none needing a model; the webserver runs in-process |
 
 ## What the field measures that we do not
 
@@ -133,9 +133,7 @@ mean something; a structured schema carries `work` before the answer.
   ratings across models; the judge calibrated against a small human-labelled set before it is trusted.
 - **[48] Follow-ups on the shipped families.** Generators: unit conversions, spatial and ordering
   puzzles, harder tiers once the current ones saturate (Haiku 4.5 already sits at ceiling on most).
-  Constraints: a `@format` variant that strips or adds the `work` field on any schema so the format
-  axis runs on demand; language and length-in-sentences families; requirements composed across
-  turns. Long context: sizes past 100 k for models that take them, a depth-sweep view over the
+  Constraints: language and length-in-sentences families; requirements composed across turns. Long context: sizes past 100 k for models that take them, a depth-sweep view over the
   recorded needle depths, multi-hop questions (a line that refers to a second line). Tool breadth:
   argument-type strictness (a tool whose server rejects wrong types), near-miss irrelevance
   (questions about fields that almost exist), recovery from partial results.
