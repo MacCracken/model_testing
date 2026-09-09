@@ -4,6 +4,55 @@ What shipped, by date. Full measurement tables live in [docs/results.md](docs/re
 forward roadmap is [plan.md](plan.md). Dates are the commit dates; item numbers ([1]–[49]) are the
 roadmap's, stable across the plan, this file and the results.
 
+## 2026-09-11 (later) — public anchors: GSM8K, IFEval and BFCL run here
+
+### Added
+- **Public benchmark sets as anchors** ([41], the native form of [40]): four tasks run through
+  the same client against the same endpoint as everything else, scored by dependency-free
+  reimplementations of their official checks — `gsm8k` (the test split's final number; free-form
+  is zero-shot chain of thought, the harness adds the calculator and the work-then-answer schema,
+  so the bench's own harness delta is measured on a public set), `ifeval` (541 prompts, all 25
+  instruction types in `src/ifeval.js`; strict prompt-level pass, the loose verdict in the reason;
+  free-form only, since the format is the test), `bfclsimple` and `bfclmultiple` (BFCL v4's AST
+  check in `src/bfcl.js` — free-form is the leaderboard's prompting mode with the call written as
+  text and parsed here, the tool modes are native tool calling scored on the call itself).
+- **The cache** (`src/anchors.js`): `cli anchors fetch [all|names]` pulls the items from their
+  public repositories into `anchors/` (gitignored) and records the URL, licence, byte count,
+  SHA-256 and fetch date beside them; every row carries that provenance and the contamination
+  caveat (the sets are on the open web and may be in any model's training data). A trial's index
+  picks its item from one fixed permutation of the set (seed 2026), the same subset for every model
+  and run.
+- **Kept out of the headline**: anchor rows are tagged `source: "public"` (a `source` column in the
+  index) and their capabilities are `public:<capability>`, so they never pool with the generated
+  families in a scorecard, a gate or a trend. `cli anchors <client>` puts the anchor rates next to
+  the bench's own tasks for the same capability; the UI lists them under "Public anchors · not the
+  headline".
+- Where the reimplementation is approximate, the row says so: IFEval's sentence and word counts
+  (regular expressions for nltk), capital-word counts, and the response language (script ranges,
+  then stopword votes, for langdetect) are marked `approximate` in the checker result and the
+  reason.
+- Tests: 312 (every IFEval instruction type against passing and failing responses, strict versus
+  loose including the empty-variant rule; BFCL's type mapping, value comparison, call check, the
+  Python-call parser; the cache, provenance and the permutation; the four tasks through the runner
+  with fake models; the registry).
+
+### Measured (the first 50 items of each set's fixed permutation, temperature 0; tables in docs/results.md)
+- **GSM8K**: free-form zero-shot chain of thought lands where the published numbers put these
+  models — gpt-4o-mini 96 %, gpt-5.4-mini 94 %, Haiku 96 % — and **the harness costs the two GPT
+  minis 12–14 points** (82 % with the calculator and the schema; the calculator alone 86–88 %, the
+  schema alone 94 %) while Haiku stays at 96 %. On the bench's own arithmetic tasks the same harness
+  lifts gpt-4o-mini from 43 % to 81 %: the sign of the harness delta depends on how hard the
+  problems are, and GSM8K is easy enough that a model driven through a tool does worse than one
+  left to reason in prose.
+- **IFEval**: prompt-level strict 86 % / 92 % / 88 % (instruction-level 90–94 %), loose within a
+  point of strict; the instructions missed most were repeating the prompt, letter counts and
+  paragraph counts. Eleven of the fifty prompts touched an approximate checker.
+- **BFCL**: 94–100 % in every mode for every model — the anchor sits far above the bench's own
+  tool tasks (gpt-4o-mini 78 % harness), which is the point of an anchor. The misses are two calls
+  where one was expected and a value off by a unit or a format (a growth rate as 6 for 0.06). The
+  first scoring of dict-valued parameters compared them as literal objects; the leaderboard's
+  rule (each key lists the values it accepts) flipped 18 rows on re-score, all in place.
+
 ## 2026-09-11 — scorecard and trend views
 
 ### Added

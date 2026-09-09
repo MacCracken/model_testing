@@ -33,12 +33,14 @@ import { dialogueTasks } from "./dialogue.js";
 import { task as nearmissTask } from "./nearmiss.js";
 import { pagedTasks } from "./paged.js";
 import { task as typedTask } from "./typed.js";
+import { publicTasks } from "./public.js";
 
 export const tasks = [
   healthTask, helloTask, reasonTask, lookupTask, regexTask, chainTask, transformTask, explainTask,
   ...restockTasks, ...wordmathTasks, ...datecalcTasks, ...logicgridTasks, ...tallyTasks,
   ...fanoutTasks, ...followTasks, norelevantTask, ...needleTasks, ...needlehopTasks, ...extractTasks, ...dialogueTasks,
   nearmissTask, ...pagedTasks, typedTask,
+  ...publicTasks,
 ];
 
 export function getTask(name) {
@@ -62,6 +64,8 @@ export function listTasks() {
     capabilities: t.capabilities ?? [], // what the task measures, for the scorecard
     family: t.family ?? null, // the difficulty family (restock, wordmath, …) and this task's knob value
     level: t.level ?? null,
+    source: t.source ?? null, // "public" for an anchor set, with the caveat it carries
+    caveat: t.caveat ?? null,
     generated: typeof t.setup === "function" && !!t.seeded,
     multiTurn: !!t.multiTurn, // the user's later turns are scripted; arms are skipped
   }));

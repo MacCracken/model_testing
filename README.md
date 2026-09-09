@@ -53,6 +53,9 @@ output.
 | `restock3` / `restock6` / `restock12` / `restock30` | multi-step | One job at three lengths against an isolated inventory scenario minted per trial: list, update every low item (each update returns a ticket), confirm with the complete ticket set (refused while anything is still low), report the server's total. Scored on the server's **end state**, not the report alone. |
 | `transform` | extract-transform | Fetch three greetings, then report each name with the first 8 characters of its id and the greeting in upper case. Tool-essential, plus two transformations of what came back. |
 | `explain` | open-ended | Explain the server's health and running time to a non-engineer. Graded by a **judge model** against the live facts; needs `--judge`. |
+| `gsm8k` | public anchor | GSM8K's test problems (MIT), fetched into a local cache: one numeric answer. Free-form is zero-shot chain of thought; the harness adds the calculator and the work-then-answer schema, so the harness delta is measured on a public set. |
+| `ifeval` | public anchor | IFEval's 541 prompts (Apache-2.0) with all 25 verifiable instruction types checked by code here — strict prompt-level pass, the loose verdict in the reason. Free-form only: the format is the test. |
+| `bfclsimple` / `bfclmultiple` | public anchor | BFCL v4 simple (one function, one call) and multiple (the right function of several), scored with the leaderboard's AST check reimplemented here. Free-form is the prompting mode (the call written as text), the tool modes are native tool calling scored on the call. |
 
 ## Setup
 
@@ -121,6 +124,7 @@ node src/bench.js --task wordmath4,datecalc3,logicgrid4,tally60 --clients openai
 node src/bench.js --task hello,regex,tally20 --clients openai:gpt-4o-mini,openai:gpt-4o-mini@constraints:heavy --count 4 --instance-seed 7   # instruction following
 node src/bench.js --task fanout8,follow6,norelevant --modes harness --clients openai:gpt-4o-mini,openai:gpt-4o-mini@stress:injected --count 4 --instance-seed 7   # tool-use breadth + injection
 node src/bench.js --task paged6,typed,nearmiss --modes toolOnly,harness --clients openai:gpt-4o-mini,anthropic:claude-haiku-4-5 --count 4 --instance-seed 7   # paged results, strict types, near misses
+node src/cli.js anchors fetch all && node src/bench.js --task gsm8k,ifeval,bfclsimple --modes noHarness,harness --clients openai:gpt-4o-mini --count 50   # public anchors: 50 items each, the same fixed subset every run
 
 # A bare provider name expands to all of its models
 node src/aggregate.js --tasks health,hello --clients local
@@ -151,6 +155,7 @@ node src/cli.js scorecard openai:gpt-4o-mini            # capability scorecard p
 node src/cli.js scorecard openai:gpt-4o-mini --svg radar.svg   # the same as a radar (harness filled, no harness dashed)
 node src/cli.js scorecard --family ornith                # a lineage family's checkpoints side by side, per capability, with a trend across them
 node src/cli.js models --graph                           # the registry as a tree per family, each checkpoint with its pooled harness rate
+node src/cli.js anchors list | anchors openai:gpt-4o-mini   # the public sets in the cache with their provenance; a client's anchor rates next to its own tasks
 node src/cli.js compare <run> --a <client> --b <client> --mode harness   # paired: McNemar + bootstrap band per task
 node src/cli.js compare <run-A> <run-B> --mode schemaOnly               # two runs on the same instance seed
 node src/cli.js curve restock [--mode harness] [--client <c>]           # success per difficulty level over every saved run, with each model's breaking point
@@ -181,6 +186,17 @@ capability and mode, a model's latest run of each task with its earlier runs of 
 the same number of trials per task on both sides, so a change of task mix never reads as a change
 in the model — and a checkpoint with its lineage parent; a flag needs the later band to lie
 entirely under the earlier one, and names the per-task split behind it.
+
+**Public anchors.** `gsm8k`, `ifeval`, `bfclsimple` and `bfclmultiple` run public sets through
+the same client against the same endpoint, scored by dependency-free reimplementations of their
+official checks (`src/ifeval.js`, `src/bfcl.js`). `node src/cli.js anchors fetch all` pulls the
+items into a local cache with their URL, licence, hash and fetch date; a trial's index picks its
+item from one fixed permutation, so every model and run sees the same subset. Their rows are
+tagged `source: public` and their capabilities `public:<capability>`, so they never pool with the
+generated families in a scorecard, gate or trend: they anchor the generators' difficulty to known
+scales and are never the headline — the sets are on the open web and may be in any model's
+training data, and every row carries that caveat. `cli anchors <client>` puts the anchor rates
+next to the bench's own tasks for the same capability.
 
 `--instance-seed N` fixes the seed the generated families mint their problems from: every mode
 and model in the run sees the same instances (a paired design), and the same seed on another day

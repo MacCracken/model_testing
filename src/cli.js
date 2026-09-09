@@ -276,6 +276,50 @@ async function main() {
       break;
     }
 
+    // Public anchor sets: fetch them, list them, or put a client's anchor rates next to its own tasks.
+    case "anchors": {
+      const args = parseArgs(rest);
+      const sub = args._[0];
+      const { SOURCES, fetchAnchor, describeAnchor, CAVEAT } = await import("./anchors.js");
+      if (sub === "fetch") {
+        const names = !args._[1] || args._[1] === "all" ? Object.keys(SOURCES) : args._[1].split(",");
+        for (const n of names) { await fetchAnchor(n, { force: !!args.full }); console.log(describeAnchor(n)); }
+        console.log(`\n${CAVEAT}`);
+        break;
+      }
+      if (!sub || sub === "list") {
+        for (const n of Object.keys(SOURCES)) console.log(describeAnchor(n));
+        console.log(`\n${CAVEAT}\nusage: node src/cli.js anchors fetch [all|<name,…>] | anchors list | anchors <client> [--since D]`);
+        break;
+      }
+      const client = sub;
+      const { indexRuns, rawQuery } = await import("./store.js");
+      const { listTasks } = await import("./tasks/registry.js");
+      const { wilsonInterval } = await import("./runner.js");
+      indexRuns();
+      const q = (s) => s.replace(/'/g, "''");
+      const rows = rawQuery(`select t.task, t.mode, t.correct from trials t join runs r on r.id = t.run_id where t.client = '${q(client)}' and t.error is null and t.base_client is null${args.since ? ` and r.created_at >= '${q(args.since)}'` : ""}`).map((r) => ({ ...r, correct: !!r.correct }));
+      const tasks = listTasks();
+      const own = (cap) => tasks.filter((t) => !t.source && (t.capabilities ?? []).includes(cap)).map((t) => t.name);
+      const cell = (rs) => { if (!rs.length) return "—".padEnd(22); const c = rs.filter((r) => r.correct).length; const w = wilsonInterval(c, rs.length); return `${c}/${rs.length} ${((100 * c) / rs.length).toFixed(0)}% [${(w.low * 100).toFixed(0)}–${(w.high * 100).toFixed(0)}]`.padEnd(22); };
+      console.log(`${client} — public anchors next to the bench's own tasks for the same capability, pooled over the index${args.since ? ` since ${args.since}` : ""}\n`);
+      console.log(`${"anchor".padEnd(14)} ${"mode".padEnd(11)} ${"anchor".padEnd(22)} ${"own tasks".padEnd(22)} capability · own tasks`);
+      let any = false;
+      for (const [name, src] of Object.entries(SOURCES)) {
+        const mine = rows.filter((r) => r.task === name);
+        if (!mine.length) continue;
+        any = true;
+        const ownTasks = own(src.capability);
+        for (const mode of [...new Set(mine.map((r) => r.mode))].sort()) {
+          const ownRows = rows.filter((r) => r.mode === mode && ownTasks.includes(r.task));
+          console.log(`${name.padEnd(14)} ${mode.padEnd(11)} ${cell(mine.filter((r) => r.mode === mode))} ${cell(ownRows)} ${src.capability} · ${ownTasks.join(",") || "(none)"}`);
+        }
+      }
+      if (!any) console.log(`no anchor trials for ${client} — run e.g. node src/bench.js --task gsm8k,ifeval,bfclsimple --modes noHarness,harness --clients ${client} --count 50`);
+      console.log(`\n${CAVEAT}`);
+      break;
+    }
+
     // The model registry (models/lineage.json) with what the index holds for each entry.
     case "models": {
       const { loadLineage } = await import("./lineage.js");
@@ -479,6 +523,7 @@ async function main() {
       console.log("  node src/cli.js scorecard --family <family> [--mode] # a lineage family's checkpoints side by side, per capability");
       console.log("  node src/cli.js compare <run> --a <c1> --b <c2> | compare <runA> <runB>   # paired comparison (McNemar)");
       console.log("  node src/cli.js models [--graph]                      # the lineage registry and what the index holds per checkpoint (--graph: as a tree with rates)");
+      console.log("  node src/cli.js anchors fetch [all|gsm8k,ifeval,bfclsimple,bfclmultiple] | anchors list | anchors <client>   # public sets as anchors, next to the own tasks");
       console.log("  node src/cli.js curve <family> [--mode] [--client]   # success per difficulty level, with the breaking point");
       console.log("  node src/cli.js trend --client <c> [--capability]    # a client's capabilities per run over time, with sparklines");
       console.log("  node src/cli.js regressions [--client <c>] [--json|--format md] [--out <file>] [--webhook <url>] [--fail]   # latest run vs earlier runs, and checkpoint vs parent; delivered to a file or a webhook");

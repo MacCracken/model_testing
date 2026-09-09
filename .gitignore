@@ -4,6 +4,8 @@ node_modules/
 
 # bench output
 results/
+# public anchor sets, fetched into a local cache (node src/cli.js anchors fetch)
+anchors/
 .env
 .env.*
 

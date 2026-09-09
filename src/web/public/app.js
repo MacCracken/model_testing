@@ -218,6 +218,7 @@ const CATEGORY_LABEL = {
   "tool-reasoning": "Tool reasoning",
   "multi-step": "Multi-step",
   "extract-transform": "Extract & transform",
+  "public-anchor": "Public anchors · not the headline",
   "open-ended": "Open-ended · judged",
  "reasoning": "Reasoning · generated" , "long-context": "Long context · generated" };
 

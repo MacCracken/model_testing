@@ -53,6 +53,16 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
   the server API, a scenario minted from the trial seed (the server takes the seed, so the inventory
   is reproducible), the read tools, and `endState`, which turns the scenario's op log into a hijack
   verdict every scorer honours. Every task carries `capabilities` (what it measures) for the scorecard.
+- `src/anchors.js`, `src/ifeval.js`, `src/bfcl.js`, `src/tasks/public.js` — public benchmark sets
+  run here as anchors. `anchors.js` fetches GSM8K, IFEval and BFCL v4 (simple, multiple) from their
+  public repositories into `anchors/` (gitignored) with URL, licence, SHA-256 and fetch date, and
+  picks a trial's item from one fixed permutation (seed 2026); `ifeval.js` reimplements all 25
+  instruction checkers and the strict/loose rule (the nltk- and langdetect-backed ones are marked
+  `approximate`); `bfcl.js` maps the leaderboard's Python-flavoured types to JSON Schema, checks a
+  call against the possible answers and parses a call written as text. The tasks (`gsm8k`, `ifeval`,
+  `bfclsimple`, `bfclmultiple`) carry `source: "public"` and `public:<capability>` tags, so they
+  never pool with the generated families; every row records the provenance and the contamination
+  caveat. `cli anchors fetch | list | <client>`.
 - `src/runner.js` — **the execution core**: runs one (task, mode, client) trial, scores it,
   aggregates the matrix, and owns the statistics. Every surface (CLI and web) goes through this so
   they can't disagree — the web server serves it to the browser as `/lib/runner.js`, so it must

@@ -1266,3 +1266,64 @@ model) and the answerable questions cannot be answered: the control.
 per task): `typed` 4/4 with no refusals, `paged3` 4/4 reading all three pages one at a time (four
 rounds, 6.3 k tokens a trial), `nearmiss` 4/4 (two near misses on `qty` reported not available, two
 `next` questions read off the item). On `paged3` the 9 B local model beats gpt-4o-mini's 1/4.
+
+
+## Public anchors: GSM8K, IFEval and BFCL run here (2026-09-11, the first 50 items of each set's fixed permutation, temperature 0)
+
+Runs `20260909T212708-b002` (GSM8K, four modes), `20260909T212555-e6dc` (IFEval, free-form) and
+`20260909T212639-f20f` (BFCL simple and multiple, three modes; re-scored in place after the
+dict-parameter rule was corrected — 18 rows flipped to pass). Every row carries `source: public`,
+the file's SHA-256 and the contamination caveat: the sets are on the open web and may be in any
+model's training data. Correct out of 50 with the 95 % Wilson band.
+
+**GSM8K** (Cobbe et al., MIT; free-form is zero-shot chain of thought, the harness adds the
+calculator and the work-then-answer schema):
+
+| Mode | gpt-4o-mini | gpt-5.4-mini | claude-haiku-4-5 |
+|---|---|---|---|
+| noHarness | 48 (96 %, 87–99) | 47 (94 %, 84–98) | 48 (96 %, 87–99) |
+| schemaOnly | 47 (94 %) | 47 (94 %) | 48 (96 %) |
+| toolOnly (calc) | 43 (86 %, 74–93) | 44 (88 %, 76–94) | 49 (98 %) |
+| harness (calc + schema) | 41 (82 %, 69–90) | 41 (82 %, 69–90) | 48 (96 %) |
+
+The free-form numbers sit where the published ones put these models. The harness costs the two
+GPT minis 12–14 points, and the calculator is the part that costs: with the tool in play
+gpt-4o-mini drove itself to 44.4 for 50 through seven calc calls, and 109 100 for 114 200 through
+four. Every tool-mode trial called the calculator. On the bench's own arithmetic tasks the same
+harness lifts gpt-4o-mini from 43 % (46/107, free-form) to 81 % (119/147) — `cli anchors
+openai:gpt-4o-mini` puts the two side by side — so the harness delta's sign depends on the
+problems: on GSM8K's easy ones a model driven through a tool does worse than one left to reason in
+prose, and on the generated multi-step problems the tool is what makes them solvable.
+
+**IFEval** (Zhou et al., Apache-2.0; free-form only; strict prompt-level pass, loose in the reason):
+
+| | gpt-4o-mini | gpt-5.4-mini | claude-haiku-4-5 |
+|---|---|---|---|
+| prompt-level strict | 43 (86 %, 74–93) | 46 (92 %, 81–97) | 44 (88 %, 76–94) |
+| prompt-level loose | 43 | 46 | 45 |
+| instruction-level strict | 65/72 (90 %) | 68/72 (94 %) | 66/72 (92 %) |
+
+The instructions missed most across the three models: repeating the prompt (3), a letter's
+frequency (3), the paragraph count (2). Eleven of the fifty prompts touched an approximate checker
+(sentence and word counts by regular expression, the response language by script and stopwords);
+the reason says so on those rows.
+
+**BFCL v4** (Apache-2.0; free-form is the prompting mode with the call written as text and parsed
+here, the tool modes are native tool calling scored on the call):
+
+| Task | Mode | gpt-4o-mini | gpt-5.4-mini | claude-haiku-4-5 |
+|---|---|---|---|---|
+| simple | noHarness (text) | 48 (96 %) | 50 (100 %) | 50 (100 %) |
+| | toolOnly | 48 (96 %) | 49 (98 %) | 48 (96 %) |
+| | harness | 49 (98 %) | 49 (98 %) | 48 (96 %) |
+| multiple | noHarness (text) | 50 (100 %) | 49 (98 %) | 48 (96 %) |
+| | toolOnly | 48 (96 %) | 48 (96 %) | 48 (96 %) |
+| | harness | 47 (94 %) | 49 (98 %) | 48 (96 %) |
+
+The misses are of two kinds: two calls where one was expected (gpt-4o-mini three times on
+`multiple` in harness mode, the others once or twice — a second function called alongside the
+right one) and a value off by a unit or a format (an annual growth rate sent as 6 for 0.06; opening
+hours 11 for 23). No item was wrong for every model in every mode. Against the bench's own tool
+tasks (gpt-4o-mini 78 % in harness mode over 388 trials, Haiku 99 %) the anchor sits far above:
+the leaderboard's simple and multiple categories are one call from a short request, the bench's
+tasks are scenarios with state, pages and traps — which is what an anchor is for.

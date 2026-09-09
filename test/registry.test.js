@@ -22,7 +22,8 @@ test("listTasks advertises exactly the modes each task declares", () => {
 
 // A context to render a task's prompts with: generated families mint one from a fixed seed (pure,
 // no network); the stateful restock family gets a stand-in scenario.
-const generators = { wordmath: (t) => wordmathGen(1, Number(t.name.replace("wordmath", ""))), datecalc: (t) => datecalcGen(1, Number(t.name.replace("datecalc", ""))), logicgrid: (t) => logicgridGen(1, Number(t.name.replace("logicgrid", ""))), tally: (t) => tallyGen(1, Number(t.name.replace("tally", ""))), needle: () => ({ ...needleGen(1, 8000), log: "log-test" }), extract: (t) => { const g = extractGen(1, Number(t.name.replace("extract", ""))); return { ...g, docs: g.docs.map((d, i) => ({ ...d, id: `doc-test-${i + 1}` })) }; } };
+const bfclFn = { name: "calculate_triangle_area", description: "d", parameters: { type: "dict", properties: { base: { type: "integer" } }, required: ["base"] } };
+const generators = { gsm8k: () => ({ question: "Janet has 16 eggs and eats 3. How many are left?", answer: 13 }), ifeval: () => ({ prompt: "Write about rain without commas.", instruction_id_list: ["punctuation:no_comma"], kwargs: [{}] }), bfcl: () => ({ question: "Find the area of a triangle with base 10.", functions: [bfclFn], groundTruth: [] }), wordmath: (t) => wordmathGen(1, Number(t.name.replace("wordmath", ""))), datecalc: (t) => datecalcGen(1, Number(t.name.replace("datecalc", ""))), logicgrid: (t) => logicgridGen(1, Number(t.name.replace("logicgrid", ""))), tally: (t) => tallyGen(1, Number(t.name.replace("tally", ""))), needle: () => ({ ...needleGen(1, 8000), log: "log-test" }), extract: (t) => { const g = extractGen(1, Number(t.name.replace("extract", ""))); return { ...g, docs: g.docs.map((d, i) => ({ ...d, id: `doc-test-${i + 1}` })) }; } };
 function sampleCtx(t) {
   const fam = Object.keys(generators).find((k) => t.name.startsWith(k));
   if (fam) return generators[fam](t);

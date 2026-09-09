@@ -242,6 +242,8 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
     format: client.format ? { how: client.format, applied: false, complied: null } : null,
     baseClient: client.baseName ?? null,
     seed: instance,
+    // A public anchor set says so on every row, with the contamination caveat it carries.
+    source: task.source ?? null,
     error: null,
   };
 

@@ -6,7 +6,7 @@ stands, what the field measures that it does not, and what to build next.
 
 ## Start here (handoff, 2026-09-08)
 
-- **Run it.** `npm test` (302 tests; no model or server needed), then `node src/cli.js serve` for
+- **Run it.** `npm test` (312 tests; no model or server needed), then `node src/cli.js serve` for
   the UI on :4000 and `node webserver/server.js` for the system under test on :3000 (`SUT_PORT`).
   Keys and `LOCAL_ENDPOINTS` live in `.env`; runs land in `results/runs/`, the SQLite index beside
   them (`node src/cli.js index --full` rebuilds it).
@@ -21,10 +21,10 @@ stands, what the field measures that it does not, and what to build next.
   lands, its numbers to docs/results.md; every claim is tied to a test or a saved run; zero
   runtime dependencies; the JSON run files are the source of truth and the index is rebuildable;
   a schema for a task that needs thinking has a `work` field before the answer.
-- **Next**: the Tier 11 anchors ([40]/[41]) and the open harness work in Tier 12; the rest of
-  [48] (generator and constraint families, sizes past 100 k) as the current tiers saturate. The
-  decisions at the end are the user's; two of them block work ([27]'s sandbox, the hosted-model
-  budget).
+- **Next**: the open harness work in Tier 12 ([42]–[47]); [40]'s log import when there are
+  Inspect or lm-eval logs to test it against; the rest of [48] (generator and constraint
+  families, sizes past 100 k) as the current tiers saturate. The decisions at the end are the
+  user's; two of them block work ([27]'s sandbox, the hosted-model budget).
 - **Environment notes.** Ollama on :11434 serves `ornith-1.5:9b` (at ceiling on the easy tool
   tasks, 100 % on restock3); `qwen3.5` is parked on its thinking output. The arms need their own
   logins (`codex login`, Claude Code, Pi); Thoth runs on the arch host (README, "Thoth"). The
@@ -68,7 +68,7 @@ rebuildable. Learned on 2026-09-07: a structured schema for a task that needs th
 | Data | one JSON per run, SQLite index (`index`, `query`, `--sql`, `compact`), CSV, versions and lineage on every run, cross-run cell history, suite presets `smoke|standard|full`; every row keeps the model's turns (or an arm's raw transcript) beside its calls and results; `replay` (a new run parented to its original, paired against it), `rescore` (today's scorers over saved rows, in place), a trial as a timeline or a JSONL event log; gate verdicts on the run and in the index |
 | UI | Ledger design, live grid, dumbbell matrix, capability scorecard with regression lines, difficulty curves, paired comparison block, trial drawer with transcript and children, history filter |
 | SUT | the webserver: hello/health, the `/api/recent` log, inventory scenarios with tickets, confirm rules, stress profiles and op log, text logs with grep and count |
-| Tests | 302, none needing a model; the webserver runs in-process |
+| Tests | 312, none needing a model; the webserver runs in-process |
 
 ## What the field measures that we do not
 
@@ -147,13 +147,12 @@ mean something; a structured schema carries `work` before the answer.
 
 ### Tier 11 — Public benchmarks run locally, as anchors
 
-- **[40] A bridge to Inspect AI or lm-evaluation-harness.** Run selected public sets ourselves
-  (GSM8K / MATH subsets, IFEval, GPQA Diamond, BFCL subsets, RULER) against the same endpoint through a
-  subprocess, import the results into the index tagged `source: public`. They anchor our generators'
-  difficulty to known scales; they are never the headline, and their contamination caveat is recorded
-  with them.
-- **[41] Native mini-anchors** if the bridge is too heavy: small dependency-free reimplementations
-  (IFEval constraint checkers, GSM8K-style items).
+- **[40] Importing Inspect AI / lm-evaluation-harness logs** as public runs (`source: public`,
+  the same caveat), for the sets the native anchors do not cover (MATH, GPQA Diamond — gated —
+  and RULER at scale). Neither tool is installed here; the import waits for real logs to test the
+  parsers against. The subprocess bridge itself is a one-line shell command once a tool is
+  installed; what the bench needs is the reader. GSM8K, IFEval and BFCL simple/multiple run
+  natively already ([41], shipped 2026-09-11).
 
 ### Tier 12 — Harness work still open
 
@@ -170,8 +169,9 @@ mean something; a structured schema carries `work` before the answer.
 
 ## Decisions needed
 
-1. **Order for the next month.** Recommendation: the Tier 11 anchors ([40]/[41]), then the
-   harness work in Tier 12, with the rest of [48] as tiers saturate.
+1. **Order for the next month.** Recommendation: the harness work in Tier 12 ([45] cost in
+   currency and [46] providers first — both cheap and immediately useful), with the rest of [48]
+   as tiers saturate; [40]'s log import when logs exist.
 2. **Code sandbox.** Worker-thread isolation keeps the zero-dependency rule but is weaker; Docker is
    stronger and a dependency. This gates [27].
 3. **Scope of knowledge and safety.** Exclude closed-book knowledge as an axis? Add over-refusal on
