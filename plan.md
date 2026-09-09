@@ -6,7 +6,7 @@ stands, what the field measures that it does not, and what to build next.
 
 ## Start here (handoff, 2026-09-08)
 
-- **Run it.** `npm test` (285 tests; no model or server needed), then `node src/cli.js serve` for
+- **Run it.** `npm test` (293 tests; no model or server needed), then `node src/cli.js serve` for
   the UI on :4000 and `node webserver/server.js` for the system under test on :3000 (`SUT_PORT`).
   Keys and `LOCAL_ENDPOINTS` live in `.env`; runs land in `results/runs/`, the SQLite index beside
   them (`node src/cli.js index --full` rebuilds it).
@@ -21,10 +21,10 @@ stands, what the field measures that it does not, and what to build next.
   lands, its numbers to docs/results.md; every claim is tied to a test or a saved run; zero
   runtime dependencies; the JSON run files are the source of truth and the index is rebuildable;
   a schema for a task that needs thinking has a `work` field before the answer.
-- **Next**: the follow-ups in [48] (harder tiers where the current ones saturate: the extract and
-  dialogue families first) and [49], then the Tier 11 anchors ([40]/[41]) and the open harness work
-  in Tier 12. Two decisions still block work ([27]'s sandbox, the hosted-model budget). The decisions at the end are the user's; two of them block work ([27]'s sandbox, the
-  hosted-model budget).
+- **Next**: [49] (scorecard and trend views), then the Tier 11 anchors ([40]/[41]) and the open
+  harness work in Tier 12; the rest of [48] (generator and constraint families, sizes past 100 k)
+  as the current tiers saturate. The decisions at the end are the user's; two of them block work
+  ([27]'s sandbox, the hosted-model budget).
 - **Environment notes.** Ollama on :11434 serves `ornith-1.5:9b` (at ceiling on the easy tool
   tasks, 100 % on restock3); `qwen3.5` is parked on its thinking output. The arms need their own
   logins (`codex login`, Claude Code, Pi); Thoth runs on the arch host (README, "Thoth"). The
@@ -68,7 +68,7 @@ rebuildable. Learned on 2026-09-07: a structured schema for a task that needs th
 | Data | one JSON per run, SQLite index (`index`, `query`, `--sql`, `compact`), CSV, versions and lineage on every run, cross-run cell history, suite presets `smoke|standard|full`; every row keeps the model's turns (or an arm's raw transcript) beside its calls and results; `replay` (a new run parented to its original, paired against it), `rescore` (today's scorers over saved rows, in place), a trial as a timeline or a JSONL event log; gate verdicts on the run and in the index |
 | UI | Ledger design, live grid, dumbbell matrix, capability scorecard with regression lines, difficulty curves, paired comparison block, trial drawer with transcript and children, history filter |
 | SUT | the webserver: hello/health, the `/api/recent` log, inventory scenarios with tickets, confirm rules, stress profiles and op log, text logs with grep and count |
-| Tests | 285, none needing a model; the webserver runs in-process |
+| Tests | 293, none needing a model; the webserver runs in-process |
 
 ## What the field measures that we do not
 
@@ -90,7 +90,7 @@ with a priority for the stated purpose:
 
 | Capability area | What the field runs | What we have | Gap | Priority |
 |---|---|---|---|---|
-| Tool use / function calling | BFCL v4 (AST + executable checks, parallel calls, irrelevance detection, 200 multi-turn trajectories), τ²-bench, MCP-Bench | six tool tasks, decoys, restock, stress profiles, `fanout` (parallel calls), `follow` (dependency chains), `norelevant` (irrelevance), the `injected` profile, `dialogue` (multi-turn trajectories with policy) | argument-type strictness, harder near-miss irrelevance, partial-result recovery ([48]) | medium |
+| Tool use / function calling | BFCL v4 (AST + executable checks, parallel calls, irrelevance detection, 200 multi-turn trajectories), τ²-bench, MCP-Bench | six tool tasks, decoys, restock, stress profiles, `fanout` (parallel calls), `follow` (dependency chains), `norelevant` and `nearmiss` (irrelevance, near misses), `paged` (partial results), `typed` (argument types against a strict server), the `injected` profile, `dialogue` (multi-turn trajectories with policy) | tool selection among many near-duplicate tools; a harder `typed` once a model actually trips it ([48]) | low |
 | Agentic multi-step | SWE-bench Verified, Terminal-Bench, GAIA, BrowseComp, OSWorld | restock family (3–30 steps), four real arms | other domains (files, terminal, scheduling), longer horizons, policy constraints | **high** |
 | Reasoning / math | GPQA Diamond, HLE, ARC-AGI-2, FrontierMath, LiveBench math | `reason` plus the generated `wordmath`, `datecalc`, `logicgrid`, `tally` families with a calculator / date / query tool as the harness axis | harder tiers, unit conversions, spatial and ordering puzzles ([48]) | medium |
 | Instruction following | IFEval (verifiable constraints), LiveBench IF | `@constraints` variants: eleven requirement families checked by code on any task, adherence beside correctness | more families (sentences, language), requirements across turns, a `@format` variant ([48]) | low |
@@ -134,9 +134,8 @@ mean something; a structured schema carries `work` before the answer.
 - **[48] Follow-ups on the shipped families.** Generators: unit conversions, spatial and ordering
   puzzles, harder tiers once the current ones saturate (Haiku 4.5 already sits at ceiling on most).
   Constraints: language and length-in-sentences families; requirements composed across turns.
-  Long context: sizes past 100 k for models that take them. Tool breadth:
-  argument-type strictness (a tool whose server rejects wrong types), near-miss irrelevance
-  (questions about fields that almost exist), recovery from partial results.
+  Long context: sizes past 100 k for models that take them. Tool breadth: selection among many
+  near-duplicate tools; a harder `typed` (nested arguments, enums) once a model trips the current one.
 
 ### Tier 9 — Scorecards and the statistics of judgment
 

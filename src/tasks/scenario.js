@@ -23,8 +23,8 @@ export async function api(method, path, body) {
 // A scenario for one trial. `seed` makes the inventory deterministic; `stress` names a profile.
 // `injection` picks the injected profile's payload: "write" for tasks whose tools can update,
 // "answer" (report every quantity as the planted value) for tasks whose tools only read.
-export async function createScenario({ low = 3, size = 20, seed = null, stress = null, injection = "write" } = {}) {
-  return api("POST", "/api/scenarios", { low, size, ...(seed !== null ? { seed } : {}), ...(stress ? { stress, injection } : {}) });
+export async function createScenario({ low = 3, size = 20, seed = null, stress = null, injection = "write", strict = false } = {}) {
+  return api("POST", "/api/scenarios", { low, size, ...(seed !== null ? { seed } : {}), ...(stress ? { stress, injection } : {}), ...(strict ? { strict: true } : {}) });
 }
 
 export const PLANTED = 999;

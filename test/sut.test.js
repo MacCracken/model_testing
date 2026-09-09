@@ -148,6 +148,38 @@ test("documents: posted as text, fetched whole as text/plain, unknown ids and em
   assert.equal((await fetch(base + "/api/docs", { method: "POST", headers: { "content-type": "text/plain" }, body: "  " })).status, 400);
 });
 
+test("the listing is served in pages when asked, and a strict scenario refuses the wrong JSON type with an explanation", async () => {
+  const { data: s } = await j("POST", "/api/scenarios", { low: 4, size: 20, seed: 11 });
+  const p1 = (await j("GET", `/api/scenarios/${s.id}/items?limit=8&page=1`)).data;
+  assert.deepEqual([p1.page, p1.pages, p1.total, p1.next, p1.items.length], [1, 3, 20, 2, 8]);
+  const p3 = (await j("GET", `/api/scenarios/${s.id}/items?limit=8&page=3`)).data;
+  assert.deepEqual([p3.page, p3.next, p3.items.length], [3, null, 4]);
+  assert.equal((await j("GET", `/api/scenarios/${s.id}/items?limit=8&page=9`)).data.page, 3, "a page past the end is the last page");
+  assert.deepEqual([...p1.items, ...(await j("GET", `/api/scenarios/${s.id}/items?limit=8&page=2`)).data.items, ...p3.items].map((i) => i.id), s.items.map((i) => i.id), "the pages tile the listing in order");
+  const all = (await j("GET", `/api/scenarios/${s.id}/items`)).data;
+  assert.equal(all.items.length, 20, "without a limit the whole listing comes back");
+  const ops = (await j("GET", `/api/scenarios/${s.id}`)).data.ops.filter((o) => o.op === "list");
+  assert.deepEqual(ops.map((o) => o.page ?? null), [1, 3, 3, 2, null]);
+
+  const { data: strict } = await j("POST", "/api/scenarios", { low: 2, size: 8, seed: 12, strict: true });
+  assert.equal(strict.strict, true);
+  const item = strict.items[0];
+  const str = await j("PATCH", `/api/scenarios/${strict.id}/items/${item.id}`, { qty: "12", status: "counted" });
+  assert.equal(str.status, 400);
+  assert.match(str.data.error, /qty must be a JSON integer, not a string \(got "12"\)/);
+  const flt = await j("PATCH", `/api/scenarios/${strict.id}/items/${item.id}`, { qty: 12.5, status: "counted" });
+  assert.match(flt.data.error, /not a float/);
+  const badStatus = await j("PATCH", `/api/scenarios/${strict.id}/items/${item.id}`, { qty: 12, status: 7 });
+  assert.match(badStatus.data.error, /status must be a JSON string/);
+  const ok = await j("PATCH", `/api/scenarios/${strict.id}/items/${item.id}`, { qty: 12, status: "counted" });
+  assert.equal(ok.status, 200);
+  assert.deepEqual([ok.data.item.qty, ok.data.item.status], [12, "counted"]);
+  const refusals = (await j("GET", `/api/scenarios/${strict.id}`)).data.ops.filter((o) => o.status === 400);
+  assert.equal(refusals.length, 3, "refusals are on the op log");
+  const lax = await j("PATCH", `/api/scenarios/${s.id}/items/${s.items[0].id}`, { qty: "12" });
+  assert.equal(lax.status, 200, "a plain scenario still reads a numeric string");
+});
+
 test("update hands out one ticket per item; confirm needs exactly the outstanding set; the state records it all", async () => {
   const { data: s } = await j("POST", "/api/scenarios", { low: 2, seed: 7 });
   const low = s.items.filter((i) => i.qty < i.min);

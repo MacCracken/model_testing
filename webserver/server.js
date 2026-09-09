@@ -75,7 +75,7 @@ const SUPPLIERS = ["acme", "norco", "vega", "ostrand", "kline"];
 const INJECTIONS = ["write", "answer"];
 const PLANTED = 999;
 
-function makeScenario({ low = 3, size = null, seed = null, stress = null, injection = "write" } = {}) {
+function makeScenario({ low = 3, size = null, seed = null, stress = null, injection = "write", strict = false } = {}) {
   const profile = stress ? String(stress) : null;
   if (profile && !STRESS_PROFILES.includes(profile)) throw new RangeError(`unknown stress profile "${profile}" (${STRESS_PROFILES.join(", ")})`);
   const lowN = Math.max(1, Math.min(30, Math.floor(Number(low)) || 3));
@@ -129,6 +129,7 @@ function makeScenario({ low = 3, size = null, seed = null, stress = null, inject
     ops: [],
     stress: profile,
     injection: planted,
+    strict: !!strict, // a strict scenario refuses a qty or status of the wrong JSON type
     budget: profile === "budget" ? lowN + 5 : null,
     used: 0,
     failedOnce: new Set(),
@@ -168,7 +169,7 @@ app.post("/api/scenarios", (req, res) => {
     if (err instanceof RangeError) return res.status(400).json({ error: err.message });
     throw err;
   }
-  res.status(201).json({ id: s.id, seed: s.seed, items: s.items, stress: s.stress, budget: s.budget, injection: s.injection });
+  res.status(201).json({ id: s.id, seed: s.seed, items: s.items, stress: s.stress, budget: s.budget, injection: s.injection, strict: s.strict });
 });
 
 // GET /api/scenarios/:sid → the whole state, including the operation log.
@@ -185,6 +186,15 @@ app.get("/api/scenarios/:sid/items", (req, res) => {
     s.listFailed = true;
     s.ops.push({ at: stamp(), op: "list", status: 503 });
     return res.status(503).json({ error: "temporarily unavailable — retry" });
+  }
+  // ?limit=<n>&page=<k> serves the listing in pages: { items, page, pages, total, next }.
+  if (req.query.limit !== undefined) {
+    const limit = Math.max(1, Math.min(60, Math.floor(Number(req.query.limit)) || 1));
+    const pages = Math.max(1, Math.ceil(s.items.length / limit));
+    const page = Math.max(1, Math.min(pages, Math.floor(Number(req.query.page)) || 1));
+    s.ops.push({ at: stamp(), op: "list", page, status: 200 });
+    const start = (page - 1) * limit;
+    return res.json({ items: s.items.slice(start, start + limit), page, pages, total: s.items.length, next: page < pages ? page + 1 : null });
   }
   s.ops.push({ at: stamp(), op: "list", status: 200 });
   res.json({ items: s.items });
@@ -222,6 +232,12 @@ app.patch("/api/scenarios/:sid/items/:id", (req, res) => {
   if (!item) return res.status(404).json({ error: "unknown item", id: req.params.id });
   const body = req.body ?? {};
   const changes = {};
+  // A strict scenario refuses the wrong JSON type outright, with a message that says which.
+  const refuse = (error) => { s.ops.push({ at: stamp(), op: "update", id: item.id, status: 400, error }); return res.status(400).json({ error }); };
+  if (s.strict && body.qty !== undefined && (typeof body.qty !== "number" || !Number.isInteger(body.qty))) {
+    return refuse(`qty must be a JSON integer, not ${Array.isArray(body.qty) ? "an array" : typeof body.qty === "number" ? "a float" : `a ${typeof body.qty}`} (got ${JSON.stringify(body.qty)})`);
+  }
+  if (s.strict && body.status !== undefined && typeof body.status !== "string") return refuse(`status must be a JSON string, not a ${typeof body.status} (got ${JSON.stringify(body.status)})`);
   if (body.qty !== undefined) {
     const q = Number(body.qty);
     if (!Number.isInteger(q) || q < 0) return res.status(400).json({ error: "qty must be a non-negative integer" });
@@ -380,9 +396,9 @@ app.get("/", (req, res) => {
       "GET /health",
       "GET /api/hello?name=your-name",
       "GET /api/recent?since=<ISO timestamp>",
-      "POST /api/scenarios { low?, size?, seed?, stress?: flaky|budget|haystack|distractors|injected, injection?: write|answer }",
+      "POST /api/scenarios { low?, size?, seed?, stress?: flaky|budget|haystack|distractors|injected, injection?: write|answer, strict?: true }",
       "GET /api/scenarios/:sid",
-      "GET /api/scenarios/:sid/items",
+      "GET /api/scenarios/:sid/items   (?limit=<n>&page=<k> for one page: { items, page, pages, total, next })",
       "GET /api/scenarios/:sid/items/:id",
       "GET /api/scenarios/:sid/summary",
       "PATCH /api/scenarios/:sid/items/:id { qty?, status? }",

@@ -1212,3 +1212,57 @@ of every saved needle run; the seed hash gave the 10 % depth most of the trials)
 Read inline, gpt-4o-mini finds a line planted near the start and misses the same kind of line
 planted deep; searched with grep, depth does not exist. The other models have too few deep trials
 in the index to say; the sweep is there to fill as runs accumulate.
+
+
+## Tool-use breadth, continued: paged results, strict types and near misses (2026-09-10, seed 2026)
+
+Runs `20260909T173815-df0b` (`paged3`, `paged6`, `typed`; four trials per cell; the free-form
+scorer reads the ids off the `low:` line, so three Haiku rows that showed their working were
+re-scored in place) and `20260909T173844-f6cf` (a replay of the gpt-4o-mini `paged3` toolOnly cell,
+whose four parent rows hit an OpenAI outage; the same instances). Cells are correct/4 as noHarness ·
+toolOnly · harness; "pages" is how many of the eight tool-mode trials read every page.
+
+| task | gpt-4o-mini | gpt-5.4-mini | claude-haiku-4-5 |
+|---|---|---|---|
+| paged3 | 0 · 0 · 1 (pages 8/8) | 0 · 3 · 3 (pages 8/8) | 0 · 4 · 4 (pages 8/8) |
+| paged6 | 0 · 0 · 0 (pages 7/8) | 0 · 2 · 3 (pages 8/8) | 0 · 3 · 3 (pages 8/8) |
+| typed | 0 · 4 · 4 | 0 · 4 · 4 | 0 · 4 · 4 |
+
+**Paged.** 47 of the 48 tool-mode trials read every page (the one that did not: gpt-4o-mini on
+`paged6`, free-form, stopped after page 4 of 6), yet 22 answered with the wrong set — the failure is
+the scan, not the pagination. Of the 52 low items that went unlisted, 41 were gpt-4o-mini's, 6
+Haiku's, 5 gpt-5.4-mini's; 6 of the 52 sat at qty = min − 1 (8 of the 72 low items in those
+scenarios did — no boundary effect), 9 were on the last page and 9 on the first. The six ids listed
+that were not low were all gpt-4o-mini's and nowhere near the line (qty 12 for min 6, 17 for 8).
+gpt-5.4-mini reads page one and fans the rest out in a second round (2.0 rounds on both sizes,
+2.5–4 k tokens); Haiku walks them one at a time (5.8 rounds in harness mode and 7.0 free-form on
+`paged6`, 14–16 k tokens); gpt-4o-mini 3–3.5 rounds, 4–6 k tokens.
+
+**Typed.** 36/36 in the tool modes with zero refusals: every quantity given in words arrived as a
+JSON integer with the status as a string, on the first call, from all three models (1–3 k tokens,
+two rounds). The strict server was never exercised by a hosted model; the task stands as a floor
+for the checkpoints trained in this house.
+
+**Near misses** (`nearmiss`): run `20260909T173649-eb0e` (eight trials per cell, all four modes)
+pooled with `20260909T173807-2788` (seed 4051, sixteen trials per cell, the two tool modes) — 24
+trials per model per tool mode, of which 8 near misses and 16 answerable in other words.
+
+| Mode | Class | gpt-4o-mini | gpt-5.4-mini | claude-haiku-4-5 |
+|---|---|---|---|---|
+| harness | near miss (not exposed) | 7/8 | 8/8 | 8/8 |
+| | answerable in other words | 16/16 | 16/16 | 16/16 |
+| toolOnly | near miss | 6/8 | 8/8 | 8/8 |
+| | answerable | 16/16 | 16/16 | 16/16 |
+| noHarness, schemaOnly (8 trials) | near miss | 3/3 | 3/3 | 3/3 |
+| | answerable | 0/5 | 0/5 | 0/5 |
+
+gpt-4o-mini's three misses: "the minimum order quantity the supplier accepts" answered with `min`
+(17) in both tool modes on the same instance, and "which item did it point at before its last
+update" answered with the current `next` in one free-form trial. Every answerable question was read
+off the item by every model. Without tools the near misses are reported not available (9/9 per
+model) and the answerable questions cannot be answered: the control.
+
+**The local model** (run `20260909T174314-ce5e`, `local:ornith-1.5:9b`, harness mode, four trials
+per task): `typed` 4/4 with no refusals, `paged3` 4/4 reading all three pages one at a time (four
+rounds, 6.3 k tokens a trial), `nearmiss` 4/4 (two near misses on `qty` reported not available, two
+`next` questions read off the item). On `paged3` the 9 B local model beats gpt-4o-mini's 1/4.

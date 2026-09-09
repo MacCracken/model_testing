@@ -26,7 +26,7 @@ const generators = { wordmath: (t) => wordmathGen(1, Number(t.name.replace("word
 function sampleCtx(t) {
   const fam = Object.keys(generators).find((k) => t.name.startsWith(k));
   if (fam) return generators[fam](t);
-  return { scenario: "scn-test", items: [], low: 3, size: 8, ids: ["sku-1001", "sku-1002"], start: "sku-1001", hops: 3, question: "What is the qty of item sku-1001?" };
+  return { scenario: "scn-test", items: [], low: 3, size: 8, ids: ["sku-1001", "sku-1002"], start: "sku-1001", hops: 3, question: "What is the qty of item sku-1001?", counts: [{ id: "sku-1001", qty: 24 }, { id: "sku-1002", qty: 7 }, { id: "sku-1003", qty: 40 }], pages: 3 };
 }
 
 test("every declared spec is well-formed for its mode", () => {

@@ -4,6 +4,53 @@ What shipped, by date. Full measurement tables live in [docs/results.md](docs/re
 forward roadmap is [plan.md](plan.md). Dates are the commit dates; item numbers ([1]–[49]) are the
 roadmap's, stable across the plan, this file and the results.
 
+## 2026-09-10 (night) — tool breadth: paged results, strict types and near misses
+
+### Added
+- **The `paged` family** ([48]): `paged3` and `paged6` — which of 24 or 48 scenario items are
+  below their minimum, listed eight at a time; every page says which it is, how many there are
+  and the number of the next one. Scored on the exact set of low ids and the count; the tool-use
+  verdict says how many of the pages were read and where a model stopped. Capabilities tool-use /
+  partial-results; the family's knob is the page count, so `cli curve paged` works.
+- **`typed`** ([48]): three items to set to quantities given in words ("twenty-four") on a strict
+  scenario that refuses a `qty` sent as a string, a float or a word — and a `status` that is not a
+  string — with a 400 that names the type it got. Scored on the end state (the three counts and
+  statuses, nothing else touched) and the report; the verdict counts the refusals and whether every
+  item was set in the end. Capabilities tool-use / argument-types.
+- **`nearmiss`** ([48]): `norelevant` with the distractors moved closer. Half the questions ask for
+  an exposed field in other words ("below what quantity does it need restocking?" for `min`, "which
+  item does it point at?" for `next`), half for something that echoes a field and is not exposed
+  (the supplier's minimum order quantity, a target date, units on order, the previous count, days
+  of stock left, the previous `next`). The scorer names the field a wrong answer was a near miss on.
+  Capabilities tool-use / irrelevance-detection / abstention; all four modes.
+- **Webserver**: `GET /api/scenarios/:sid/items?limit=&page=` serves the listing in pages
+  (`{ items, page, pages, total, next }`, the page on the op log); `POST /api/scenarios { strict:
+  true }` makes a scenario refuse the wrong JSON type on update. `test/sut.test.js` pins both.
+- Tests: 293 (the pages and the strict refusals on the server; each task's generator, scorers and
+  verdict; whole trials through the runner with fake models that stop after page one, send strings
+  and recover or not, and take the nearest field).
+
+### Measured (seed 2026, four trials per cell unless said; tables in docs/results.md)
+- **Pagination is followed; the scan across pages is not**: 47 of 48 tool-mode paged trials read
+  every page, yet 22 answered with the wrong set. gpt-4o-mini reads all three pages and lists five of
+  six low items (1/4 on `paged3`, 0/4 on `paged6`); Haiku 4/4 and 3/4, gpt-5.4-mini 3/4 and 3/4.
+  The misses are not boundary slips (6 of 52 missed items sat at qty = min − 1, in proportion to
+  the population) and not the last page (9 of 52); the six ids listed that were not low were nowhere
+  near it (qty 12 for min 6). gpt-5.4-mini fans the remaining pages out after reading the first
+  one's page count (2 rounds); Haiku walks them one at a time (7 rounds, 14–16 k tokens on `paged6`).
+- **No hosted model trips the strict server**: `typed` 36/36 across the three models and both tool
+  modes with zero refusals — every quantity given in words arrived as a JSON integer. The task is a
+  floor for the models trained in this house, not a discriminator between these three.
+- **Near misses catch gpt-4o-mini, once**: over 24 trials per tool mode (8 near misses, 16
+  answerable), it took `min` for "the minimum order quantity the supplier accepts" in both tool
+  modes on one instance and the current `next` for "which item did it point at before its last
+  update" in one free-form trial — 7/8 and 6/8 near misses abstained, every answerable question
+  right; gpt-5.4-mini and Haiku 24/24 in both modes. Without tools every model abstains on the
+  near misses (9/9) and cannot answer the rest: the control.
+- **The local ornith-1.5:9b** in harness mode: 12/12 over the three tasks — no refusals on `typed`,
+  every page read on `paged3` (4/4, against gpt-4o-mini's 1/4), both near misses reported not
+  available.
+
 ## 2026-09-10 (later) — two-hop needles and the depth sweep
 
 ### Added

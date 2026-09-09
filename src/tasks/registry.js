@@ -30,11 +30,15 @@ import { task as norelevantTask } from "./norelevant.js";
 import { needleTasks, needlehopTasks } from "./needle.js";
 import { extractTasks } from "./extract.js";
 import { dialogueTasks } from "./dialogue.js";
+import { task as nearmissTask } from "./nearmiss.js";
+import { pagedTasks } from "./paged.js";
+import { task as typedTask } from "./typed.js";
 
 export const tasks = [
   healthTask, helloTask, reasonTask, lookupTask, regexTask, chainTask, transformTask, explainTask,
   ...restockTasks, ...wordmathTasks, ...datecalcTasks, ...logicgridTasks, ...tallyTasks,
   ...fanoutTasks, ...followTasks, norelevantTask, ...needleTasks, ...needlehopTasks, ...extractTasks, ...dialogueTasks,
+  nearmissTask, ...pagedTasks, typedTask,
 ];
 
 export function getTask(name) {

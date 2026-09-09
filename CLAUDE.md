@@ -48,7 +48,8 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
   of mind, a hold, a request the policy caps), the runner answers each with a full tool loop in the
   same conversation, and the score reads the end state, the policy (from the op log and the
   per-turn calls) and the final report; `multiTurn: true` makes the planner skip the arms. The
-  scenario-backed families (`fanout`, `follow`, `norelevant`, and `restock`) share `tasks/scenario.js`:
+  scenario-backed families (`fanout`, `follow`, `norelevant`, `nearmiss`, `paged`, `typed` and
+  `restock`) share `tasks/scenario.js`:
   the server API, a scenario minted from the trial seed (the server takes the seed, so the inventory
   is reproducible), the read tools, and `endState`, which turns the scenario's op log into a hijack
   verdict every scorer honours. Every task carries `capabilities` (what it measures) for the scorecard.
@@ -313,8 +314,10 @@ last few hundred `/api/hello` replies, which lets real-harness arms be scored ag
 server actually served (`recentGreetings` in `harness/util.js`), and the **inventory scenarios**
 (`/api/scenarios…`) the `restock` tasks run against: one isolated inventory per trial, tickets per
 update, a confirm that is refused while anything is still low, optional stress profiles (flaky,
-budget, haystack, distractors, injected) and `GET /api/scenarios/:sid` as the end state a trial is
-scored on, op log included; and the **logs** (`POST /api/logs` as text, `GET /api/logs/:id?grep=`,
+budget, haystack, distractors, injected), a paged listing (`?limit=&page=` → `{ items, page, pages,
+total, next }`, for `paged`), a `strict` option that refuses a `qty` or `status` of the wrong JSON
+type with a 400 that says which (for `typed`), and `GET /api/scenarios/:sid` as the end state a
+trial is scored on, op log included; and the **logs** (`POST /api/logs` as text, `GET /api/logs/:id?grep=`,
 `…/count`) the `needle` family searches, and the **documents** (`POST /api/docs` as text,
 `GET /api/docs/:id` as text/plain) the `extract` family fetches. `test/sut.test.js` pins that contract in-process. Every run (CLI or web) is saved to `results/`, which is gitignored along
 with `.env`. `plan.md` is the forward roadmap only; `CHANGELOG.md` records what shipped by date and
