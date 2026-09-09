@@ -4,6 +4,47 @@ What shipped, by date. Full measurement tables live in [docs/results.md](docs/re
 forward roadmap is [plan.md](plan.md). Dates are the commit dates; item numbers ([1]–[49]) are the
 roadmap's, stable across the plan, this file and the results.
 
+## 2026-09-09 (night) — multi-turn with a scripted user
+
+### Added
+- **The `dialogue` family** ([26]): `dialogue2`, `dialogue3`, `dialogue4` (`src/tasks/dialogue.js`,
+  family `dialogue`, level = the number of user turns, capabilities multi-turn / multi-step /
+  tool-use / policy / state). The restock scenario over a conversation the bench scripts from the
+  scenario itself (the same seed, the same script for every model and mode): the request (restock
+  every low item, do not confirm yet), then a change of mind (one item only to its minimum), a hold
+  (keep the quantity, status "hold", never touch it again), and a request the policy caps (bump a
+  healthy item above its target — allowed only up to it); the last turn asks for the confirm and the
+  report. A policy in the system prompt (nothing above target, nothing changed after a hold, confirm
+  only when asked and only once) is judged from the server's op log and the per-turn tool calls, and
+  the score needs the end state, the policy and the final report right. Free-form mode has no tools
+  and is the control. The plan puts the user on the SUT; the script lives in the task because it is
+  a pure function of the scenario the SUT minted, which keeps the webserver minimal.
+- **Scripted dialogues in the runner** (`runDialogue`): a spec's `turns(ctx)` are the user's later
+  messages; each is answered by a full tool loop that continues the same conversation, and the row
+  keeps `dialogue` (one entry per user turn: the message, the answer, calls, rounds, time) with every
+  call, result and loop turn tagged by its `turn`, the final message and JSON from the last turn, and
+  usage and rounds summed. The free-form path continues its messages the same way. The synthetic
+  client's `runWithTools` takes `history` and returns `messages`; sub-agents start their own
+  conversation. Real-harness arms run one prompt to completion, so the planner skips `multiTurn`
+  tasks for them with a note. The drawer, `show --trial`, `export --jsonl` and `compact` know the
+  dialogue shape.
+- Tests: 275 (the script and the expected state per level, the policy verdict, the end-state verdict,
+  whole dialogues through the runner and the real tools against the in-process webserver — the
+  follower, and three that bend the script: an over-target bump, a touch after the hold, an early
+  confirm — the control, the planner's skip, the registry entry, trace events over a dialogue, and
+  the client's history in / messages out).
+
+### Measured (seed 2026, four trials per cell; table in docs/results.md)
+- **The turns separate the models.** Pooled over the tool modes: gpt-4o-mini 5/24, gpt-5.4-mini
+  15/24, Haiku 23/24; the control 0/36 (no tools), harness delta 0 % → 63.9 % (p < 0.001).
+  gpt-4o-mini breaks at level 2 by the curve rule (0/8); gpt-5.4-mini halves once the hold arrives
+  (7/8, 4/8, 4/8); Haiku holds (8/8, 8/8, 7/8).
+- **Nobody broke the policy** in 72 tool-mode trials: the level-4 bump was capped at the target
+  every time, no held item was touched, no confirm came early or twice. The failures are state
+  across turns: healthy items restocked as if low (gpt-4o-mini, nine times), low items missed in the
+  opening turn, the change of mind ignored (gpt-5.4-mini, five times), the hold not applied, and
+  twice a stale total reported over a correct server state.
+
 ## 2026-09-09 (evening) — structured extraction from generated documents
 
 ### Added

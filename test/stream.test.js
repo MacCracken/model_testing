@@ -130,3 +130,28 @@ test("a turn that stops for a tool call it never made is asked once more, and th
   assert.equal(r2.text, "still nothing");
   assert.equal(r2.rounds, 2);
 });
+
+test("runWithTools continues a conversation handed in as history and hands it back grown as messages", async () => {
+  const bodies = [];
+  let n = 0;
+  const client = new Client({ name: "t", model: "m", apiKey: "k", url: "http://x", fetchImpl: async (_url, init) => {
+    bodies.push(JSON.parse(init.body));
+    n += 1;
+    return n === 1
+      ? sseFetch([chunk({ tool_calls: [{ index: 0, id: "c1", function: { name: "noop", arguments: "{}" } }] }, "tool_calls"), "[DONE]"])()
+      : sseFetch([chunk({ content: "second answer" }, "stop"), "[DONE]"])();
+  } });
+  const history = [{ role: "user", content: "first question" }, { role: "assistant", content: "first answer" }];
+  const r = await client.runWithTools("second question", [{ name: "noop", parameters: {}, impl: async () => "done" }], "sys", { history });
+  assert.deepEqual(bodies[0].messages.map((m) => m.role), ["system", "user", "assistant", "user"], "the history sits between the system prompt and the new turn");
+  assert.equal(bodies[0].messages[1].content, "first question");
+  assert.equal(r.text, "second answer");
+  assert.deepEqual(r.messages.map((m) => m.role), ["user", "assistant", "user", "assistant", "tool", "assistant"], "the returned conversation has no system message and ends with the answer");
+  assert.equal(r.messages.at(-1).content, "second answer");
+  assert.equal(r.messages[3].tool_calls[0].function.name, "noop");
+  assert.equal(r.messages[4].content, "done");
+  // Without history the shape is the old one, plus the messages.
+  n = 0;
+  const single = await client.runWithTools("q", [{ name: "noop", parameters: {}, impl: async () => "done" }], "");
+  assert.deepEqual(single.messages.map((m) => m.role), ["user", "assistant", "tool", "assistant"]);
+});

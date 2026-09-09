@@ -29,11 +29,12 @@ import { followTasks } from "./follow.js";
 import { task as norelevantTask } from "./norelevant.js";
 import { needleTasks } from "./needle.js";
 import { extractTasks } from "./extract.js";
+import { dialogueTasks } from "./dialogue.js";
 
 export const tasks = [
   healthTask, helloTask, reasonTask, lookupTask, regexTask, chainTask, transformTask, explainTask,
   ...restockTasks, ...wordmathTasks, ...datecalcTasks, ...logicgridTasks, ...tallyTasks,
-  ...fanoutTasks, ...followTasks, norelevantTask, ...needleTasks, ...extractTasks,
+  ...fanoutTasks, ...followTasks, norelevantTask, ...needleTasks, ...extractTasks, ...dialogueTasks,
 ];
 
 export function getTask(name) {
@@ -58,5 +59,6 @@ export function listTasks() {
     family: t.family ?? null, // the difficulty family (restock, wordmath, …) and this task's knob value
     level: t.level ?? null,
     generated: typeof t.setup === "function" && !!t.seeded,
+    multiTurn: !!t.multiTurn, // the user's later turns are scripted; arms are skipped
   }));
 }

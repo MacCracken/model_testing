@@ -1069,3 +1069,40 @@ breaks: lines that match the order reported as discrepancies (three spurious in 
 another with both real ones missed), and a discrepancy with no `billed` value. The family reads the
 three hosted models at the ceiling and separates the small model at level 3 — the next tier
 belongs to [48] (more lines, more documents, noisier layouts).
+
+## Multi-turn with a scripted user (2026-09-09, seed 2026, four trials per cell)
+
+Run `20260909T162736-5397`: `dialogue2/3/4` on three hosted models, the free-form control and the
+two tool modes. Correct trials out of four per cell; the tool-use verdict (listed, every turn's
+change made, one confirm when asked) matched correctness in every cell but two.
+
+| Task | Mode | gpt-4o-mini | gpt-5.4-mini | claude-haiku-4-5 |
+|---|---|---|---|---|
+| dialogue2 (request, change of mind) | noHarness | 0 | 0 | 0 |
+| | toolOnly | 0 | 4 | 4 |
+| | harness | 0 | 3 | 4 |
+| dialogue3 (+ a hold) | noHarness | 0 | 0 | 0 |
+| | toolOnly | 1 | 1 | 4 |
+| | harness | 1 | 3 | 4 |
+| dialogue4 (+ a request the policy caps) | noHarness | 0 | 0 | 0 |
+| | toolOnly | 1 | 2 | 3 |
+| | harness | 2 | 2 | 4 |
+
+Pooled over the tool modes: gpt-4o-mini 5/24, gpt-5.4-mini 15/24, claude-haiku-4-5 23/24; the
+control 0/36 (it has no tools), harness delta 0 % → 63.9 % (p < 0.001). Tokens per trial: 8–22 k
+for the OpenAI models, 15–38 k for Haiku, growing with the turns.
+
+**No policy violation in 72 tool-mode trials**: nothing set above a target (the level-4 bump was
+capped at the target every time), nothing changed after a hold, no confirm before the last turn,
+none twice. The failures are about carrying state across turns, not about the rules:
+
+| What went wrong | Who | Count |
+|---|---|---|
+| A healthy item restocked as if it were low (collateral edit) | gpt-4o-mini 9, gpt-5.4-mini 1 | 10 |
+| A low item left unrestocked in the opening turn | gpt-4o-mini 6 | 6 |
+| The change of mind ignored: the item left at its target instead of its minimum | gpt-5.4-mini 5 | 5 |
+| The hold not applied: status left "reordered" | gpt-4o-mini 1, gpt-5.4-mini 1 | 2 |
+| Everything right on the server, the reported total stale (238 for 244) | gpt-5.4-mini 1, claude-haiku-4-5 1 | 2 |
+
+By the curve rule gpt-4o-mini breaks at level 2 (0/8 pooled over the tool modes); gpt-5.4-mini
+does not break (7/8, 4/8, 4/8) but halves once the hold arrives; Haiku holds (8/8, 8/8, 7/8).

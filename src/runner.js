@@ -141,6 +141,49 @@ export async function scoreRecord(task, record, { judge = null, ctx = record.ctx
   return { hijacked: !!score.hijacked };
 }
 
+// Token usage summed across the turns of a dialogue (the client sums across a loop's rounds).
+function sumUsage(a, b) {
+  if (!b) return a;
+  return {
+    prompt_tokens: (a?.prompt_tokens ?? 0) + (b.prompt_tokens ?? 0),
+    completion_tokens: (a?.completion_tokens ?? 0) + (b.completion_tokens ?? 0),
+    total_tokens: (a?.total_tokens ?? 0) + (b.total_tokens ?? 0),
+  };
+}
+
+// A scripted dialogue on the tool path: the spec's prompt, then the user turns the spec scripts for
+// this trial, each answered by a full tool loop that continues the same conversation. The synthetic
+// client takes the conversation so far as `history` and returns it grown (`messages`); a client
+// that returns none gets the turn and its answer appended. Calls, results and loop turns are tagged
+// with the user turn they belong to; the final message is the last turn's.
+async function runDialogue(client, prompts, tools, system, opts) {
+  let history = [];
+  const dialogue = [];
+  const toolCalls = [];
+  const toolResults = [];
+  const turns = [];
+  let usage = null;
+  let rounds = 0;
+  let ttftMs = null;
+  let ttfaMs = null;
+  let last = null;
+  for (let t = 0; t < prompts.length; t++) {
+    const n = t + 1;
+    const started = performance.now();
+    const resp = await client.runWithTools(prompts[t], tools, system, { ...opts, history, turn: n, turnsTotal: prompts.length });
+    for (const c of resp.toolCalls ?? []) toolCalls.push({ ...c, turn: n });
+    for (const r of resp.toolResults ?? []) toolResults.push({ ...r, turn: n });
+    for (const x of resp.turns ?? []) turns.push({ ...x, dialogueTurn: n });
+    usage = sumUsage(usage, resp.usage);
+    rounds += resp.rounds ?? 0;
+    if (t === 0) { ttftMs = resp.ttftMs ?? null; ttfaMs = resp.ttfaMs ?? null; }
+    dialogue.push({ turn: n, user: prompts[t], answer: resp.text ?? "", calls: (resp.toolCalls ?? []).length, rounds: resp.rounds ?? 0, ms: Math.round(performance.now() - started) });
+    history = Array.isArray(resp.messages) ? resp.messages : [...history, { role: "user", content: prompts[t] }, { role: "assistant", content: resp.text ?? "" }];
+    last = resp;
+  }
+  return { ...last, toolCalls, toolResults, turns: turns.length ? turns : null, usage, rounds, ttftMs, ttfaMs, dialogue };
+}
+
 /** Run a single (task, mode, client) trial once and score it. Never throws. */
 export async function runTrial({ task, mode, client, index = 1, signal, maxRounds = 4, judge = null, seed = null }) {
   // The instance seed: a generated task mints its problem from it, so the same seed re-mints the same
@@ -171,6 +214,7 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
     rounds: 0,
     turns: null,
     transcript: null,
+    dialogue: null,
     finishReason: null,
     answerText: null,
     structured: null,
@@ -218,12 +262,17 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
     // runs them regardless — `toolOnly` is exactly free-form output *with* tools run, so tool
     // execution is gated on tools being present, not on structured scoring.
     const hasTools = (rspec.tools ?? []).length > 0;
+    // A multi-turn spec scripts the user's later turns as a function of the trial context.
+    const script = typeof spec.turns === "function" ? spec.turns(ctx ?? {}) : Array.isArray(spec.turns) ? spec.turns : [];
+    const callOpts = { maxRounds: task.maxRounds ?? maxRounds, signal, task, mode, ctx, seed: instance };
 
     let resp;
     if (structured || hasTools) {
       // Tools run (if any) and the final message is parsed as JSON. What gets scored is the
       // model's final message written after it saw real tool output — never the tool args.
-      resp = await client.runWithTools(rspec.prompt, rspec.tools ?? [], system, { maxRounds: task.maxRounds ?? maxRounds, signal, task, mode, ctx, seed: instance });
+      resp = script.length
+        ? await runDialogue(client, [rspec.prompt, ...script], rspec.tools ?? [], system, callOpts)
+        : await client.runWithTools(rspec.prompt, rspec.tools ?? [], system, callOpts);
       record.toolCalls = resp.toolCalls ?? [];
       record.toolResults = resp.toolResults ?? [];
       record.rounds = resp.rounds ?? 0;
@@ -239,13 +288,23 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
         ? { format: resp.transcript.format ?? "text", chars: resp.transcript.text.length, text: capText(resp.transcript.text, "transcript", TRANSCRIPT_RECORD_MAX) }
         : null;
     } else {
-      // Wrappers (skills, constraints) need the same context on this path as on the tool path.
-      resp = await client.chat(
-        [...(system ? [{ role: "system", content: system }] : []), { role: "user", content: rspec.prompt }],
-        undefined,
-        { signal, task, mode, ctx, seed: instance },
-      );
+      // Wrappers (skills, constraints) need the same context on this path as on the tool path. A
+      // scripted dialogue continues the same messages: the answer, then the next user turn.
+      let messages = [...(system ? [{ role: "system", content: system }] : []), { role: "user", content: rspec.prompt }];
+      const dialogue = [];
+      let usage = null;
+      for (let t = 0; ; t++) {
+        const started = performance.now();
+        resp = await client.chat(messages, undefined, { signal, task, mode, ctx, seed: instance, ...(script.length ? { turn: t + 1, turnsTotal: script.length + 1 } : {}) });
+        usage = sumUsage(usage, resp.usage);
+        if (script.length) dialogue.push({ turn: t + 1, user: messages.at(-1).content, answer: resp.text ?? "", calls: 0, rounds: 1, ms: Math.round(performance.now() - started) });
+        if (t >= script.length) break;
+        messages = [...messages, { role: "assistant", content: resp.text ?? "" }, { role: "user", content: script[t] }];
+      }
+      if (script.length) resp = { ...resp, usage, dialogue };
     }
+    // The dialogue as it went: each user turn and the answer it got (capped like the prompt).
+    record.dialogue = Array.isArray(resp.dialogue) ? resp.dialogue.map((d) => ({ ...d, user: capText(d.user ?? "", "turn"), answer: capText(d.answer ?? "", "turn") })) : null;
 
     if (resp.skill) record.skill = resp.skill;
     if (resp.agents) record.agents = resp.agents;
@@ -313,6 +372,11 @@ export function planMatrix({ tasks, modes, clients, count = 1 }) {
         // synthetic client for the same model.
         if (client.structuredOnly && !isStructuredMode(mode)) {
           skipped.push({ task: task.name, mode, client: client.name });
+          continue;
+        }
+        // An arm runs one prompt to completion; it cannot take a user's scripted later turns.
+        if (client.structuredOnly && task.multiTurn) {
+          skipped.push({ task: task.name, mode, client: client.name, why: "multi-turn" });
           continue;
         }
         cells.push({ task, mode, client });

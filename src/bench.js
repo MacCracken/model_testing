@@ -81,7 +81,7 @@ export function modelParamsFrom({ temperature, seed, modelParam } = {}) {
 // Human-readable note for each (task, mode) pair a run skips because the task has no such spec.
 export function describeSkipped(skipped) {
   return skipped.map((s) => (s.client
-    ? `${s.task}/${s.mode} skipped for ${s.client}: a harness arm runs structured modes only`
+    ? `${s.task}/${s.mode} skipped for ${s.client}: ${s.why === "multi-turn" ? "a harness arm cannot take a user's scripted turns" : "a harness arm runs structured modes only"}`
     : `${s.task}/${s.mode} skipped: the task declares no ${s.mode} spec`));
 }
 

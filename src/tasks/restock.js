@@ -299,4 +299,4 @@ function makeRestock(low) {
 }
 
 export const restockTasks = [3, 6, 12, 30].map(makeRestock);
-export { tools, distractorTools, toolsFor, schema, STATUS, makeRestock };
+export { tools, distractorTools, toolsFor, schema, STATUS, makeRestock, judgeReport };

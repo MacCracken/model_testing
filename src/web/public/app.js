@@ -1158,20 +1158,31 @@ function renderDetail() {
       res?.ok === false ? "bad" : "accent",
     );
   };
-  if (Array.isArray(r.turns) && r.turns.length) {
-    // The session in order: each turn's text, then the calls it made; the last turn is the answer
-    // (shown as the final message below).
-    const named = new Set();
-    let i = 0;
-    r.turns.forEach((t, ti) => {
-      const own = (r.toolCalls ?? []).filter((c) => (t.calls ?? []).includes(c.id));
-      own.forEach((c) => named.add(c.id));
-      const isFinal = ti === r.turns.length - 1 && !own.length;
-      if (t.text && !isFinal) step(`assistant · round ${t.round ?? ti + 1}`, typeof t.ms === "number" ? `+${fmtMs(t.ms)}` : "", t.text, "");
-      own.forEach((c) => callStep(c, i++));
+  // One user turn's worth of the session: each loop turn's text, then the calls it made; the loop's
+  // final text is the turn's answer, shown separately.
+  let i = 0;
+  const renderLoop = (loopTurns, ownCalls) => {
+    if (loopTurns.length) {
+      const named = new Set();
+      loopTurns.forEach((t, ti) => {
+        const own = ownCalls.filter((c) => (t.calls ?? []).includes(c.id));
+        own.forEach((c) => named.add(c.id));
+        const isFinal = ti === loopTurns.length - 1 && !own.length;
+        if (t.text && !isFinal) step(`assistant · round ${t.round ?? ti + 1}`, typeof t.ms === "number" ? `+${fmtMs(t.ms)}` : "", t.text, "");
+        own.forEach((c) => callStep(c, i++));
+      });
+      ownCalls.filter((c) => !named.has(c.id)).forEach((c) => callStep(c, i++));
+    } else ownCalls.forEach((c) => callStep(c, i++));
+  };
+  if (Array.isArray(r.dialogue) && r.dialogue.length) {
+    // A scripted dialogue: the user's turns, and what the model did and said after each.
+    r.dialogue.forEach((d, di) => {
+      const n = d.turn ?? di + 1;
+      if (di > 0) step(`user · turn ${n}`, "", d.user || "(empty)", "");
+      renderLoop((r.turns ?? []).filter((t) => t.dialogueTurn === n), (r.toolCalls ?? []).filter((c) => c.turn === n));
+      if (di < r.dialogue.length - 1) step(`assistant · turn ${n}`, `${plural(d.calls ?? 0, "call")} · ${fmtMs(d.ms ?? 0)}`, d.answer || "(empty)", "");
     });
-    (r.toolCalls ?? []).filter((c) => !named.has(c.id)).forEach((c) => callStep(c, i++));
-  } else (r.toolCalls ?? []).forEach(callStep);
+  } else renderLoop(r.turns ?? [], r.toolCalls ?? []);
   if (TOOL_MODES.has(r.mode) && !(r.toolCalls ?? []).length) step("tool calls", "", "The model never called a tool.", "bad");
   if (r.toolUseOk === true || r.toolUseOk === false) step("tool use", r.toolUseOk ? "correct" : "wrong", r.toolUseReason || "—", r.toolUseOk ? "ok" : "bad");
   if (typeof r.judgeScore === "number") step("judge", `score ${r.judgeScore.toFixed(2)}`, r.judgeReason || "—", r.correct ? "ok" : "bad");

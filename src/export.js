@@ -74,34 +74,50 @@ export function cellsToCsv(runId, summary) {
 export function traceEvents(row) {
   const events = [];
   const push = (kind, payload) => events.push({ seq: events.length, kind, ...payload });
-  if (row.system) push("system", { text: row.system });
-  push("user", { text: row.prompt ?? "" });
   const calls = row.toolCalls ?? [];
   const results = row.toolResults ?? [];
   const resultFor = (c, i) => (c.id !== undefined && c.id !== null ? results.find((r) => r.id === c.id) : undefined) ?? results[i];
   let i = 0;
   const callEvents = (list) => {
     for (const c of list) {
-      push("tool_call", { id: c.id ?? `call_${i + 1}`, name: c.name, args: c.arguments ?? {}, ...(c.agent ? { agent: c.agent } : {}) });
+      push("tool_call", { id: c.id ?? `call_${i + 1}`, name: c.name, args: c.arguments ?? {}, ...(c.agent ? { agent: c.agent } : {}), ...(c.turn ? { turn: c.turn } : {}) });
       const r = resultFor(c, i);
-      if (r) push("tool_result", { id: c.id ?? r.id ?? `call_${i + 1}`, name: r.name ?? c.name, ok: r.ok !== false, output: r.content ?? null });
+      if (r) push("tool_result", { id: c.id ?? r.id ?? `call_${i + 1}`, name: r.name ?? c.name, ok: r.ok !== false, output: r.content ?? null, ...(c.turn ? { turn: c.turn } : {}) });
       i++;
     }
   };
-  if (Array.isArray(row.turns) && row.turns.length) {
-    const named = new Set();
-    row.turns.forEach((t, ti) => {
-      const own = calls.filter((c) => (t.calls ?? []).includes(c.id));
-      for (const c of own) named.add(c.id);
-      const last = ti === row.turns.length - 1;
-      if (t.text || !own.length) push("assistant", { text: t.text ?? "", ...(typeof t.ms === "number" ? { ms: t.ms } : {}), round: t.round ?? ti + 1, ...(last && !own.length ? { finish_reason: t.finishReason ?? row.finishReason ?? null } : {}) });
-      callEvents(own);
+  // One user turn's worth of loop: the model's text before its calls, the calls and results, the
+  // answer — or, without loop turns, the calls then the answer.
+  const loop = (loopTurns, ownCalls, finalText, finish, turn = null) => {
+    const tag = turn ? { turn } : {};
+    if (loopTurns.length) {
+      const named = new Set();
+      loopTurns.forEach((t, ti) => {
+        const own = ownCalls.filter((c) => (t.calls ?? []).includes(c.id));
+        for (const c of own) named.add(c.id);
+        const last = ti === loopTurns.length - 1;
+        const reason = t.finishReason ?? finish ?? null;
+        if (t.text || !own.length) push("assistant", { text: t.text ?? "", ...(typeof t.ms === "number" ? { ms: t.ms } : {}), round: t.round ?? ti + 1, ...tag, ...(last && !own.length && reason !== null ? { finish_reason: reason } : {}) });
+        callEvents(own);
+      });
+      callEvents(ownCalls.filter((c) => !named.has(c.id)));
+    } else {
+      callEvents(ownCalls);
+      push("assistant", { text: finalText ?? "", ...tag, ...(finish !== null && finish !== undefined ? { finish_reason: finish } : {}) });
+    }
+  };
+  if (row.system) push("system", { text: row.system });
+  if (Array.isArray(row.dialogue) && row.dialogue.length) {
+    // A scripted dialogue: every user turn, then what the model did and said in reply to it.
+    row.dialogue.forEach((d, di) => {
+      const n = d.turn ?? di + 1;
+      push("user", { text: di === 0 ? row.prompt ?? d.user ?? "" : d.user ?? "", turn: n });
+      loop((row.turns ?? []).filter((t) => t.dialogueTurn === n), calls.filter((c) => c.turn === n), d.answer, di === row.dialogue.length - 1 ? row.finishReason ?? null : null, n);
     });
-    callEvents(calls.filter((c) => !named.has(c.id)));
-  } else {
-    callEvents(calls);
-    push("assistant", { text: row.answerText ?? "", finish_reason: row.finishReason ?? null });
+    return events;
   }
+  push("user", { text: row.prompt ?? "" });
+  loop(row.turns ?? [], calls, row.answerText, row.finishReason ?? null);
   return events;
 }
 

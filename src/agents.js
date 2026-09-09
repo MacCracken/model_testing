@@ -87,7 +87,7 @@ export function withDelegation(client, how = "available", { maxChildren = MAX_CH
           if (children.length >= maxChildren) throw new Error(`sub-agent limit (${maxChildren}) reached — finish the rest yourself`);
           const child = { index: children.length + 1, goal: String(goal ?? ""), startedAt: performance.now(), toolCalls: [], toolResults: [], usage: null, rounds: 0, text: "" };
           children.push(child);
-          const resp = await client.runWithTools(child.goal, taskTools, CHILD_SYSTEM, opts);
+          const resp = await client.runWithTools(child.goal, taskTools, CHILD_SYSTEM, { ...opts, history: [] });
           child.toolCalls = resp.toolCalls ?? [];
           child.toolResults = resp.toolResults ?? [];
           child.usage = resp.usage ?? null;

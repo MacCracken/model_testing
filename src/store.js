@@ -255,6 +255,7 @@ export function compactRuns({ olderThanDays, apply = false, now = Date.now() } =
       for (const k of BULKY) if (k in row) row[k] = null;
       row.toolResults = (r.toolResults ?? []).map((t) => ({ ...t, content: null }));
       if (Array.isArray(r.turns)) row.turns = r.turns.map((t) => ({ ...t, text: null }));
+      if (Array.isArray(r.dialogue)) row.dialogue = r.dialogue.map((d) => ({ ...d, user: null, answer: null }));
       return row;
     }) };
     const body = JSON.stringify(stripped);

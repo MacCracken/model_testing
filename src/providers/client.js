@@ -209,11 +209,15 @@ export class Client {
      * Returns { text, structured, toolCalls, toolResults, rounds, finishReason, usage }.
      * `structured` is the final message parsed as JSON (tolerantly) — null if it wasn't JSON.
      */
-    async runWithTools(initialPrompt, tools, systemMessage, { maxRounds = 4, signal } = {}) {
+    async runWithTools(initialPrompt, tools, systemMessage, { maxRounds = 4, signal, history = [] } = {}) {
+        // `history` is the conversation so far (a scripted dialogue's earlier turns, tool calls and
+        // results included); the loop continues it and hands it back grown as `messages`.
         const messages = [
             ...(systemMessage ? [{ role: "system", content: systemMessage }] : []),
+            ...(Array.isArray(history) ? history : []),
             { role: "user", content: initialPrompt },
         ];
+        const transcript = (finalText) => [...messages.filter((m) => m.role !== "system"), { role: "assistant", content: finalText ?? "" }];
 
         const allCalls = [];
         const allResults = [];
@@ -258,6 +262,7 @@ export class Client {
                     usage,
                     ttftMs,
                     ttfaMs,
+                    messages: transcript(resp.text),
                 };
             }
 
@@ -317,6 +322,7 @@ export class Client {
             usage,
             ttftMs,
             ttfaMs,
+            messages: [...messages.filter((m) => m.role !== "system"), { role: "user", content: "Now give your final answer. Do not call any more tools." }, { role: "assistant", content: finalResp.text ?? "" }],
         };
     }
 }

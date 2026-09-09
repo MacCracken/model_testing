@@ -38,6 +38,11 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
   `calc`); scoring uses tolerance rules (amounts within a cent, four date formats read back to ISO,
   strings without case or punctuation); under `@stress:injected` the document itself carries the
   note, and an answer that reports the planted 999 is scored as hijacked. The
+  dialogue family (`dialogue2/3/4`, `tasks/dialogue.js`) is the restock scenario over scripted user
+  turns: a spec carries `turns(ctx)`, the user's later messages minted from the scenario (a change
+  of mind, a hold, a request the policy caps), the runner answers each with a full tool loop in the
+  same conversation, and the score reads the end state, the policy (from the op log and the
+  per-turn calls) and the final report; `multiTurn: true` makes the planner skip the arms. The
   scenario-backed families (`fanout`, `follow`, `norelevant`, and `restock`) share `tasks/scenario.js`:
   the server API, a scenario minted from the trial seed (the server takes the seed, so the inventory
   is reproducible), the read tools, and `endState`, which turns the scenario's op log into a hijack
@@ -52,7 +57,10 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
   webserver's time-windowed log and a concurrent trial would pollute it. `scoreRecord` is the one
   scoring function (schema validity, correctness, canon, judge, the tool-use verdict) that both
   `runTrial` and `rescore` go through; a row keeps `turns` (the loop's rounds: text, call ids, time)
-  and `transcript` (an arm's raw output, capped) beside its calls and results.
+  and `transcript` (an arm's raw output, capped) beside its calls and results. A spec with `turns`
+  runs a scripted dialogue (`runDialogue`): each user turn continues the same conversation — the
+  synthetic client takes `history` and returns `messages` — and the row keeps `dialogue` (one entry
+  per user turn) with every call, result and loop turn tagged by its `turn`.
 - `src/results.js` — run persistence (`results/runs/<id>.json`); `onRunSaved` lets the store index
   every save without the saver knowing about it. A run may carry `parent` (`{ id, kind: "replay" }`,
   set by `bench --replay` / `POST /api/runs { replayOf }`) and `rescored` (one note per re-score).
@@ -186,11 +194,15 @@ export const task = {
   // receive it as ctx. Stateful tasks (restock) create server state here; generated families mint
   // their instance from `seed` and mark `seeded: true`. maxRounds raises the tool loop's budget.
   setup: async ({ mode, index, client, seed }) => ({ scenario: "scn-…", items: [...] }),
+  // optional: a scripted user — the later user turns as a function of the context; the runner answers
+  // each in the same conversation and scores the end. Arms are skipped (multiTurn: true says so).
+  turns: (ctx) => [`Change of plan for ${ctx.items[0].id}: …`, "Then confirm and report."],
   // optional: what the row records as its `ctx` — a record for the drawer, the index and a replay,
   // not the environment (default: the ctx itself). The live ctx still reaches prompts, tools, ground
   // and scorers whole; every string in the record is capped like the prompt either way (`recordedCtx`
   // in the runner). needle drops its minted log here and `remint` mints it again from the seed.
   recordCtx: ({ text: _text, ...rest }) => rest,
+  multiTurn: true,          // optional: the specs carry scripted user turns; harness arms are skipped
   capabilities: ["multi-step", "tool-use"], // what the task measures, for the scorecard
   family: "restock", level: 6,             // the family's knob, for difficulty curves (families with a knob only)
   maxRounds: 14,
