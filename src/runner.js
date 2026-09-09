@@ -52,9 +52,93 @@ async function resolveGround(task, ctx) {
 // The run file keeps a prompt for the drawer, not a 400 KB log; long prompts are cut in the record
 // (the model received the whole thing — token counts in usage say so).
 const PROMPT_RECORD_MAX = 20_000;
-function capText(t) {
-  if (typeof t !== "string" || t.length <= PROMPT_RECORD_MAX) return t;
-  return `${t.slice(0, PROMPT_RECORD_MAX)}\n…[prompt truncated in the record: ${t.length} characters in total]`;
+// An arm's raw transcript is kept whole up to this, so a row can be re-parsed when a parser improves.
+const TRANSCRIPT_RECORD_MAX = 200_000;
+function capText(t, what = "prompt", max = PROMPT_RECORD_MAX) {
+  if (typeof t !== "string" || t.length <= max) return t;
+  return `${t.slice(0, max)}\n…[${what} truncated in the record: ${t.length} characters in total]`;
+}
+
+// The same rule for the trial context. The row records what scoring and a replay need, not the
+// environment the trial ran in: a task says what that is with `recordCtx` (needle drops its minted
+// log — the seed the row keeps re-mints it; with the log, 36 needle100k rows made a 15 MB run file),
+// and with or without a hook every string in the record is capped like the prompt. The live ctx —
+// prompts, tools, ground, scorers, wrappers and arms — is untouched.
+function recordedCtx(task, ctx) {
+  const kept = ctx !== null && ctx !== undefined && typeof task.recordCtx === "function" ? task.recordCtx(ctx) : ctx;
+  const cap = (v) => {
+    if (typeof v === "string") return capText(v, "context");
+    if (Array.isArray(v)) return v.map(cap);
+    if (v && typeof v === "object" && [Object.prototype, null].includes(Object.getPrototypeOf(v))) return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, cap(x)]));
+    return v;
+  };
+  return cap(kept);
+}
+
+/**
+ * Score a trial record in place from what it holds — the parsed or raw answer, the ground truth,
+ * the tool calls and results, the context — and report what the runner still has to apply (a
+ * hijack the scorer saw). runTrial calls it once the ground is known; `rescore` calls it over the
+ * rows of a saved run, so a run can be scored again with today's scorers and no model.
+ * `ctx` is the context the scorers see (live in a trial, the recorded one in a re-score);
+ * `hasTools` says whether the spec carried tools, which decides the tool-use verdict, and is read
+ * from the spec and the context when not given.
+ */
+export async function scoreRecord(task, record, { judge = null, ctx = record.ctx ?? null, hasTools = null } = {}) {
+  const mode = record.mode;
+  const spec = task[mode] ?? {};
+  const structured = isStructuredMode(mode);
+  if (hasTools === null) {
+    const tools = typeof spec.tools === "function" ? spec.tools(ctx ?? {}) : spec.tools;
+    hasTools = (tools ?? []).length > 0;
+  }
+
+  // Schema validation belongs to the structured path. With no schema to check against
+  // (toolOnly), schemaValid stays null rather than posing as a verdict.
+  const parsed = record.structured === undefined ? null : record.structured;
+  if (structured && spec.schema) {
+    const { valid, errors } = validateSchema(parsed, spec.schema);
+    record.schemaValid = parsed !== null && valid;
+    record.schemaErrors = parsed === null ? ["final message was not JSON"] : errors;
+  } else {
+    record.schemaValid = null;
+    record.schemaErrors = [];
+  }
+
+  // Structured modes score the parsed JSON; free-form scores the raw text. Scorers get the judge
+  // (when one is configured) so an open-ended task can grade with it.
+  const scorer = structured ? task.eval.scoreHarness : task.eval.scoreNoHarness;
+  const answer = structured ? parsed : record.answerText;
+  const score = await scorer(answer, record.ground, { judge, mode, ctx });
+  record.correct = !!score.correct;
+  record.reason = score.reason ?? "";
+
+  // A canonical form of the answer, for agreement across repeated trials of the same cell (the
+  // variance measure). Only tasks with fixed truth define one; tasks whose truth is minted per
+  // trial (random ids) leave it null and their variance is read from outcomes alone.
+  record.canon = null;
+  if (typeof task.eval.canon === "function") {
+    try {
+      const c = task.eval.canon(answer, { mode, structured });
+      record.canon = c === null || c === undefined ? null : String(c);
+    } catch { /* a canonicalizer that throws just leaves the answer uncounted */ }
+  }
+  record.judgeScore = score.judge ? score.judge.score ?? null : null;
+  record.judgeReason = score.judge ? score.judge.reason ?? "" : "";
+
+  // Was the tool used correctly — right tool, right arguments, right calls? A separate signal
+  // from "final answer correct": a model can reach the right answer by hand after firing the
+  // wrong tool, or fire the right tool and still misreport. Judged only when the spec carried
+  // tools and the task defines a judge; null otherwise. A real-harness arm brings its own tools,
+  // so a judge written against the bench's tools has nothing to say about it.
+  record.toolUseOk = null;
+  record.toolUseReason = "";
+  if (hasTools && typeof task.eval.toolUse === "function" && !record.harness) {
+    const use = await task.eval.toolUse({ mode, toolCalls: record.toolCalls ?? [], toolResults: record.toolResults ?? [], ctx, rounds: record.rounds ?? 0 });
+    record.toolUseOk = !!use.ok;
+    record.toolUseReason = use.reason ?? "";
+  }
+  return { hijacked: !!score.hijacked };
 }
 
 /** Run a single (task, mode, client) trial once and score it. Never throws. */
@@ -85,6 +169,8 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
     toolCalls: [],
     toolResults: [],
     rounds: 0,
+    turns: null,
+    transcript: null,
     finishReason: null,
     answerText: null,
     structured: null,
@@ -120,7 +206,7 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
     // Per-trial context: a task with `setup` prepares isolated state (an inventory scenario, say),
     // and its prompts, goal, truth and scorers may be functions of it.
     const ctx = typeof task.setup === "function" ? await task.setup({ mode, index, signal, client, seed: instance }) : null;
-    record.ctx = ctx;
+    record.ctx = recordedCtx(task, ctx);
     const text = (v) => (typeof v === "function" ? v(ctx ?? {}) : v);
     const rspec = { ...spec, prompt: text(spec.prompt), system: text(spec.system), tools: text(spec.tools) };
     record.prompt = capText(rspec.prompt ?? null);
@@ -145,14 +231,13 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
       // A real-harness arm reports the model it actually routed to; record that, not the label.
       if (resp.harness?.model) record.model = resp.harness.model;
       if (resp.harness) record.harness = resp.harness.kind ?? "unknown";
-
-      // Schema validation belongs to the structured path. With no schema to check against
-      // (toolOnly), schemaValid stays null rather than posing as a verdict.
-      if (structured && spec.schema) {
-        const { valid, errors } = validateSchema(resp.structured, spec.schema);
-        record.schemaValid = resp.structured !== null && valid;
-        record.schemaErrors = resp.structured === null ? ["final message was not JSON"] : errors;
-      }
+      // The session as it unfolded: the synthetic loop's turns (what the model said each round,
+      // which calls it made, when) and an arm's raw transcript, capped like the prompt — so a row
+      // can be read back as a timeline, exported as events, or re-parsed without the model.
+      record.turns = Array.isArray(resp.turns) ? resp.turns.map((t) => ({ ...t, text: capText(t.text ?? "", "turn") })) : null;
+      record.transcript = resp.transcript && typeof resp.transcript.text === "string"
+        ? { format: resp.transcript.format ?? "text", chars: resp.transcript.text.length, text: capText(resp.transcript.text, "transcript", TRANSCRIPT_RECORD_MAX) }
+        : null;
     } else {
       // Wrappers (skills, constraints) need the same context on this path as on the tool path.
       resp = await client.chat(
@@ -190,43 +275,12 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
     // with no stress axis leaves the treatment unapplied, and the row says so.
     if (client.stress) record.stress = { how: client.stress, applied: !!ground?.stress, ...(ground?.stress ?? {}) };
 
-    // Structured modes score the parsed JSON; free-form scores the raw text.
-    const scorer = structured ? task.eval.scoreHarness : task.eval.scoreNoHarness;
-    const answer = structured ? record.structured : record.answerText;
-    // Scorers get the judge (when one is configured) so an open-ended task can grade with it.
-    const score = await scorer(answer, ground, { judge, mode, ctx });
-
-    record.correct = !!score.correct;
-    record.reason = score.reason ?? "";
+    // Every verdict — correctness, schema validity, canon, judge, tool use — comes from the one
+    // function a re-score runs over a saved row, so a run can be scored again with today's
+    // scorers and land on exactly what a live trial would have.
+    const { hijacked } = await scoreRecord(task, record, { judge, ctx, hasTools });
     // A scorer that recognises a planted value reports a hijack the op log cannot see.
-    if (score.hijacked && record.stress) record.stress.hijacked = (record.stress.hijacked ?? 0) + 1;
-
-    // A canonical form of the answer, for agreement across repeated trials of the same cell (the
-    // variance measure). Only tasks with fixed truth define one; tasks whose truth is minted per
-    // trial (random ids) leave it null and their variance is read from outcomes alone.
-    record.canon = null;
-    if (typeof task.eval.canon === "function") {
-      try {
-        const c = task.eval.canon(answer, { mode, structured });
-        record.canon = c === null || c === undefined ? null : String(c);
-      } catch { /* a canonicalizer that throws just leaves the answer uncounted */ }
-    }
-    if (score.judge) {
-      record.judgeScore = score.judge.score ?? null;
-      record.judgeReason = score.judge.reason ?? "";
-    }
-
-    // Was the tool used correctly — right tool, right arguments, right calls? A separate signal
-    // from "final answer correct": a model can reach the right answer by hand after firing the
-    // wrong tool, or fire the right tool and still misreport. Judged only when the spec carried
-    // tools and the task defines a judge; null otherwise.
-    // A real-harness arm brings its own tools, so a judge written against the bench's tools has
-    // nothing to say about it; the verdict stays null there.
-    if (hasTools && typeof task.eval.toolUse === "function" && !resp.harness) {
-      const use = await task.eval.toolUse({ mode, toolCalls: record.toolCalls, toolResults: record.toolResults, ctx, rounds: record.rounds });
-      record.toolUseOk = !!use.ok;
-      record.toolUseReason = use.reason ?? "";
-    }
+    if (hijacked && record.stress) record.stress.hijacked = (record.stress.hijacked ?? 0) + 1;
   } catch (err) {
     record.correct = false;
     const cancelled = signal?.aborted;

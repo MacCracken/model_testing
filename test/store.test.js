@@ -111,3 +111,25 @@ test("compaction strips bulky text from old runs only when applied, and keeps th
   assert.ok(store.queryRuns({ q: "cccc" })[0].compacted, "the index records the compaction");
   assert.deepEqual(store.compactRuns({ olderThanDays: 30, apply: false, now: Date.parse("2026-09-06T00:00:00Z") }).files, [], "not compacted twice");
 });
+
+test("a replay's parent reaches the index and runs can be listed by parent; compaction strips transcripts and turn text", () => {
+  const child = run("20260904T000000-eeee", "2026-09-04T00:00:00.000Z", [row("health", "harness", "openai:m", true, 1, {
+    turns: [{ round: 1, ms: 5, text: "calling", calls: ["x1"] }, { round: 2, ms: 9, text: "done", calls: [] }],
+    transcript: { format: "claude-code/stream-json", chars: 12, text: "{\"type\":\"x\"}" },
+  })]);
+  child.parent = { id: R1.id, kind: "replay" };
+  saveRun(child);
+  const [hdr] = store.queryRuns({ parent: R1.id });
+  assert.equal(hdr.id, child.id);
+  assert.deepEqual(hdr.parent, { id: R1.id, kind: "replay" });
+  assert.equal(store.queryRuns({ q: "aaaa" })[0].parent, null, "a plain run has no parent");
+  assert.equal(store.queryRuns({ parent: "nope" }).length, 0);
+  const c = store.compactRuns({ olderThanDays: 1, apply: true, now: Date.parse("2026-09-10T00:00:00Z") });
+  assert.ok(c.files.some((f) => f.id === child.id));
+  const back = JSON.parse(readFileSync(join(dir, "runs", `${child.id}.json`), "utf8"));
+  assert.equal(back.rows[0].transcript, null, "the raw transcript is bulky text");
+  assert.deepEqual(back.rows[0].turns.map((t) => [t.round, t.ms, t.text, t.calls]), [[1, 5, null, ["x1"]], [2, 9, null, []]], "turns keep their shape and timing, lose their text");
+  assert.deepEqual(store.queryRuns({ parent: R1.id })[0].parent, { id: R1.id, kind: "replay" }, "still parented after compaction");
+  unlinkSync(join(dir, "runs", `${child.id}.json`));
+  store.indexRuns();
+});

@@ -6,20 +6,23 @@ stands, what the field measures that it does not, and what to build next.
 
 ## Start here (handoff, 2026-09-08)
 
-- **Run it.** `npm test` (239 tests; no model or server needed), then `node src/cli.js serve` for
+- **Run it.** `npm test` (257 tests; no model or server needed), then `node src/cli.js serve` for
   the UI on :4000 and `node webserver/server.js` for the system under test on :3000 (`SUT_PORT`).
   Keys and `LOCAL_ENDPOINTS` live in `.env`; runs land in `results/runs/`, the SQLite index beside
   them (`node src/cli.js index --full` rebuilds it).
-- **Read it.** `node src/cli.js show <run> --table` for one run; `scorecard <client>`,
-  `curve <family>`, `regressions` and `compare` for questions across runs. Every table ever quoted
-  is in docs/results.md; the "Measured" sections of the changelog carry the conclusions.
+- **Read it.** `node src/cli.js show <run> --table` for one run (`--rows`, then `--trial <n>` for
+  one trial as a timeline); `scorecard <client>`, `curve <family>`, `regressions` and `compare` for
+  questions across runs; `replay <run>` to run the same instances again as a run parented to it,
+  `rescore <run> | --all` to apply today's scorers to saved rows, `gate <run> --gates
+  gates/nightly.json` for a verdict with an exit code (`suite nightly` runs and gates in one go).
+  Every table ever quoted is in docs/results.md; the "Measured" sections of the changelog carry the
+  conclusions.
 - **Conventions.** This file holds open work only; an item moves to the changelog the day it
   lands, its numbers to docs/results.md; every claim is tied to a test or a saved run; zero
   runtime dependencies; the JSON run files are the source of truth and the index is rebuildable;
   a schema for a task that needs thinking has a `work` field before the answer.
-- **Next**, in the recommended order: the gates half of [37], then [39] replay, then [24]
-  extraction and [26] multi-turn. [48] and [49] collect follow-ups on shipped work for any spare
-  hour. The decisions at the end are the user's; two of them block work ([27]'s sandbox, the
+- **Next**, in the recommended order: [24] extraction, then [26] multi-turn. [48] and [49]
+  collect follow-ups on shipped work for any spare hour. The decisions at the end are the user's; two of them block work ([27]'s sandbox, the
   hosted-model budget).
 - **Environment notes.** Ollama on :11434 serves `ornith-1.5:9b` (at ceiling on the easy tool
   tasks, 100 % on restock3); `qwen3.5` is parked on its thinking output. The arms need their own
@@ -61,10 +64,10 @@ rebuildable. Learned on 2026-09-07: a structured schema for a task that needs th
 | Scoring | deterministic scorers per task; truth from the trial (tool results) or the server's end state; tool-use verdicts; hijack verdicts from the op log; one judged task |
 | Statistics | Fisher exact with the "inconclusive" floor, Wilson bands, 2×2 decomposition, per-arm and per-variant deltas, McNemar + bootstrap on paired instances, power guidance, Bonferroni over cells, stability (agreement, flaky cells), a capability scorecard per run and over the index, difficulty curves with breaking points, regression flags over the index (latest against earlier runs per task, checkpoint against parent) |
 | Throughput | parallel trials (arms run alone), 48 trials in 8 s on a hosted model |
-| Data | one JSON per run, SQLite index (`index`, `query`, `--sql`, `compact`), CSV, versions and lineage on every run, cross-run cell history, suite presets `smoke|standard|full` |
+| Data | one JSON per run, SQLite index (`index`, `query`, `--sql`, `compact`), CSV, versions and lineage on every run, cross-run cell history, suite presets `smoke|standard|full`; every row keeps the model's turns (or an arm's raw transcript) beside its calls and results; `replay` (a new run parented to its original, paired against it), `rescore` (today's scorers over saved rows, in place), a trial as a timeline or a JSONL event log; gate verdicts on the run and in the index |
 | UI | Ledger design, live grid, dumbbell matrix, capability scorecard with regression lines, difficulty curves, paired comparison block, trial drawer with transcript and children, history filter |
 | SUT | the webserver: hello/health, the `/api/recent` log, inventory scenarios with tickets, confirm rules, stress profiles and op log, text logs with grep and count |
-| Tests | 239, none needing a model; the webserver runs in-process |
+| Tests | 257, none needing a model; the webserver runs in-process |
 
 ## What the field measures that we do not
 
@@ -92,8 +95,8 @@ with a priority for the stated purpose:
 | Instruction following | IFEval (verifiable constraints), LiveBench IF | `@constraints` variants: eleven requirement families checked by code on any task, adherence beside correctness | more families (sentences, language), requirements across turns, a `@format` variant ([48]) | low |
 | Long context | RULER / needle-in-a-haystack (multi-key, multi-value, aggregation) at 4 k–1 M | `needle8k/32k/100k`: single needle with recorded depth, multi-needle, aggregation; grep/count tools as the harness axis | larger sizes, a depth-sweep view, multi-hop questions ([48]) | medium |
 | Structured extraction | LiveBench data analysis, enterprise extraction evals | `transform`, schema modes | generated documents with exact truth, joins across two sources ([24]) | medium |
-| Statistics & reproducibility | HELM CIs, Inspect logs, lm-eval fixed prompts and versions | Fisher, Wilson, seeds, versions, canonical answers, index, McNemar + bootstrap on paired instances, power guidance, Bonferroni, curves, regression flags, `cli compare` | lineage-pooled scorecards and trend views ([49]), replay ([39]) | low |
-| Own-model workflow | lm-eval HF/vLLM backends; W&B / MLflow tracking; per-checkpoint scoreboards | named endpoints for any OpenAI-compatible server, `docs/serving.md`, `models/lineage.json` on every run and in the index, `cli models` / `suite` / `compare --parent` / `regressions`, the UI compare block | gates with exit codes ([37]), contamination policy ([38]), replay ([39]) | medium |
+| Statistics & reproducibility | HELM CIs, Inspect logs, lm-eval fixed prompts and versions | Fisher, Wilson, seeds, versions, canonical answers, index, McNemar + bootstrap on paired instances, power guidance, Bonferroni, curves, regression flags, `cli compare`, replay and re-score | lineage-pooled scorecards and trend views ([49]) | low |
+| Own-model workflow | lm-eval HF/vLLM backends; W&B / MLflow tracking; per-checkpoint scoreboards | named endpoints for any OpenAI-compatible server, `docs/serving.md`, `models/lineage.json` on every run and in the index, `cli models` / `suite` / `compare --parent` / `regressions`, the UI compare block, `replay` / `rescore`, `gate` / `suite nightly` (thresholds judged on the Wilson band, exit codes, time boxes) | contamination policy ([38]) | medium |
 | Coding | HumanEval → LiveCodeBench → SWE-bench | none | sandboxed execution of generated specs with hidden tests ([27]) | medium (needs a sandbox decision) |
 | Calibration & abstention | HELM calibration (ECE); "answer or abstain" splits | hedge detection in one scorer, `norelevant`'s unanswerable half | confidence elicitation, Brier/ECE per cell, unanswerable variants everywhere ([28]) | medium |
 | Robustness / consistency | HELM perturbations; paraphrase suites | agreement, flaky cells, stressors | paraphrase and ordering perturbations minted by generators ([29]) | medium |
@@ -106,9 +109,8 @@ with a priority for the stated purpose:
 
 ## Roadmap
 
-Numbers are stable across this file, the changelog and the results. [1]–[23], [25] and [31]–[36]
-have shipped and are described in the changelog, as is the preset half of [37]; only open work is
-listed here.
+Numbers are stable across this file, the changelog and the results. [1]–[23], [25], [31]–[37] and
+[39] have shipped and are described in the changelog; only open work is listed here.
 
 ### Tier 8 — Capability families by generator
 
@@ -152,14 +154,9 @@ mean something; a structured schema carries `work` before the answer.
 
 ### Tier 10 — Own-model workflow
 
-- **[37] Gates.** `--gate` thresholds per capability (and per family level) with exit codes, so a
-  checkpoint can fail CI — built on the suite presets, the scorecard and the regression rule that
-  already exist; time-boxing per suite; a nightly definition.
 - **[38] Contamination policy.** Private seed pools per training generation, a "minted after
   checkpoint" flag on instances, seeds never published, and an optional hook that hashes our
   instances against a training corpus before a run is trusted.
-- **[39] Replay.** `bench replay <run>` re-runs a saved run's exact instances (seeds, prompts,
-  generator versions) against a new model — the paired design in one command.
 
 ### Tier 11 — Public benchmarks run locally, as anchors
 
@@ -186,8 +183,8 @@ mean something; a structured schema carries `work` before the answer.
 
 ## Decisions needed
 
-1. **Order for the next month.** Recommendation: the gates half of [37] and [39] replay, then [24]
-   extraction and [26] multi-turn, with [48] and [49] as fill-in.
+1. **Order for the next month.** Recommendation: [24] extraction, then [26] multi-turn, with [48]
+   and [49] as fill-in.
 2. **Code sandbox.** Worker-thread isolation keeps the zero-dependency rule but is weaker; Docker is
    stronger and a dependency. This gates [27].
 3. **Scope of knowledge and safety.** Exclude closed-book knowledge as an axis? Add over-refusal on

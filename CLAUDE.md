@@ -30,7 +30,8 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
   readers, `src/calc.js` the exact calculator that is the harness axis for arithmetic. The
   long-context family (`needle8k/32k/100k`) mints a server log per trial, inlines it in the free-form
   modes and posts it to the webserver for the tool modes' grep and count (`tasks/needle.js`); the
-  record keeps a capped prompt (`capText` in the runner), the model gets the whole log. The
+  record keeps a capped prompt (`capText` in the runner) and a ctx without the log (`recordCtx`;
+  `remint` mints it again from the seed the row keeps), the model gets the whole log. The
   scenario-backed families (`fanout`, `follow`, `norelevant`, and `restock`) share `tasks/scenario.js`:
   the server API, a scenario minted from the trial seed (the server takes the seed, so the inventory
   is reproducible), the read tools, and `endState`, which turns the scenario's op log into a hijack
@@ -42,21 +43,42 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
   `--instance-seed`) and gives every trial `seedFor(instanceSeed, task, index)` — the same instance for
   every mode and client, so comparisons are paired and a run can be re-minted. It runs up to `parallel` trials at once; a
   `structuredOnly` client (a real-harness arm) always runs alone, because arms are scored from the
-  webserver's time-windowed log and a concurrent trial would pollute it.
+  webserver's time-windowed log and a concurrent trial would pollute it. `scoreRecord` is the one
+  scoring function (schema validity, correctness, canon, judge, the tool-use verdict) that both
+  `runTrial` and `rescore` go through; a row keeps `turns` (the loop's rounds: text, call ids, time)
+  and `transcript` (an arm's raw output, capped) beside its calls and results.
 - `src/results.js` — run persistence (`results/runs/<id>.json`); `onRunSaved` lets the store index
-  every save without the saver knowing about it.
+  every save without the saver knowing about it. A run may carry `parent` (`{ id, kind: "replay" }`,
+  set by `bench --replay` / `POST /api/runs { replayOf }`) and `rescored` (one note per re-score).
 - `src/store.js` — a SQLite index (`node:sqlite`, `results/index.sqlite`) over the run files for
   cross-run questions: `runs` / `trials` / `cells` tables, incremental `indexRuns` from file mtimes,
   canned queries (`queryRuns`, `trend`, `cellHistory`, `worstCells`), read-only `rawQuery`, and
   `compactRuns` retention. The files stay the source of truth; the index is rebuildable and
-  best-effort, so nothing waits on it.
+  best-effort, so nothing waits on it. `runs` carries `parent_run` / `parent_kind`;
+  `queryRuns({ parent })` lists a run's replays.
+- `src/rescore.js` — `rescoreRun(run, { judge })` scores a saved run's rows again through
+  `scoreRecord` (no model), reports the flips and the other verdicts that moved, and returns the run
+  with its verdicts replaced and a `rescored` note; `cli rescore` is a dry run unless `--yes`, which
+  writes the run file in place (same id: the same measurement, read again).
+- `src/gates.js` — thresholds with exit codes: `parseGate` / `parseGateFile` (a capability, task,
+  `family:level`, `break:family`, `overall`, `errors` or `regressions`, each `@mode`, `>=` a rate or
+  `<=` a count), `evaluateGates` over one client's rows (pass on the rate, fail when the Wilson band
+  lies under the bar, inconclusive between, incomplete under `minTrials`; exit 0 / 1 / 2),
+  `gateRun` over every client of a run (the regressions gate reads the index through
+  `regressionsForClient`), `describeRunGates`. `bench.js --gate/--gates/--time-box`, `cli gate <run>`,
+  the `nightly` suite and `gates/nightly.json` sit on it; the verdict lands on `run.gates`.
 - `src/json.js` / `src/schema.js` — tolerant JSON extraction + a minimal schema validator.
 - `src/env.js` — loads `.env` into `process.env` (never overriding real env vars). Imported first
   by every entry point and by `providers/index.js`.
-- `src/bench.js` — CLI over `runMatrix`; `--json` for machine-readable output.
+- `src/bench.js` — CLI over `runMatrix`; `--json` for machine-readable output; `--replay <run>`
+  (`replayArgs`) takes a saved run's configuration wherever the command line is silent, parents the
+  new run to it and prints `describeReplay`, the paired comparison; `--gate` / `--gates` gate the run
+  (exit code) and `--time-box <minutes>` cuts it (status `timeout`, the completed trials kept).
 - `src/aggregate.js` — the same matrix with a comparative report.
-- `src/report.js` — the one text report over a summary, used by `aggregate` and `cli show`.
-- `src/export.js` — CSV views of a run (trial rows, or task × model × mode cells).
+- `src/report.js` — the one text report over a summary, used by `aggregate` and `cli show`;
+  `trialTimeline` prints one row as a timeline (`cli show <run> --trial <n>`).
+- `src/export.js` — CSV views of a run (trial rows, or task × model × mode cells); `traceEvents` /
+  `traceJsonl` turn one row into an event log (system, user, assistant, tool_call, tool_result).
 - `src/version.js` — bench version / git commit / node, recorded on every run as `versions`.
 - `src/judge.js` — LLM-as-judge: `makeJudge(client)` returns `({ rubric, answer, ground, task }) =>
   { score, reason }`, asked for strict JSON and handed the task's ground truth. The runner passes the
@@ -75,7 +97,9 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
   visible action) and `ttfaMs` (final answer) — event-level, coarser than the synthetic client's
   token-level timings. Claude Code therefore runs with `--output-format stream-json --verbose`.
   Tasks expose a `goal` (plain job statement, endpoint described, no bench tool names) for arms;
-  `runTrial` passes `task` and `mode` to `runWithTools` so an arm can build its own prompt.
+  `runTrial` passes `task` and `mode` to `runWithTools` so an arm can build its own prompt. Every
+  arm returns `transcript: { format, text }` (its raw output, kept capped on the row so a parser fix
+  can re-read it); Claude Code's parser also yields `turns`.
 - `src/skills.js` — skills as a treatment. A playbook lives in `skills/<name>.md` (a task names a
   shared one with `task.skill`; every tool task has one, `reason` and `explain` do not); `withSkill(client, how)` wraps any client — synthetic or arm — as
   `<client>@skill:<how>` with `baseName` pointing back. `preload` puts the playbook in the system
@@ -109,7 +133,8 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
   family / checkpoint / step / parent / trainedOn. Runs record `config.lineage` for their clients,
   the index carries the fields per trial, `cli models` lists the registry, `cli compare --parent`
   pairs a checkpoint against its parent. `src/suites.js` holds the `smoke` / `standard` / `full`
-  presets behind `cli suite` (a suite run is a bench run with `config.suite`). Named local endpoints
+  presets behind `cli suite` (a suite run is a bench run with `config.suite`), and `nightly`: the
+  standard suite under a 90-minute time box, gated by `gates/nightly.json`. Named local endpoints
   (`LOCAL_ENDPOINTS`, `parseLocalEndpoints` / `registerLocalEndpoints` in `providers/index.js`)
   make any OpenAI-compatible server a provider like `local`; see docs/serving.md.
 - `src/trends.js` — capabilities over time from the index: `seriesFor` (per run, per capability,
@@ -119,9 +144,11 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
   its lineage parent the same way). Pure functions over indexed rows; `cli trend` /
   `cli regressions` and `/api/regressions` fetch the rows from the store.
 - `src/web/` — the control plane: `server.js` (node:http, zero deps) + `public/` (the UI).
+  `POST /api/runs { replayOf }` starts a replay (`withParentDefaults` fills the launch from the
+  parent's config); `GET /api/runs?parent=` lists a run's replays.
 - `src/cli.js` — entry point (`list` / `show` / `export` / `index` / `query` / `scorecard` /
   `compare` / `curve` / `trend` / `regressions` / `models` / `suite` / `compact` / `serve` /
-  `bench` / `aggregate`).
+  `replay` / `rescore` / `gate` / `bench` / `aggregate`).
 - `test/` — `npm test` (node:test, no deps). Scorers are tested with synthetic ground values, the
   runner with a fake client; nothing in the suite needs a model or the webserver.
 
@@ -152,6 +179,11 @@ export const task = {
   // receive it as ctx. Stateful tasks (restock) create server state here; generated families mint
   // their instance from `seed` and mark `seeded: true`. maxRounds raises the tool loop's budget.
   setup: async ({ mode, index, client, seed }) => ({ scenario: "scn-…", items: [...] }),
+  // optional: what the row records as its `ctx` — a record for the drawer, the index and a replay,
+  // not the environment (default: the ctx itself). The live ctx still reaches prompts, tools, ground
+  // and scorers whole; every string in the record is capped like the prompt either way (`recordedCtx`
+  // in the runner). needle drops its minted log here and `remint` mints it again from the seed.
+  recordCtx: ({ text: _text, ...rest }) => rest,
   capabilities: ["multi-step", "tool-use"], // what the task measures, for the scorecard
   family: "restock", level: 6,             // the family's knob, for difficulty curves (families with a knob only)
   maxRounds: 14,
@@ -233,6 +265,11 @@ node src/cli.js list                        # tasks/providers, with key status
 node src/cli.js show <run-id> --table       # review a saved run without the UI
 node src/cli.js export <run-id> --cells     # CSV of the cells (or of every trial without --cells)
 node src/cli.js query cell --task chain --client openai:gpt-4o-mini   # one cell across every run (index, query, compact: see README)
+node src/cli.js show <run-id> --rows | --trial 3      # the rows numbered, or one trial as a timeline (export --jsonl for the event log)
+node src/cli.js replay <run-id> [--clients …]        # the same instances again as a new run parented to this one, paired against it
+node src/cli.js rescore <run-id> | --all [--yes]     # today's scorers over saved rows; dry run unless --yes
+node src/cli.js gate <run-id> --gates gates/nightly.json   # thresholds over a saved run: exit 0 pass, 1 fail, 2 incomplete
+node src/cli.js suite nightly --clients vllm:ckpt --judge openai:gpt-4o-mini   # standard suite, 90-min time box, gated
 node src/bench.js --task chain --modes harness --clients local:ornith-1.5:9b --count 4 --temperature 0 --seed 7
 node src/bench.js --task all --modes harness --clients openai:gpt-4o-mini
 node src/bench.js --task health,reason,regex --modes noHarness,harness --clients openai:gpt-4o-mini --count 8 --parallel 8

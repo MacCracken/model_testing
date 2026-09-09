@@ -62,7 +62,7 @@ function broadcast(id, event) {
   }
 }
 
-function startRun({ tasks, modes, clients, count, parallel = 1, instanceSeed = null, modelParams = {}, judge: judgeSpec = null }) {
+function startRun({ tasks, modes, clients, count, parallel = 1, instanceSeed = null, modelParams = {}, judge: judgeSpec = null, parent = null }) {
   const taskObjs = tasks.map(getTask);
   const clientObjs = resolveClients(clients, { modelParams });
   const judge = resolveJudge(judgeSpec);
@@ -87,6 +87,8 @@ function startRun({ tasks, modes, clients, count, parallel = 1, instanceSeed = n
     finishedAt: null,
     status: "running",
     source: "web",
+    // A replay names the run it re-runs; the index carries it, and the UI labels it.
+    parent,
     config: { tasks, modes, clients: clientObjs.map((c) => c.name), count, parallel, instanceSeed, modelParams, judge: judge?.name ?? null, lineage: lineageOf(clientObjs.map((c) => c.name)) },
     versions: benchVersions(),
     warnings: missing.length ? [`skipped (no API key or unknown provider): ${missing.join(", ")}`] : [],
@@ -197,6 +199,24 @@ async function probeSUT() {
   }
 }
 
+// The launch body of a replay: whatever the body leaves unsaid comes from the parent run's config.
+export function withParentDefaults(body, parent) {
+  const c = parent.config ?? {};
+  const pick = (own, theirs) => (own === undefined || own === null || own === "" ? theirs : own);
+  return {
+    ...body,
+    tasks: pick(body.tasks, c.tasks),
+    modes: pick(body.modes, c.modes),
+    clients: pick(body.clients, c.clients),
+    count: pick(body.count, c.count),
+    parallel: pick(body.parallel, c.parallel),
+    instanceSeed: pick(body.instanceSeed, c.instanceSeed),
+    temperature: pick(body.temperature, c.modelParams?.temperature),
+    seed: pick(body.seed, c.modelParams?.seed),
+    judge: pick(body.judge, c.judge),
+  };
+}
+
 function validateLaunch(body) {
   const tasks = Array.isArray(body.tasks) ? body.tasks.filter(Boolean) : [];
   const modes = Array.isArray(body.modes) ? body.modes.filter((m) => MODE_NAMES.includes(m)) : [];
@@ -238,7 +258,7 @@ async function handle(req, res) {
   }
 
   if (req.method === "GET" && path === "/api/runs") {
-    const filters = ["q", "task", "client", "mode", "since", "seed"].filter((k) => url.searchParams.get(k));
+    const filters = ["q", "task", "client", "mode", "since", "seed", "parent"].filter((k) => url.searchParams.get(k));
     if (filters.length) {
       // Filtered listings come from the index (kept current on every save); the plain listing stays
       // file-based so it never depends on the index existing.
@@ -306,7 +326,12 @@ async function handle(req, res) {
 
   if (req.method === "POST" && path === "/api/runs") {
     try {
-      const run = startRun(validateLaunch(await readBody(req)));
+      const body = await readBody(req);
+      // A replay: the parent's tasks, modes, models, count, instances and knobs, each overridable
+      // by the body, and the new run parented to it.
+      const parent = body.replayOf ? loadRun(String(body.replayOf)) : null;
+      if (body.replayOf && !parent) return sendJSON(res, 404, { error: `unknown run: ${body.replayOf}` });
+      const run = startRun({ ...validateLaunch(parent ? withParentDefaults(body, parent) : body), parent: parent ? { id: parent.id, kind: "replay" } : null });
       return sendJSON(res, 201, { run: runHeader(run) });
     } catch (err) {
       return sendJSON(res, 400, { error: err?.message ?? String(err) });

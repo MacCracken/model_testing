@@ -79,6 +79,24 @@ test("runWithTools keeps the first round's timings", async () => {
   assert.equal(r.rounds, 2);
   assert.deepEqual(r.structured, { ok: 1 });
   assert.ok(typeof r.ttftMs === "number");
+  // The loop's turns: what the model said each round, which calls it made, and when.
+  assert.equal(r.turns.length, 2);
+  assert.deepEqual(r.turns.map((t) => [t.round, t.calls, t.text, t.finishReason]), [[1, ["c1"], "", "tool_calls"], [2, [], "{\"ok\":1}", "stop"]]);
+  assert.ok(r.turns.every((t) => typeof t.ms === "number" && t.ms >= 0));
+  assert.ok(r.turns[1].ms >= r.turns[0].ms);
+});
+
+test("runWithTools out of rounds asks once more without tools and records that forced turn", async () => {
+  const client = new Client({ name: "t", model: "m", apiKey: "k", url: "http://x", fetchImpl: async (_url, init) => {
+    const body = JSON.parse(init.body);
+    return body.tools
+      ? sseFetch([chunk({ tool_calls: [{ index: 0, id: "c9", function: { name: "noop", arguments: "{}" } }] }, "tool_calls"), "[DONE]"])()
+      : sseFetch([chunk({ content: "final" }, "stop"), "[DONE]"])();
+  } });
+  const r = await client.runWithTools("go", [{ name: "noop", parameters: {}, impl: async () => "done" }], "", { maxRounds: 2 });
+  assert.equal(r.finishReason, "max_rounds");
+  assert.equal(r.text, "final");
+  assert.deepEqual(r.turns.map((t) => [t.round, t.calls.length, t.forced ?? false]), [[1, 1, false], [2, 1, false], [3, 0, true]]);
 });
 
 test("an HTTP error on a streamed request still surfaces the provider's message", async () => {

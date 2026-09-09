@@ -112,6 +112,7 @@ export class PiClient {
       finishReason: "stop",
       usage: p.usage,
       elapsedMs: Math.round(performance.now() - t0),
+      transcript: { format: "pi/json", text: stdout },
       harness: { kind: "pi", model: p.model && p.provider ? `${p.provider}/${p.model}` : p.model, provider: p.provider, costUsd: p.costUsd, system },
     };
   }

@@ -1,0 +1,21 @@
+{
+  "name": "nightly",
+  "description": "What the latest checkpoint must clear in harness mode on the standard suite (four trials per cell). A rate gate fails only when its Wilson band lies under the bar; too few trials to tell is inconclusive, not a failure. A starting point: tune the bars to the family you are training, and keep them where a checkpoint you would ship passes.",
+  "minTrials": 4,
+  "mode": "harness",
+  "gates": [
+    "overall >= 70",
+    "tool-use >= 80",
+    "multi-step >= 60",
+    "arithmetic >= 75",
+    "deduction >= 60",
+    "extraction >= 70",
+    "long-context >= 75",
+    "planning >= 50",
+    "irrelevance-detection >= 75",
+    "restock:6 >= 50",
+    "break:restock >= 12",
+    "errors <= 0",
+    "regressions <= 0"
+  ]
+}

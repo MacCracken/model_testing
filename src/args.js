@@ -40,6 +40,16 @@ export function parseArgs(argv) {
       case "--capability": args.capability = next(); break;
       case "--cells": args.cells = true; break;
       case "--out": args.out = next(); break;
+      case "--replay": args.replay = next(); break;
+      case "--trial": args.trial = Number(next()); break;
+      case "--rows": args.rows = true; break;
+      case "--jsonl": args.jsonl = true; break;
+      case "--all": args.all = true; break;
+      case "--gate": (args.gate ??= []).push(next()); break;
+      case "--gates": args.gates = next(); break;
+      case "--time-box": args.timeBox = Number(next()); break;
+      case "--strict": args.strict = true; break;
+      case "--min-trials": args.minTrials = Number(next()); break;
       default: args._.push(a);
     }
   }

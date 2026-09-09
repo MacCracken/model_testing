@@ -77,3 +77,38 @@ node src/cli.js scorecard vllm:my-ckpt-2000                                     
 both checkpoints (and for the same checkpoint next week), so `compare` pairs them and McNemar's
 test applies. In the web UI a run's "Paired comparison" block does the same, and can take B from any
 other saved run on the same seed.
+
+## 5. Gate it
+
+```bash
+node src/cli.js gate <run-id> --gates gates/nightly.json --client vllm:my-ckpt-2000     # exit 0 pass · 1 fail · 2 a gate could not be judged
+node src/cli.js suite smoke --clients vllm:my-ckpt-2000 --gate "tool-use>=80" --gate "errors<=0"
+```
+
+A gate names what to measure and the bar: a capability (`tool-use>=80`), a task (`health>=100`), a
+family level (`restock:6>=50`), a family's breaking point (`break:restock>=12`, it must not break
+below 12), a whole mode (`overall@noHarness>=60`), the error rows (`errors<=0`) or the index's
+regression flags for the checkpoint (`regressions<=0`: its own earlier runs and its lineage parent).
+Verdicts follow the Wilson band: a gate fails only when the whole band lies under the bar; a rate
+below the bar whose band still reaches it is inconclusive (four trials cannot tell 75 % from 80 %),
+and `--strict` turns that into a failure. A gate with fewer trials than `minTrials` (the file's,
+`--min-trials`, else the run's trials per cell) is incomplete. `gates/nightly.json` is the file
+form, with `minTrials` and a default mode; tune its bars to the family you train, and keep them where a checkpoint you
+would ship passes.
+
+## 6. Nightly
+
+```bash
+node src/cli.js suite nightly --clients vllm:my-ckpt-2000 --instance-seed 7 --judge openai:gpt-4o-mini
+```
+
+The standard suite (every task, four trials per cell, both headline modes) under a 90-minute time
+box, gated by `gates/nightly.json`; the judge grades `explain`. The exit code is the verdict, the
+run carries it (`run.gates`; `gate_verdict` in the index; the headline in the UI), and
+`regressions<=0` compares the run with the checkpoint's earlier runs and its parent. A time box that
+runs out saves what completed as `timeout`, and the gates it could not judge are incomplete (exit 2),
+not failures. From cron:
+
+```
+15 2 * * *  cd /path/to/bench && node src/cli.js suite nightly --clients vllm:my-ckpt-latest --instance-seed 7 --judge openai:gpt-4o-mini >> results/nightly.log 2>&1 || echo "bench gate exited $?" | mail -s "nightly bench" you@example.com
+```

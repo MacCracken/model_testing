@@ -56,7 +56,7 @@ export function openStore() {
 // Columns added after an index was first built. `create table if not exists` leaves an existing
 // table alone, so each new column is added here when missing; the next `index --full` fills it.
 const LATER_COLUMNS = {
-  runs: { parallel: "integer", instance_seed: "integer", lineage: "text", suite: "text" },
+  runs: { parallel: "integer", instance_seed: "integer", lineage: "text", suite: "text", parent_run: "text", parent_kind: "text", gate_verdict: "text" },
   trials: { canon: "text", skill: "text", base_client: "text", agents: "text", delegations: "integer", stress: "text", seed: "integer", constraints: "text", adherence_pct: "real", family: "text", checkpoint: "text", step: "integer", parent: "text" },
   cells: { agreement_pct: "real", distinct_answers: "integer", flaky: "integer" },
 };
@@ -88,13 +88,14 @@ export function indexRun(run, { mtime = null } = {}) {
     d.prepare("delete from trials where run_id = ?").run(run.id);
     d.prepare("delete from cells where run_id = ?").run(run.id);
     d.prepare(`insert or replace into runs
-      (id, created_at, finished_at, status, source, tasks, modes, clients, count, model_params, judge, versions, warnings, row_count, compacted, file_mtime, indexed_at, parallel, instance_seed, lineage, suite)
-      values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      (id, created_at, finished_at, status, source, tasks, modes, clients, count, model_params, judge, versions, warnings, row_count, compacted, file_mtime, indexed_at, parallel, instance_seed, lineage, suite, parent_run, parent_kind, gate_verdict)
+      values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
       run.id, run.createdAt ?? null, run.finishedAt ?? null, run.status ?? null, run.source ?? null,
       json(run.config?.tasks ?? []), json(run.config?.modes ?? []), json(run.config?.clients ?? []),
       num(run.config?.count), json(run.config?.modelParams ?? {}), run.config?.judge ?? null,
       json(run.versions ?? null), json(run.warnings ?? []), (run.rows ?? []).length, run.compacted ?? null,
       mtime, new Date().toISOString(), num(run.config?.parallel) ?? 1, num(run.config?.instanceSeed), json(run.config?.lineage ?? {}), run.config?.suite ?? null,
+      run.parent?.id ?? null, run.parent?.kind ?? null, run.gates?.verdict ?? null,
     );
     if (run.status !== "running") {
       const ins = d.prepare(`insert into trials
@@ -179,11 +180,13 @@ function headerOf(row) {
     instanceSeed: row.instance_seed ?? null,
     lineage: JSON.parse(row.lineage ?? "{}"),
     suite: row.suite ?? null,
+    parent: row.parent_run ? { id: row.parent_run, kind: row.parent_kind ?? "replay" } : null,
+    gates: row.gate_verdict ? { verdict: row.gate_verdict } : null,
   };
 }
 
 // Run headers, newest first, filtered. `q` matches the id, a task name or a client name.
-export function queryRuns({ q = null, task = null, client = null, mode = null, since = null, seed = null, limit = 100 } = {}) {
+export function queryRuns({ q = null, task = null, client = null, mode = null, since = null, seed = null, parent = null, limit = 100 } = {}) {
   const d = openStore();
   const where = [];
   const params = [];
@@ -193,6 +196,7 @@ export function queryRuns({ q = null, task = null, client = null, mode = null, s
   if (mode) { where.push("modes like ?"); params.push(`%"${mode}"%`); }
   if (since) { where.push("created_at >= ?"); params.push(since); }
   if (seed !== null && seed !== undefined && seed !== "") { where.push("instance_seed = ?"); params.push(Number(seed)); }
+  if (parent) { where.push("parent_run = ?"); params.push(String(parent)); }
   const sql = `select * from runs ${where.length ? "where " + where.join(" and ") : ""} order by created_at desc limit ?`;
   return d.prepare(sql).all(...params, Math.max(1, Math.min(1000, Number(limit) || 100))).map(headerOf);
 }
@@ -231,7 +235,7 @@ export function rawQuery(sql) {
 // Compaction keeps every run file and every scalar (so the index and the tables stay complete) but
 // strips the bulky text from old trials: prompts, the final message, tool-result contents. A dry run
 // reports what it would do; `apply` rewrites the files and re-indexes them.
-const BULKY = ["system", "prompt", "answerText"];
+const BULKY = ["system", "prompt", "answerText", "transcript"];
 
 export function compactRuns({ olderThanDays, apply = false, now = Date.now() } = {}) {
   const days = Number(olderThanDays);
@@ -250,6 +254,7 @@ export function compactRuns({ olderThanDays, apply = false, now = Date.now() } =
       const row = { ...r };
       for (const k of BULKY) if (k in row) row[k] = null;
       row.toolResults = (r.toolResults ?? []).map((t) => ({ ...t, content: null }));
+      if (Array.isArray(r.turns)) row.turns = r.turns.map((t) => ({ ...t, text: null }));
       return row;
     }) };
     const body = JSON.stringify(stripped);

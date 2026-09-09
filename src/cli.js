@@ -16,10 +16,10 @@ import { dirname, join } from "node:path";
 import { listTasks } from "./tasks/registry.js";
 import { PROVIDERS, hasCredentials, labelModel, probeLocalModels } from "./providers/index.js";
 import { parseArgs } from "./args.js";
-import { listRuns, loadRun } from "./results.js";
+import { listRuns, loadRun, saveRun } from "./results.js";
 import { summarize } from "./runner.js";
 import { printSummary, summaryTable } from "./report.js";
-import { rowsToCsv, cellsToCsv } from "./export.js";
+import { rowsToCsv, cellsToCsv, traceEvents, traceJsonl } from "./export.js";
 import { writeFileSync } from "node:fs";
 
 const SRC = dirname(fileURLToPath(import.meta.url));
@@ -55,13 +55,28 @@ async function main() {
       const id = args._[0];
       if (!id) {
         for (const r of listRuns({ limit: 20 })) {
-          console.log(`${r.id}  ${r.status.padEnd(9)} ${r.source.padEnd(9)} ${r.config.clients.join(",").padEnd(30)} ${r.config.tasks.join(",")} × ${r.config.modes.join(",")} × ${r.config.count}  (${r.rowCount} rows)`);
+          console.log(`${r.id}  ${r.status.padEnd(9)} ${r.source.padEnd(9)} ${r.config.clients.join(",").padEnd(30)} ${r.config.tasks.join(",")} × ${r.config.modes.join(",")} × ${r.config.count}  (${r.rowCount} rows)${r.parent ? `  replay of ${r.parent.id}` : ""}${r.gates ? `  gates: ${r.gates.verdict}` : ""}`);
         }
         break;
       }
       const run = loadRun(id);
       if (!run) { console.error(`unknown run: ${id}`); process.exit(1); }
-      console.log(`run ${run.id} · ${run.source} · ${run.status} · ${run.config.clients.join(", ")} · ${run.rows.length} rows`);
+      // One trial as a timeline, or every row numbered so a trial can be picked.
+      if (args.rows || args.trial) {
+        const { trialTimeline } = await import("./report.js");
+        if (args.trial) {
+          const r = run.rows[args.trial - 1];
+          if (!r) { console.error(`run ${id} has ${run.rows.length} rows; --trial takes 1..${run.rows.length}`); process.exit(1); }
+          console.log(trialTimeline(r));
+        } else {
+          run.rows.forEach((r, i) => console.log(`${String(i + 1).padStart(4)}  ${r.error ? "err " : r.correct ? "pass" : "fail"}  ${String(r.task).padEnd(12)} ${String(r.mode).padEnd(10)} ${String(r.client).padEnd(36)} #${String(r.index).padEnd(3)} ${r.error ?? r.reason ?? ""}`));
+        }
+        break;
+      }
+      const lineage = run.parent ? ` · replay of ${run.parent.id}` : "";
+      const rescored = run.rescored?.length ? ` · re-scored ${String(run.rescored.at(-1).at).slice(0, 10)}` : "";
+      const gated = run.gates ? ` · gates ${run.gates.verdict}` : "";
+      console.log(`run ${run.id} · ${run.source} · ${run.status} · ${run.config.clients.join(", ")} · ${run.rows.length} rows${lineage}${rescored}${gated}`);
       for (const w of run.warnings ?? []) console.log(`warning: ${w}`);
       console.log("");
       // Summaries are recomputed from the rows, so a run saved before a scorer's *reporting* changed
@@ -95,7 +110,7 @@ async function main() {
       if (args.sql) { table(rawQuery(args.sql)); break; }
       if (what === "runs") {
         for (const r of queryRuns({ q: args.q, task: args.task, client: args.client, mode: args.mode, since: args.since, limit: args.limit })) {
-          console.log(`${r.id}  ${String(r.status).padEnd(9)} ${String(r.source).padEnd(9)} ${r.config.clients.join(",").padEnd(30)} ${r.config.tasks.join(",")} × ${r.config.modes.join(",")} × ${r.config.count}  (${r.rowCount} rows)${r.compacted ? "  compacted" : ""}`);
+          console.log(`${r.id}  ${String(r.status).padEnd(9)} ${String(r.source).padEnd(9)} ${r.config.clients.join(",").padEnd(30)} ${r.config.tasks.join(",")} × ${r.config.modes.join(",")} × ${r.config.count}  (${r.rowCount} rows)${r.compacted ? "  compacted" : ""}${r.gates ? `  gates: ${r.gates.verdict}` : ""}`);
         }
       } else if (what === "trend") {
         if (!args.task || !args.client) { console.error("usage: query trend --task <name> --client <provider:model> [--mode harness]"); process.exit(1); }
@@ -286,6 +301,64 @@ async function main() {
       break;
     }
 
+    // Replay: the same tasks, modes, models, instances and knobs as a saved run, as a new run
+    // parented to it (any of them overridable), then the paired comparison against the parent.
+    case "replay": {
+      const id = rest[0];
+      if (!id || id.startsWith("--")) { console.error("usage: node src/cli.js replay <run-id> [--clients c1,c2] [--task t1,t2] [--modes m1,m2] [--count N] [--parallel N] [--judge …] [--no-save] [--json]"); process.exit(1); }
+      await runScript(join(SRC, "bench.js"), ["--replay", id, ...rest.slice(1)]);
+      break;
+    }
+
+    // Re-score: today's scorers over a saved run's rows, no model. A dry run prints what would
+    // change; --yes writes the new verdicts into the run file (the recorded answers stay).
+    case "rescore": {
+      const args = parseArgs(rest);
+      const { rescoreRun, describeRescore } = await import("./rescore.js");
+      const { resolveJudge } = await import("./bench.js");
+      const ids = args.all ? listRuns({ limit: 100000 }).map((r) => r.id) : args._;
+      if (!ids.length) { console.error("usage: node src/cli.js rescore <run-id> [<run-id>…] | --all   [--judge provider:model] [--yes]"); process.exit(1); }
+      let judge = null;
+      try { judge = resolveJudge(args.judge); } catch (err) { console.error(err.message); process.exit(1); }
+      const totals = { runs: 0, scored: 0, flips: 0, changed: 0, skipped: 0 };
+      for (const id of ids) {
+        const run = loadRun(id);
+        if (!run) { console.error(`unknown run: ${id}`); if (!args.all) process.exit(1); continue; }
+        const r = await rescoreRun(run, { judge });
+        totals.runs++; totals.scored += r.scored; totals.flips += r.flips.length; totals.changed += r.changed; totals.skipped += r.skipped.length;
+        console.log(describeRescore(r, { verbose: !args.all || r.flips.length > 0 }));
+        if (args.yes && r.scored) { saveRun(r.run); console.log(`  written: ${id} now carries today's verdicts (${r.flips.length} flipped)`); }
+      }
+      if (ids.length > 1) console.log(`\n${totals.runs} run(s): ${totals.scored} rows scored, ${totals.flips} flipped, ${totals.changed} with another verdict changed, ${totals.skipped} skipped`);
+      if (!args.yes) console.log("dry run — add --yes to write the new verdicts into the run file(s)");
+      break;
+    }
+
+    // Gates over a saved run: thresholds with an exit code, no model needed. The verdict is written
+    // on the run (--no-save to skip) so the history and the headline show it.
+    case "gate": {
+      const args = parseArgs(rest);
+      const id = args._[0];
+      if (!id || !(args.gate?.length || args.gates)) {
+        console.error("usage: node src/cli.js gate <run-id> --gate <spec>… | --gates <file> [--client <c>] [--min-trials N] [--strict] [--json] [--no-save]\n  spec: <capability|task|family:level|break:family|overall>[@mode] >= <percent>   |   errors <= N   |   regressions <= N");
+        process.exit(1);
+      }
+      const run = loadRun(id);
+      if (!run) { console.error(`unknown run: ${id}`); process.exit(1); }
+      const { gatesFromArgs, gateNames, gateRun, describeRunGates } = await import("./gates.js");
+      const { tasks } = await import("./tasks/registry.js");
+      let spec;
+      try { spec = gatesFromArgs(args, gateNames(tasks), { fallbackMinTrials: run.config?.count ?? 1 }); } catch (err) { console.error(err.message); process.exit(1); }
+      const capabilitiesOf = Object.fromEntries(tasks.map((t) => [t.name, t.capabilities ?? []]));
+      const levelsOf = Object.fromEntries(tasks.filter((t) => t.family).map((t) => [t.name, { family: t.family, level: t.level }]));
+      run.gates = await gateRun(run, { ...spec, clients: args.client ? [args.client] : null, capabilitiesOf, levelsOf });
+      if (!args.noSave) saveRun(run);
+      if (args.json) console.log(JSON.stringify(run.gates, null, 2));
+      else console.log(describeRunGates(run.gates));
+      process.exitCode = run.gates.exitCode;
+      break;
+    }
+
     case "compact": {
       const args = parseArgs(rest);
       const { compactRuns } = await import("./store.js");
@@ -302,7 +375,17 @@ async function main() {
       if (!id) { console.error("usage: node src/cli.js export <run-id> [--cells] [--out file.csv]"); process.exit(1); }
       const run = loadRun(id);
       if (!run) { console.error(`unknown run: ${id}`); process.exit(1); }
-      const body = args.cells ? cellsToCsv(run.id, summarize(run.rows)) : rowsToCsv(run);
+      let body;
+      if (args.jsonl || args.trial) {
+        // One trial (or every trial, numbered) as an event log — the transcript protocol.
+        if (args.trial) {
+          const r = run.rows[args.trial - 1];
+          if (!r) { console.error(`run ${id} has ${run.rows.length} rows; --trial takes 1..${run.rows.length}`); process.exit(1); }
+          body = args.jsonl ? traceJsonl(r) : rowsToCsv({ id: run.id, rows: [r] });
+        } else {
+          body = run.rows.flatMap((r, i) => traceEvents(r).map((e) => JSON.stringify({ trial: i + 1, ...e }))).join("\n") + "\n";
+        }
+      } else body = args.cells ? cellsToCsv(run.id, summarize(run.rows)) : rowsToCsv(run);
       if (args.out) { writeFileSync(args.out, body); console.log(`wrote ${args.out}`); }
       else process.stdout.write(body);
       break;
@@ -332,7 +415,13 @@ async function main() {
       console.log("Usage:");
       console.log("  node src/cli.js list");
       console.log("  node src/cli.js show [<run-id>] [--table]");
+      console.log("  node src/cli.js show <run-id> --rows | --trial <n>       # the rows numbered, or one trial as a timeline");
       console.log("  node src/cli.js export <run-id> [--cells] [--out file.csv]");
+      console.log("  node src/cli.js export <run-id> --jsonl [--trial <n>]   # a trial (or every trial) as an event log");
+      console.log("  node src/cli.js replay <run-id> [--clients …]          # the same instances again, as a new run parented to this one, with the paired comparison");
+      console.log("  node src/cli.js rescore <run-id> | --all [--yes]       # today's scorers over saved rows; --yes writes the verdicts back");
+      console.log("  node src/cli.js gate <run-id> --gate <spec>… | --gates <file>   # thresholds over a saved run, exit 0 pass / 1 fail / 2 incomplete");
+      console.log("  node src/cli.js suite nightly --clients …             # the standard suite, time-boxed and gated by gates/nightly.json (bench: --gate, --gates, --time-box)");
       console.log("  node src/cli.js index [--full]                        # rebuild the SQLite index over results/runs");
       console.log("  node src/cli.js query runs|trend|cell|worst [...]    # cross-run questions (or --sql)");
       console.log("  node src/cli.js compact --older-than <days> [--yes]  # strip prompts/transcripts from old runs");

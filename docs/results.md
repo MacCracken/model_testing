@@ -931,3 +931,83 @@ gpt-5.4-mini at six follow hops (its off-by-one, which Codex's loop removes: 6/6
 level). gpt-5.4-mini on 30 items is 0/3, but three trials cannot push a band under 50 %, so it is
 not a break yet — the rule is conservative by construction. Inline long-context reading has no
 formal break for the same reason; the drop with size is visible in the points.
+
+## Replay and re-score (2026-09-09)
+
+Two replays (`node src/cli.js replay <run>`), each a new run parented to the original and paired
+with it trial by trial (same task, trial index and client; for generated tasks the same seed):
+
+| Parent | Replay | Cells | Paired | Parent | Replay | Up | Down | McNemar |
+|---|---|---|---|---|---|---|---|---|
+| 20260907T092009-836c | 20260909T074626-179a | health, reason, regex × noHarness, harness × gpt-4o-mini × 4 | 24 | 79.2 % | 83.3 % | 1 | 0 | p = 1.00, band +0 to +13 pp |
+| 20260908T035855-c46b (seed 2026) | 20260909T074641-4e21 | wordmath4, tally60 × harness × gpt-4o-mini, claude-haiku-4-5 × 4 | 16 | 93.8 % | 93.8 % | 0 | 0 | p = 1.00, band +0 to +0 pp |
+
+Per task, same model: health 88 % → 100 % (one pair up), reason 50 % → 50 % (the same four
+free-form trials fail both days), regex 100 % → 100 %. Seeded instances, two models: wordmath4
+88 % → 88 % with the same instance failing on both sides with the same wrong answer (gpt-4o-mini,
+instance #4, 175 for 189), tally60 100 % → 100 %.
+
+Re-scoring every saved run with today's scorers (`node src/cli.js rescore --all`, dry run):
+
+| Runs | Rows scored | Skipped | Correctness flips | Rows with another verdict moved |
+|---|---|---|---|---|
+| 70 | 3966 | 78 (error rows, `explain` without a judge) | 4 | 719 |
+
+| What moved | Rows | Where | Why |
+|---|---|---|---|
+| correct fail → pass | 4 | `regex`, `local:ornith-1.5:9b`, two runs of 2026-09-03 | the audit's positional reader and `results` unwrapping |
+| toolUseOk true → false | 21 | `follow3` / `follow6`, 2026-09-08 morning | the hop check now requires the landing item to be fetched |
+| toolUseOk → null | 4 | arm rows (Claude Code, Thoth), 2026-09-03/04 | arms bring their own tools; the verdict stays null for them |
+| toolUseOk filled in | ~185 | runs up to 2026-09-03 | the tool-use verdict did not exist yet |
+| canon filled in | 634 | `health`, `regex`, `reason` runs up to 2026-09-06 | the agreement measure did not exist yet |
+| reason reworded | 7 | `health` free-form | "reported DOWN" now reads "hedged" |
+
+## Gates (2026-09-09)
+
+The nightly suite on gpt-4o-mini (`node src/cli.js suite nightly --clients openai:gpt-4o-mini
+--instance-seed 2026 --judge openai:gpt-4o-mini`, run `20260909T154825-4cd7`): every task, both
+headline modes, four trials per cell — 232 trials in 3.0 minutes at six in parallel, 3.0 M tokens,
+no error rows; harness delta 38.8 % → 77.6 % (p < 0.001). Gates from `gates/nightly.json`
+(harness mode, `minTrials` 4); the band is the 95 % Wilson interval a verdict is read from.
+
+| Gate | Observed | Band | Verdict |
+|---|---|---|---|
+| overall ≥ 70 % | 90/116 = 77.6 % | 69.2–84.2 % | pass |
+| tool-use ≥ 80 % | 47/60 = 78.3 % | 66.4–86.9 % | inconclusive |
+| multi-step ≥ 60 % | 23/40 = 57.5 % | 42.2–71.5 % | inconclusive |
+| arithmetic ≥ 75 % | 16/24 = 66.7 % | 46.7–82.0 % | inconclusive |
+| deduction ≥ 60 % | 8/12 = 66.7 % | 39.1–86.2 % | pass |
+| extraction ≥ 70 % | 12/12 = 100 % | 75.8–100 % | pass |
+| long-context ≥ 75 % | 12/12 = 100 % | 75.8–100 % | pass |
+| planning ≥ 50 % | 5/16 = 31.3 % | 14.2–55.6 % | inconclusive |
+| irrelevance-detection ≥ 75 % | 4/4 = 100 % | 51.0–100 % | pass |
+| restock:6 ≥ 50 % | 2/4 = 50 % | 15.0–85.0 % | pass |
+| break:restock ≥ 12 | breaks at 12 (3: 3/4, 6: 2/4, 12: 0/4, 30: 0/4) | | pass |
+| errors ≤ 0 | 0 of 232 | | pass |
+| regressions ≤ 0 | 0 flags over 34 comparisons | | pass |
+
+Verdict: **inconclusive, exit 0** (nine pass, none fail, four inconclusive). Four trials per cell
+cannot refute a bar a few points above the observed rate; `--strict` fails such a run, and the
+`full` suite's eight trials per cell narrow the bands enough to settle most of these.
+
+A saved run gated without a model (`node src/cli.js gate 20260908T035855-c46b --client
+openai:gpt-4o-mini --min-trials 4 …`, the seed-2026 reasoning families):
+
+| Gate | Observed | Verdict |
+|---|---|---|
+| arithmetic ≥ 90 % | 17/20 = 85 % (64.0–94.8 %) | inconclusive |
+| deduction ≥ 75 % | 2/8 = 25 % (7.1–59.1 %) | fail |
+| counting ≥ 90 % | 8/8 = 100 % | pass |
+| calendar ≥ 90 % | 6/8 = 75 % (40.9–92.9 %) | inconclusive |
+| wordmath:6 ≥ 50 % | 4/4 = 100 % | pass |
+| break:wordmath ≥ 6 | no breaking point (2: 4/4, 4: 3/4, 6: 4/4) | pass |
+| overall@noHarness ≥ 60 % | 26/36 = 72.2 % (56.0–84.2 %) | pass |
+| errors ≤ 0 | 0 of 136 | pass |
+| regressions ≤ 0 | 0 flags over 25 comparisons | pass |
+
+Verdict: **fail, exit 1** (the deduction band tops out under 75 %).
+
+A time box of 15 seconds over four restock6 trials (`--time-box 0.25`): one trial completed, two
+were cancelled in flight, one never started; the run is saved as `timeout`, and with the gate floor
+at the run's four trials per cell `restock:6 ≥ 50 %` is incomplete — exit 2, not a pass on the one
+trial that finished.

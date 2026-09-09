@@ -22,6 +22,7 @@ const MSGS = {
 };
 const TOKENS_PER_LINE = 42; // calibrated live: ~41 tokens a line on OpenAI's tokenizer, ~47 on Anthropic's (hex ids and timestamps tokenize badly)
 const DEPTHS = [0.1, 0.5, 0.9];
+const KINDS = ["single", "multi", "agg"];
 
 const hex = (d, n) => Array.from({ length: n }, () => "0123456789abcdef"[d.int(0, 15)]).join("");
 const pad = (n) => String(n).padStart(2, "0");
@@ -43,7 +44,7 @@ export function generate(seed, tokens, { kind: kindIndex = null } = {}) {
     seen.add(req);
     rows.push({ ts: `${dt.getUTCFullYear()}-${pad(dt.getUTCMonth() + 1)}-${pad(dt.getUTCDate())}T${pad(dt.getUTCHours())}:${pad(dt.getUTCMinutes())}:${pad(dt.getUTCSeconds())}Z`, host: `host-${d.int(1, 40)}`, svc: d.pick(SERVICES), level, req, latency: d.int(5, 900), bytes: d.int(100, 50000), msg: d.pick(MSGS[level]) });
   }
-  const kind = ["single", "multi", "agg"][(kindIndex ?? seed) % 3];
+  const kind = KINDS[(kindIndex ?? seed) % 3];
   let question, answer, key, depth = null;
   if (kind === "single") {
     depth = DEPTHS[d.int(0, 2)];
@@ -72,6 +73,15 @@ export function generate(seed, tokens, { kind: kindIndex = null } = {}) {
   const lines = rows.map((r) => `${r.ts} ${r.host} svc=${r.svc} level=${r.level} req=${r.req} latency=${r.latency}ms bytes=${r.bytes} msg="${r.msg}"`);
   const text = lines.join("\n");
   return { seed, tokens, kind, depth, lines: n, question, answer, key, text, approxTokens: n * TOKENS_PER_LINE };
+}
+
+// The instance a saved row ran against, minted again from what the row's ctx keeps (seed, tokens,
+// kind): the row records no log text, and this is how a replay or a re-score gets it back. The log
+// id is the webserver's for that trial and is not part of the instance.
+export function remint({ seed, tokens, kind }) {
+  const k = KINDS.indexOf(kind);
+  if (k < 0) throw new Error(`needle: unknown question kind "${kind}"`);
+  return generate(seed, tokens, { kind: k });
 }
 
 const tools = [
@@ -135,6 +145,11 @@ function makeNeedle(tokens, label) {
       const { id } = await res.json();
       return { ...g, log: id };
     },
+
+    // The row records the context without the log itself: what scoring reads (kind, answer, depth,
+    // key), the question, the log id and the seed stay, and `remint` mints the log again from the
+    // seed. With the log, 36 needle100k rows made a 15 MB run file, 14.9 MB of it this one field.
+    recordCtx: ({ text: _text, ...rest }) => rest,
 
     goal: (ctx) => `A webserver runs at ${BASE}. It holds a server log (id ${ctx.log}, ${ctx.lines} lines; fields per line: timestamp, host, svc, level, req, latency, bytes, msg). GET /api/logs/${ctx.log}?grep=<regex>&limit=<n> returns matching lines with line numbers and the total count; GET /api/logs/${ctx.log}/count?grep=<regex> returns just the count. Question: ${ctx.question} Answer with ${fmt(ctx)}.`,
 

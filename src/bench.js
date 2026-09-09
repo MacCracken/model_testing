@@ -15,12 +15,13 @@ import "./store.js";
 import { lineageOf } from "./lineage.js";
 import { getTask, tasks as allTasks } from "./tasks/registry.js";
 import { resolveClients } from "./providers/index.js";
-import { runMatrix, planMatrix, isStructuredMode, describeSignificance, MODE_NAMES, DEFAULT_MODES } from "./runner.js";
-import { newRunId, saveRun } from "./results.js";
+import { runMatrix, planMatrix, isStructuredMode, describeSignificance, compareRows, describePaired, MODE_NAMES, DEFAULT_MODES } from "./runner.js";
+import { newRunId, saveRun, loadRun } from "./results.js";
 import { parseArgs } from "./args.js";
 import { benchVersions } from "./version.js";
 import { makeJudge } from "./judge.js";
 import { envValue } from "./util.js";
+import { gatesFromArgs, gateNames, gateRun, describeRunGates } from "./gates.js";
 
 // The judge model for open-ended tasks: --judge provider:model, else BENCH_JUDGE, else none.
 export function resolveJudge(spec) {
@@ -84,8 +85,48 @@ export function describeSkipped(skipped) {
     : `${s.task}/${s.mode} skipped: the task declares no ${s.mode} spec`));
 }
 
+// A replay takes the saved run's tasks, modes, clients, count, parallelism, instance seed and
+// judge wherever the command line leaves them unsaid, and its model knobs under any given now:
+// the same instances against the same or another model, as a new run parented to the original.
+export function replayArgs(run, args = {}) {
+  const c = run.config ?? {};
+  const out = { replayParams: c.modelParams ?? {} };
+  if (args.task === undefined && c.tasks?.length) out.task = c.tasks.join(",");
+  if (args.mode === undefined && c.modes?.length) out.mode = c.modes.join(",");
+  if (args.clients === undefined && c.clients?.length) out.clients = c.clients.join(",");
+  if (args.count === undefined && Number.isInteger(c.count)) out.count = c.count;
+  if (args.parallel === undefined && Number.isInteger(c.parallel)) out.parallel = c.parallel;
+  if (args.instanceSeed === undefined && Number.isInteger(c.instanceSeed)) out.instanceSeed = c.instanceSeed;
+  if (args.judge === undefined && c.judge) out.judge = c.judge;
+  return out;
+}
+
+// The paired reading of a replay against its parent: the same instances, so McNemar applies.
+export function describeReplay(parent, run) {
+  const c = compareRows(parent.rows ?? [], run.rows ?? []);
+  const L = [`replay of ${parent.id}: ${c.pairs} paired trial(s) (${c.unpairedA} parent-only, ${c.unpairedB} replay-only)`];
+  if (!c.pairs) {
+    L.push("nothing pairs — a pair needs the same task and trial index, and the same client when both runs share models; narrow with --clients, --task or --modes");
+    return L.join("\n");
+  }
+  L.push(`${"task".padEnd(12)} ${"parent".padEnd(7)} ${"replay".padEnd(7)} both  parent-only  replay-only  neither  McNemar`);
+  for (const [task, d] of Object.entries(c.byTask)) {
+    L.push(`${task.padEnd(12)} ${(d.aPct.toFixed(0) + "%").padEnd(7)} ${(d.bPct.toFixed(0) + "%").padEnd(7)} ${String(d.both).padStart(4)}  ${String(d.onlyBase).padStart(11)}  ${String(d.onlyTreat).padStart(11)}  ${String(d.neither).padStart(7)}  p=${d.pValue.toFixed(3)}${d.significant ? " *" : ""}`);
+  }
+  if (c.overall) L.push(`overall: parent ${c.overall.aPct.toFixed(1)}% → replay ${c.overall.bPct.toFixed(1)}% · ${describePaired(c.overall)}`);
+  return L.join("\n");
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
+
+  // --replay <run>: the saved run's configuration, each part overridable, and the new run parented to it.
+  let parentRun = null;
+  if (args.replay) {
+    parentRun = loadRun(args.replay);
+    if (!parentRun) fail(`unknown run: ${args.replay}`);
+    Object.assign(args, replayArgs(parentRun, args));
+  }
 
   let taskList, modeList;
   try {
@@ -99,7 +140,7 @@ async function main() {
   const parallel = Math.max(1, Math.floor(args.parallel ?? 1) || 1);
 
   // --clients takes precedence over --provider/--model.
-  const modelParams = modelParamsFrom(args);
+  const modelParams = { ...(args.replayParams ?? {}), ...modelParamsFrom(args) };
   const clients = args.clients
     ? resolveClients(args.clients, { modelParams })
     : resolveClients([{ provider: args.provider ?? "openai", model: args.model ?? "gpt-4o-mini" }], { modelParams });
@@ -109,6 +150,22 @@ async function main() {
 
   let judge = null;
   try { judge = resolveJudge(args.judge); } catch (err) { fail(err.message); }
+
+  // Gates (--gate <spec>, --gates <file>) are read before the run so a bad spec fails fast, and
+  // evaluated once the run is saved — with an exit code, so a checkpoint can fail CI.
+  let gateSpec = null;
+  if (args.gate?.length || args.gates) {
+    try { gateSpec = gatesFromArgs(args, gateNames(allTasks), { fallbackMinTrials: count }); } catch (err) { fail(err.message); }
+  }
+  const capabilitiesOfAll = Object.fromEntries(allTasks.map((t) => [t.name, t.capabilities ?? []]));
+  const levelsOfAll = Object.fromEntries(allTasks.filter((t) => t.family).map((t) => [t.name, { family: t.family, level: t.level }]));
+
+  // A time box (--time-box <minutes>): when it is up, no more trials start, the ones in flight are
+  // cancelled, and what completed is saved (status "timeout") and gated like any run.
+  const controller = new AbortController();
+  const timeBoxMs = Number.isFinite(args.timeBox) && args.timeBox > 0 ? Math.round(args.timeBox * 60_000) : null;
+  let timeBoxHit = false;
+  const timer = timeBoxMs ? setTimeout(() => { timeBoxHit = true; controller.abort(); }, timeBoxMs) : null;
 
   const quiet = !!args.json;
   const plan = planMatrix({ tasks: taskList, modes: modeList, clients, count });
@@ -125,6 +182,7 @@ async function main() {
     parallel,
     instanceSeed: Number.isInteger(args.instanceSeed) ? args.instanceSeed : null,
     judge,
+    signal: controller.signal,
     onEvent: quiet ? undefined : (ev) => {
       if (ev.type !== "trial") return;
       const r = ev.result;
@@ -137,12 +195,15 @@ async function main() {
     },
   });
 
+  if (timer) clearTimeout(timer);
+  const completed = rows.filter((r) => !(r.error && r.reason === "cancelled")).length;
   const run = {
     id: newRunId(),
     createdAt: rows[0]?.startedAt ?? new Date().toISOString(),
     finishedAt: new Date().toISOString(),
-    status: "done",
+    status: timeBoxHit ? "timeout" : "done",
     source: "cli",
+    parent: parentRun ? { id: parentRun.id, kind: "replay" } : null,
     config: {
       tasks: taskList.map((t) => t.name),
       modes: modeList,
@@ -153,16 +214,24 @@ async function main() {
       modelParams,
       judge: judge?.name ?? null,
       suite: process.env.BENCH_SUITE ?? null,
+      timeBoxMs,
       lineage: lineageOf(clients.map((c) => c.name)),
     },
     versions: benchVersions(),
-    warnings: describeSkipped(skipped),
+    warnings: [...describeSkipped(skipped), ...(timeBoxHit ? [`time box of ${args.timeBox} min reached: ${completed} of ${plan.total} trials completed`] : [])],
     progress: { completed: rows.length, total: rows.length },
     summary,
     rows,
   };
 
   if (!args.noSave) saveRun(run);
+
+  // Gates read the saved run (the regressions gate needs it in the index) and set the exit code.
+  if (gateSpec) {
+    run.gates = await gateRun(run, { ...gateSpec, capabilitiesOf: capabilitiesOfAll, levelsOf: levelsOfAll });
+    if (!args.noSave) saveRun(run);
+    process.exitCode = run.gates.exitCode;
+  }
 
   if (args.json) {
     console.log(JSON.stringify(run, null, 2));
@@ -180,6 +249,9 @@ async function main() {
     console.log(`\nharness delta: ${d.noHarnessPct.toFixed(1)}% -> ${d.harnessPct.toFixed(1)}% (${d.deltaPp >= 0 ? "+" : ""}${d.deltaPp.toFixed(1)}pp)  [${describeSignificance(d)}]`);
   }
   if (!args.noSave) console.log(`\nsaved: results/runs/${run.id}.json`);
+  if (timeBoxHit) console.log(`\ntime box: ${args.timeBox} min reached — ${completed} of ${plan.total} trials completed; the run is saved as "timeout"`);
+  if (parentRun) console.log(`\n${describeReplay(parentRun, run)}`);
+  if (run.gates) console.log(`\n${describeRunGates(run.gates)}`);
 }
 
 function preview(value, max = 200) {

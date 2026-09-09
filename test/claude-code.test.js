@@ -32,7 +32,9 @@ test("parseTranscript folds a Claude Code JSON transcript into calls, results, t
   assert.match(t.toolResults[1].content, /Hello, alice!/);
   assert.deepEqual(t.usage, { prompt_tokens: 6042, completion_tokens: 424, total_tokens: 6466 });
   assert.equal(t.costUsd, 0.008);
-  assert.equal(t.turns, 3);
+  assert.equal(t.numTurns, 3);
+  // The arm's turns: two tool-calling messages, then the answer — the order the drawer shows.
+  assert.deepEqual(t.turns.map((x) => [x.round, x.calls, x.text.length > 0]), [[1, ["toolu_1"], false], [2, ["toolu_2"], false], [3, [], true]]);
   assert.match(t.text, /alice/);
 });
 
@@ -79,6 +81,11 @@ test("a claude-code arm trial runs end to end through a stub binary and scores l
   assert.deepEqual(row.ground[0], { name: "alice", ids: [ID] });
   assert.match(row.reason, /1\/3 ids match|never looked up bob, carol/);
   assert.equal(row.usage.total_tokens, 6466);
+  // The row keeps the arm's turns and its raw transcript, so it can be re-read or re-parsed later.
+  assert.deepEqual(row.turns.map((t) => t.calls.length), [1, 1, 0]);
+  assert.equal(row.transcript.format, "claude-code/stream-json");
+  assert.ok(row.transcript.text.includes("\"type\":\"result\""));
+  assert.equal(row.transcript.chars, row.transcript.text.length);
 });
 
 test("synthesizeToolResults merges the server's own log with output-recovered greetings, by id", () => {

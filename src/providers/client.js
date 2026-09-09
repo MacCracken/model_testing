@@ -221,12 +221,17 @@ export class Client {
         let rounds = 0;
         let ttftMs = null;
         let ttfaMs = null;
+        // One entry per model turn — what it said, which calls it made, and when — since the
+        // messages array itself is not returned: the row's transcript of the loop.
+        const turns = [];
+        const t0 = performance.now();
 
         while (rounds < maxRounds) {
             rounds += 1;
             const resp = await this.chat(messages, tools, { signal });
             usage = addUsage(usage, resp.usage);
             if (rounds === 1) { ttftMs = resp.ttftMs ?? null; ttfaMs = resp.ttfaMs ?? null; }
+            turns.push({ round: rounds, ms: Math.round(performance.now() - t0), text: resp.text ?? "", calls: resp.toolCalls.map((tc) => tc.id), finishReason: resp.finishReason ?? null, usage: resp.usage ?? null });
 
             // No tool calls: this is the model's answer.
             if (!resp.toolCalls.length) {
@@ -236,6 +241,7 @@ export class Client {
                     toolCalls: allCalls,
                     toolResults: allResults,
                     rounds,
+                    turns,
                     finishReason: resp.finishReason,
                     usage,
                     ttftMs,
@@ -286,6 +292,7 @@ export class Client {
             { signal },
         );
         usage = addUsage(usage, finalResp.usage);
+        turns.push({ round: rounds + 1, ms: Math.round(performance.now() - t0), text: finalResp.text ?? "", calls: [], finishReason: "max_rounds", usage: finalResp.usage ?? null, forced: true });
 
         return {
             text: finalResp.text ?? "",
@@ -293,6 +300,7 @@ export class Client {
             toolCalls: allCalls,
             toolResults: allResults,
             rounds,
+            turns,
             finishReason: "max_rounds",
             usage,
             ttftMs,

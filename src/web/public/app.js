@@ -148,6 +148,7 @@ function wire() {
   $("#history").addEventListener("change", (e) => { if (e.target.value) openRun(e.target.value); });
   $("#history-filter").addEventListener("input", () => { clearTimeout(historyTimer); historyTimer = setTimeout(() => refreshHistory().catch(() => {}), 200); });
   $("#delete-run").addEventListener("click", removeRun);
+  $("#replay-run").addEventListener("click", replayRun);
   $("#detail-close").addEventListener("click", closeDetail);
   $("#detail-prev").addEventListener("click", () => stepDetail(-1));
   $("#detail-next").addEventListener("click", () => stepDetail(1));
@@ -576,6 +577,20 @@ async function openRun(id) {
   stream.onerror = () => { stream.close(); setBusy(false); };
 }
 
+// Replay: the same tasks, modes, models, instances and knobs as the open run, as a new run
+// parented to it — the server fills the launch from the parent's config.
+async function replayRun() {
+  if (!state.run || state.run.status === "running") return;
+  showLaunchError("");
+  try {
+    const { run } = await postJSON("/api/runs", { replayOf: state.run.id });
+    setBusy(true);
+    openRun(run.id);
+  } catch (err) {
+    showLaunchError(err.message);
+  }
+}
+
 async function removeRun() {
   if (!state.run || state.run.status === "running") return;
   if (!confirm(`Delete run ${state.run.id}? This cannot be undone.`)) return;
@@ -601,7 +616,7 @@ async function refreshHistory() {
     const when = new Date(r.createdAt).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
     const tasks = r.config?.tasks ?? [];
     const clients = r.config?.clients ?? [];
-    const label = `${when} · ${tasks.join(" ") || "?"} · ${plural(clients.length, "model")} · ${plural(r.rowCount ?? 0, "trial")}${r.status === "done" ? "" : ` · ${r.status ?? "?"}`}`;
+    const label = `${when} · ${tasks.join(" ") || "?"} · ${plural(clients.length, "model")} · ${plural(r.rowCount ?? 0, "trial")}${r.status === "done" ? "" : ` · ${r.status ?? "?"}`}${r.parent ? ` · replay of ${r.parent.id}` : ""}`;
     sel.append(el("option", { value: r.id }, label));
   }
   if (current) sel.value = current;
@@ -615,6 +630,7 @@ function renderReport() {
   $("#empty").hidden = true;
   $("#report").hidden = false;
   $("#delete-run").hidden = run.status === "running";
+  $("#replay-run").hidden = run.status === "running";
   const csv = $("#export-csv");
   csv.hidden = run.status === "running";
   csv.href = `/api/runs/${run.id}/csv`;
@@ -649,6 +665,8 @@ function renderHeadline(s) {
     ...Object.entries(run.config?.modelParams ?? {}).map(([k, v]) => `${k} ${v}`),
     (run.config?.parallel ?? 1) > 1 ? `${run.config.parallel} in parallel` : "",
     run.config?.instanceSeed !== undefined && run.config?.instanceSeed !== null ? `instances #${run.config.instanceSeed}` : "",
+    run.parent ? `replay of ${run.parent.id}` : "",
+    run.rescored?.length ? `re-scored ${String(run.rescored.at(-1).at).slice(0, 10)}` : "",
   ].filter(Boolean).join(" · ");
   const progress = (run.status === "running" ? `${done} of ${total} trials · running` : `${plural(done, "trial")} · ${run.status}`) + (knobs ? ` · ${knobs}` : "");
 
@@ -664,6 +682,15 @@ function renderHeadline(s) {
     if (d.paired) col.append(el("div", { className: `sig${d.paired.significant ? " yes" : ""}`, title: "the same instances in both modes, compared pairwise: McNemar's exact test on the discordant pairs, and a bootstrap band on the delta" }, describePaired(d.paired)));
     if (!d.significant) { const pw = describePower(d); if (pw) col.append(el("div", { className: "sub", title: "unpaired two-proportion power calculation at α = 0.05" }, pw)); }
     if (s.multiple) col.append(el("div", { className: "sub", title: "with many task × model cells some look significant by chance; Bonferroni divides α by the number of comparisons" }, `${s.multiple.comparisons} cells · ${s.multiple.significantRaw} significant · ${s.multiple.significantBonferroni} after Bonferroni`));
+  }
+  // Gates: the thresholds this run was judged against (cli --gate / --gates), with what missed.
+  if (run.gates) {
+    const g = run.gates;
+    const per = Object.entries(g.byClient ?? {}).map(([c, r]) => `${c} ${r.counts?.pass ?? 0}/${(r.results ?? []).length} pass`).join(" · ");
+    col.append(el("div", { className: `sig${g.verdict === "pass" ? " yes" : ""}`, title: `${g.file ? `${g.file} · ` : ""}${(g.specs ?? []).join(", ")}${g.strict ? " · strict" : ""}` }, `gates: ${g.verdict}${g.strict ? " (strict)" : ""} · ${per}`));
+    for (const [c, r] of Object.entries(g.byClient ?? {})) {
+      for (const x of (r.results ?? []).filter((x) => x.verdict !== "pass").slice(0, 4)) col.append(el("div", { className: "sub" }, `${x.verdict} · ${Object.keys(g.byClient).length > 1 ? `${c} · ` : ""}${x.label} — ${x.reason}`));
+    }
   }
   for (const [client, a] of Object.entries(s.delta.byArm ?? {})) {
     if (!a.overall) continue;
@@ -1122,15 +1149,29 @@ function renderDetail() {
 
   if (r.system) step("system", `${fmtInt(r.system.length)} chars`, r.system);
   step("user", "", r.prompt ?? "—");
-  (r.toolCalls ?? []).forEach((c, i) => {
-    const res = r.toolResults?.[i];
+  const callStep = (c, i) => {
+    const res = (c.id !== undefined && c.id !== null ? r.toolResults?.find((t) => t.id === c.id) : undefined) ?? r.toolResults?.[i];
     step(
       `tool call${c.agent ? ` · sub-agent ${c.agent}` : ""} · ${c.name}(${JSON.stringify(c.arguments ?? {})})`,
       res ? (res.ok === false ? "error" : "ok") : "no result recorded",
       res ? pretty(res.content) : "(no result recorded)",
       res?.ok === false ? "bad" : "accent",
     );
-  });
+  };
+  if (Array.isArray(r.turns) && r.turns.length) {
+    // The session in order: each turn's text, then the calls it made; the last turn is the answer
+    // (shown as the final message below).
+    const named = new Set();
+    let i = 0;
+    r.turns.forEach((t, ti) => {
+      const own = (r.toolCalls ?? []).filter((c) => (t.calls ?? []).includes(c.id));
+      own.forEach((c) => named.add(c.id));
+      const isFinal = ti === r.turns.length - 1 && !own.length;
+      if (t.text && !isFinal) step(`assistant · round ${t.round ?? ti + 1}`, typeof t.ms === "number" ? `+${fmtMs(t.ms)}` : "", t.text, "");
+      own.forEach((c) => callStep(c, i++));
+    });
+    (r.toolCalls ?? []).filter((c) => !named.has(c.id)).forEach((c) => callStep(c, i++));
+  } else (r.toolCalls ?? []).forEach(callStep);
   if (TOOL_MODES.has(r.mode) && !(r.toolCalls ?? []).length) step("tool calls", "", "The model never called a tool.", "bad");
   if (r.toolUseOk === true || r.toolUseOk === false) step("tool use", r.toolUseOk ? "correct" : "wrong", r.toolUseReason || "—", r.toolUseOk ? "ok" : "bad");
   if (typeof r.judgeScore === "number") step("judge", `score ${r.judgeScore.toFixed(2)}`, r.judgeReason || "—", r.correct ? "ok" : "bad");
@@ -1142,6 +1183,12 @@ function renderDetail() {
     r.correct ? "ok" : "bad",
   );
   body.append(tl);
+  // An arm's raw transcript, as its harness printed it (capped in the record), for re-reading.
+  if (r.transcript?.text) {
+    body.append(el("details", { className: "transcript" },
+      el("summary", {}, `raw transcript · ${r.transcript.format} · ${fmtInt(r.transcript.chars ?? r.transcript.text.length)} chars`),
+      el("pre", {}, r.transcript.text)));
+  }
 
   const structured = isStructuredMode(r.mode);
   const answer = structured

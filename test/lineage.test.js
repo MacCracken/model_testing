@@ -54,7 +54,7 @@ test("named local endpoints become providers, never shadowing built-ins", async 
 });
 
 test("suites are bench arguments with a recorded name", () => {
-  assert.deepEqual(Object.keys(SUITES), ["smoke", "standard", "full"]);
+  assert.deepEqual(Object.keys(SUITES), ["smoke", "standard", "full", "nightly"]);
   const argv = suiteArgs("smoke", ["--clients", "vllm:my-ckpt", "--instance-seed", "7"]);
   assert.deepEqual(argv.slice(0, 8), ["--task", SUITES.smoke.tasks, "--modes", "noHarness,harness", "--count", "2", "--parallel", "4"]);
   assert.deepEqual(argv.slice(8), ["--clients", "vllm:my-ckpt", "--instance-seed", "7"]);

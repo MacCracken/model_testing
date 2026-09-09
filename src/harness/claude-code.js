@@ -32,14 +32,22 @@ export function parseTranscript(raw) {
   }
   const toolCalls = [];
   const toolResults = [];
+  // One entry per assistant message — its text and the calls it made, in order: the arm's turns.
+  const turns = [];
   let model = null;
   let result = null;
   for (const m of messages) {
     if (m.type === "system" && m.subtype === "init") model = m.model ?? model;
     else if (m.type === "assistant") {
+      const turn = { round: turns.length + 1, ms: null, text: "", calls: [] };
       for (const b of m.message?.content ?? []) {
-        if (b.type === "tool_use") toolCalls.push({ id: b.id ?? `cc_${toolCalls.length + 1}`, name: b.name, arguments: b.input ?? {} });
+        if (b.type === "tool_use") {
+          const id = b.id ?? `cc_${toolCalls.length + 1}`;
+          toolCalls.push({ id, name: b.name, arguments: b.input ?? {} });
+          turn.calls.push(id);
+        } else if (b.type === "text" && typeof b.text === "string") turn.text += (turn.text ? "\n" : "") + b.text;
       }
+      turns.push(turn);
     } else if (m.type === "user") {
       for (const b of m.message?.content ?? []) {
         if (b.type !== "tool_result") continue;
@@ -61,10 +69,11 @@ export function parseTranscript(raw) {
     model,
     usage,
     costUsd: result.total_cost_usd ?? null,
-    turns: result.num_turns ?? null,
+    numTurns: result.num_turns ?? null,
     durationMs: result.duration_ms ?? null,
     toolCalls,
     toolResults,
+    turns,
   };
 }
 
@@ -120,7 +129,9 @@ export class ClaudeCodeClient {
       structured: parseJSONLoose(t.text),
       toolCalls: t.toolCalls,
       toolResults,
-      rounds: t.turns ?? 1,
+      turns: t.turns,
+      transcript: { format: "claude-code/stream-json", text: stdout },
+      rounds: t.numTurns ?? 1,
       finishReason: "stop",
       usage: t.usage,
       elapsedMs: Math.round(performance.now() - t0),

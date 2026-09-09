@@ -115,6 +115,7 @@ export class CodexClient {
       finishReason: "stop",
       usage: p.usage,
       elapsedMs: Math.round(performance.now() - t0),
+      transcript: { format: "codex/json", text: stdout },
       harness: { kind: "codex", model: this.model, system, warnings: p.errors },
     };
   }

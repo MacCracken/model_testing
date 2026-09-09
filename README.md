@@ -142,6 +142,12 @@ node src/cli.js compare <run-A> <run-B> --mode schemaOnly               # two ru
 node src/cli.js curve restock [--mode harness] [--client <c>]           # success per difficulty level over every saved run, with each model's breaking point
 node src/cli.js trend --client openai:gpt-4o-mini [--capability arithmetic]   # a model's capabilities per run over time
 node src/cli.js regressions [--client <c>] [--since D]                  # latest results against earlier runs, and checkpoint against lineage parent
+node src/cli.js show <run-id> --rows                                    # every trial numbered; --trial <n> prints one as a timeline
+node src/cli.js export <run-id> --jsonl --trial 3                       # a trial as an event log (system, user, assistant, tool_call, tool_result)
+node src/cli.js replay <run-id> [--clients …] [--task …] [--count N]    # the same instances again, as a new run parented to this one, with the paired comparison
+node src/cli.js rescore <run-id> | --all [--yes]                        # today's scorers over saved rows: a dry run lists the flips, --yes writes them back
+node src/cli.js gate <run-id> --gate "tool-use>=80" --gate "errors<=0"    # thresholds over a saved run: exit 0 pass, 1 fail, 2 a gate could not be judged
+node src/cli.js suite nightly --clients vllm:my-ckpt --judge openai:gpt-4o-mini   # the standard suite, time-boxed and gated by gates/nightly.json
 ```
 
 Every delta also carries a **paired** reading when both sides ran the same instances (McNemar's
@@ -164,6 +170,17 @@ entirely under the earlier one, and names the per-task split behind it.
 and model in the run sees the same instances (a paired design), and the same seed on another day
 or another checkpoint re-mints them. Without it a fresh seed is drawn and recorded on the run.
 
+**Replay and re-score.** `replay <run>` runs a saved run again — its tasks, modes, models, count,
+instance seed and knobs, any of them overridable (`--clients` sends the same instances to another
+model) — as a new run that names its parent, and prints the paired comparison against it; the UI's
+"replay run" button does the same. `rescore <run>` (or `--all`) runs today's scorers over the rows
+a run already holds, with no model: a dry run lists every verdict that would flip and why, and
+`--yes` writes the new verdicts into the run file, which keeps its id (it is the same measurement,
+read again) and records the re-score. Every row keeps enough for both: the prompt, the tool calls
+and results, the model's turns (what it said each round, which calls it made, when), an arm's raw
+transcript, the parsed answer and the ground truth taken at the time. `show <run> --trial <n>`
+prints a trial as a timeline and `export --jsonl` writes it as an event log.
+
 `--parallel N` runs up to N trials at once (the web UI's "in parallel" setting does the same);
 real-harness arms always run alone because they are scored from the webserver's time-windowed log,
 and latencies measured under parallel load on a local model include queueing. Repeated cells
@@ -175,7 +192,13 @@ tasks with fixed truth) and whether the cell was flaky, in the report and the he
 `vllm:<model>`. Record it in `models/lineage.json` (family, checkpoint, step, parent) and every run
 carries that lineage; `node src/cli.js suite smoke|standard|full --clients …` runs the presets,
 `compare <run> --a <checkpoint> --parent` pairs it against its parent, `scorecard` gives its profile,
-and `models` lists the registry. Step by step in [docs/serving.md](docs/serving.md).
+and `models` lists the registry. `suite nightly` runs the standard suite under a time box and gates
+it with `gates/nightly.json`, exiting 1 when a gate fails and 2 when one could not be judged;
+`--gate tool-use>=80` (a capability, a task, `restock:6`, `break:restock`, `overall`, `errors`,
+`regressions`, each `@mode`) works on any run, `--gates <file>` takes a file of them, and `gate
+<run>` judges a saved one. A gate fails only when its Wilson band lies under the bar; a rate below
+the bar whose band still reaches it is inconclusive, not a failure (`--strict` makes it one). Step
+by step in [docs/serving.md](docs/serving.md).
 
 **Sub-agents.** `openai:gpt-4o-mini@agents:available` gives the model a `delegate` tool: each
 call runs a sub-agent with the task's own tools on a goal the parent writes, in parallel with other

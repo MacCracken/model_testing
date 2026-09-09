@@ -1,3 +1,4 @@
+import { traceEvents } from "./export.js";
 // report.js — print a run summary the same way everywhere (aggregate.js after a run, `cli show`
 // for a saved one). Pure formatting over the runner's summary shape.
 
@@ -140,4 +141,45 @@ export function summaryTable(summary) {
   });
   const totals = modes.map((m) => `${summary.byMode[m].correct}/${summary.byMode[m].runs}`);
   return [head, sep, ...rows, `| **all** | ${totals.map((t) => `**${t}**`).join(" | ")} |`].join("\n");
+}
+
+// One trial as a timeline: what the model was told, what it said and did, when, and how it was
+// scored — plain text, one event per line, in the order the drawer shows and the JSONL export
+// carries.
+export function trialTimeline(row) {
+  const verdict = row.error ? `error: ${row.error}` : `${row.correct ? "pass" : "fail"} · ${row.reason || "—"}`;
+  const L = [
+    `${row.task} · ${row.mode} · ${row.client} · #${row.index} · ${verdict}`,
+    [
+      row.model ? `model ${row.model}` : null,
+      typeof row.latencyMs === "number" ? `${row.latencyMs} ms` : null,
+      row.usage?.total_tokens ? `${row.usage.total_tokens} tokens` : null,
+      row.rounds ? `${row.rounds} round(s)` : null,
+      row.harness ? `${row.harness} arm` : null,
+      typeof row.seed === "number" ? `seed ${row.seed}` : null,
+    ].filter(Boolean).join(" · "),
+    "",
+  ];
+  const clip = (v) => {
+    const s = v === null || v === undefined ? "" : typeof v === "string" ? v : JSON.stringify(v);
+    const one = s.replace(/\s+/g, " ").trim();
+    return one.length > 160 ? `${one.slice(0, 157)}…` : one;
+  };
+  const tag = (kind) => `${"".padStart(9)}  ${kind.padEnd(11)}`;
+  for (const e of traceEvents(row)) {
+    const at = typeof e.ms === "number" ? `+${e.ms}ms` : "";
+    let line;
+    switch (e.kind) {
+      case "tool_call": line = `→ ${e.name}${e.agent ? ` (sub-agent ${e.agent})` : ""} ${clip(e.args)}`; break;
+      case "tool_result": line = `← ${e.name} ${e.ok ? "ok" : "error"} ${clip(e.output)}`; break;
+      default: line = clip(e.text);
+    }
+    L.push(`${at.padStart(9)}  ${e.kind.padEnd(11)} ${line}`);
+  }
+  L.push("");
+  if (row.schemaValid !== null && row.schemaValid !== undefined) L.push(`${tag("schema")} ${row.schemaValid ? "valid" : `invalid: ${(row.schemaErrors ?? []).join("; ")}`}`);
+  if (row.toolUseOk !== null && row.toolUseOk !== undefined) L.push(`${tag("tool use")} ${row.toolUseOk ? "correct" : "wrong"}${row.toolUseReason ? `: ${row.toolUseReason}` : ""}`);
+  if (typeof row.judgeScore === "number") L.push(`${tag("judge")} ${row.judgeScore.toFixed(2)}${row.judgeReason ? `: ${row.judgeReason}` : ""}`);
+  L.push(`${tag("verdict")} ${verdict}`);
+  return L.join("\n");
 }

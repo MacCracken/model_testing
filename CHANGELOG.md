@@ -4,6 +4,128 @@ What shipped, by date. Full measurement tables live in [docs/results.md](docs/re
 forward roadmap is [plan.md](plan.md). Dates are the commit dates; item numbers ([1]–[49]) are the
 roadmap's, stable across the plan, this file and the results.
 
+## 2026-09-09 (later) — gates: thresholds with exit codes, time boxes, a nightly suite
+
+### Added
+- **Gates** ([37], the half that was open): `--gate <spec>` (repeatable) and `--gates <file>` on
+  `bench.js` — so on `cli bench`, `replay` and every `suite` — and `node src/cli.js gate <run> …`
+  over a saved run with no model. A spec names what to measure and the bar: a capability
+  (`tool-use>=80`), a task (`health>=100`), a family level (`restock:6>=50`), a family's breaking
+  point (`break:restock>=12`: it must not break below 12), a whole mode (`overall@noHarness>=60`),
+  the error rows (`errors<=0`) or the index's regression flags for the client (`regressions<=0`:
+  the [34] rule against its own earlier runs and its lineage parent); `@mode` defaults to harness.
+  `src/gates.js` reads the grammar and a JSON file form (`gates/nightly.json`: `minTrials`, a
+  default `mode`, `strict`, gates as strings or objects) and judges each gate on the Wilson band
+  rather than the bare rate: **pass** when the rate reaches the bar, **fail** when the whole band
+  lies under it, **inconclusive** in between (four trials cannot tell 75 % from 80 %), **incomplete**
+  under `minTrials` (the file's, `--min-trials`, else the run's trials per cell). Exit codes: 0 pass (inconclusive included unless `--strict`), 1 fail,
+  2 incomplete. Every client of the run is gated and the run's verdict is the worst; the result is
+  written on the run (`run.gates`: file, specs, per-client results with reasons), indexed
+  (`gate_verdict`, shown by `show` and `query runs`) and shown in the headline with what missed.
+- **Time boxes**: `--time-box <minutes>` stops starting trials when the box is up, cancels the ones
+  in flight, and saves what completed with status `timeout` and a warning; gates then judge the
+  completed trials and report the rest as incomplete (exit 2), never as failures.
+- **The nightly suite**: `node src/cli.js suite nightly --clients <checkpoint>` is the standard
+  suite under a 90-minute time box, gated by `gates/nightly.json` (thresholds in harness mode over
+  four trials per cell — a starting point to tune per model family); `--time-box`, `--gates` or
+  `--gate` on the command line replace the preset's. `docs/serving.md` has the cron line and the
+  exit codes a scheduler reads.
+- Tests: 257 (the grammar and its errors, the file form, every verdict rule including strict,
+  cancelled rows and the errors gate, the regressions gate with and without a count, the breaking
+  point gate, per-client run verdicts, the nightly preset's arguments, a time-boxed matrix through
+  the runner).
+
+### Measured
+- **The nightly on gpt-4o-mini** (`suite nightly --clients openai:gpt-4o-mini --instance-seed 2026
+  --judge openai:gpt-4o-mini`, run `20260909T154825-4cd7`): 232 trials in 3.0 minutes at six in
+  parallel (the 90-minute box is sized for slow local checkpoints), 3.0 M tokens, no error rows,
+  harness delta 38.8 % → 77.6 % (p < 0.001). Verdict **inconclusive, exit 0**: nine gates pass, none
+  fail, four sit under their bar with a band that still reaches it — tool-use 78.3 % against 80 over
+  60 trials, multi-step 57.5 % against 60 over 40, arithmetic 66.7 % against 75 over 24, planning
+  31.3 % against 50 over 16 (band 14–56 %). That is the honest reading of four trials per cell: the
+  shipped bars are neither cleared nor refuted; `--strict` would fail the run, and eight trials per
+  cell (the `full` suite) would settle most of them. The regressions gate compared 34 capability ×
+  mode pairs against the index and found nothing.
+- **A saved run gated without a model** (the seed-2026 reasoning run, gpt-4o-mini, `--min-trials 4`):
+  deduction ≥ 75 % fails (2/8, band 7–59 %), arithmetic ≥ 90 % (17/20) and calendar ≥ 90 % (6/8) are
+  inconclusive, six other gates pass — exit 1.
+- **A time box** of 15 seconds over four restock6 trials: one completed, two cancelled, one never
+  started, status `timeout`; with the floor at the run's four trials per cell the gate is incomplete
+  (exit 2). Before that floor the same gate passed on the one trial that finished, which is why the
+  floor exists.
+
+## 2026-09-09 — replay, re-score, and the session as recorded
+
+### Added
+- **Replay** ([39]): `node src/cli.js replay <run> [--clients …] [--task …] [--modes …] [--count N]`
+  (`bench.js --replay`) runs a saved run's tasks, modes, models, count, parallelism, instance seed
+  and model knobs again — each overridable, so the same instances can go to another model — as a
+  new run that names its **parent** (`run.parent = { id, kind: "replay" }`, indexed as `parent_run`
+  / `parent_kind`, `GET /api/runs?parent=`), and prints the paired comparison against the parent
+  (`describeReplay`: per-task McNemar, the overall band). The UI has a "replay run" button on every
+  finished run (`POST /api/runs { replayOf }`; `withParentDefaults` fills the launch from the
+  parent's config) and labels replays in the history and the headline.
+- **Re-score**: `node src/cli.js rescore <run>… | --all [--judge …] [--yes]` (`src/rescore.js`) runs
+  today's scorers over a saved run's rows without a model, through `scoreRecord` in `runner.js` —
+  the one function a live trial now scores through too, so a re-score lands on exactly what a
+  trial would (tested on a generated task in all four modes). A dry run lists every flipped row with
+  both reasons and counts the other verdicts that moved (tool use, schema validity, canon, judge);
+  `--yes` writes the verdicts back into the run file, which keeps its id and its place in the index
+  (the same measurement, read again — a second run would double-count in every pooled view) and
+  notes each re-score under `run.rescored` (when, from which bench version, how many moved). Left
+  alone: error rows, tasks the registry no longer knows, judged tasks without a judge, rows whose
+  scorer throws, compacted and running runs, and the stress record.
+- **The session as it unfolded.** The synthetic loop records `turns` (per round: the model's text,
+  the ids of the calls it made, the time since the trial started, the finish reason, the usage; a
+  forced final turn is marked), and every arm keeps its raw `transcript` (format and text, capped at
+  200 k characters); Claude Code's parser yields turns as well. `cli show <run> --rows` numbers the
+  rows and `--trial <n>` prints one as a timeline (`trialTimeline` in `report.js`); `cli export <run>
+  --jsonl [--trial <n>]` writes a trial as an event log (`traceEvents` in `export.js`: system, user,
+  assistant, tool_call, tool_result, results paired by id — the transcript protocol trace tools
+  speak). The drawer shows each turn's text before its calls and an arm's raw transcript under a
+  disclosure; `compact` strips transcripts and turn text as it strips prompts.
+- Tests: 251 (replay defaults from the CLI and the web, the paired reading, trace events with and
+  without turns, the timeline, re-scoring with a changed scorer and the rows it must leave alone, a
+  re-score reproducing a live trial's verdicts, the loop's turns including the forced one, Claude
+  Code turns and transcript on the row, the parent in the index, compaction of the new fields).
+
+### Measured
+- **Re-scoring the whole index (dry run, 70 runs, 3966 rows).** Four verdicts flip: the four
+  pre-audit `regex` rows of `ornith-1.5:9b` from 2026-09-03 (fail → pass; the positional reader and
+  the `results` unwrapping the audit added). Nothing else changes correctness. Of the other
+  verdicts, 21 tool-use verdicts move on `follow3/6` (true → false: the hop check was tightened
+  after the 2026-09-08 morning runs, the off-by-one recorded that day), four arm rows from
+  2026-09-03/04 lose a tool-use verdict they should never have carried, and the rest is fill-in:
+  canon on 634 rows and tool-use verdicts on about 185 rows from before those measures existed,
+  seven `health` reasons reworded. So the audit's fixes reach every saved run without a model, and
+  the pre-audit runs can come back into the index with today's verdicts (`rescore --all --yes`).
+- **Replay, same model.** `replay 20260907T092009-836c` (health, reason, regex × two modes ×
+  gpt-4o-mini × 4): 24 paired trials, parent 79.2 % → replay 83.3 %, one pair up and none down,
+  McNemar p = 1.00, band +0 to +13 pp; the same four free-form `reason` trials fail on both days.
+- **Replay, seeded instances, two models.** `replay 20260908T035855-c46b --task wordmath4,tally60
+  --modes harness --clients openai:gpt-4o-mini,anthropic:claude-haiku-4-5`: 16 paired trials on the
+  same seed-2026 instances, identical outcomes on both sides (0 up, 0 down); gpt-4o-mini misses the
+  same `wordmath4` instance with the same wrong answer both times (175 for 189), which is what the
+  paired design is for.
+
+## 2026-09-08 (late) — run records without the log
+
+### Changed
+- **A row's `ctx` is a record, not the environment.** `runTrial` records the trial context through a
+  task-level `recordCtx` hook when the task defines one, and caps every string in what it records at
+  the prompt's 20,000 characters either way (`recordedCtx` in `runner.js`; the marker says how long
+  the string was, as for the prompt). The live ctx — prompts, tools, ground, scorers, wrappers and
+  arms — is untouched. The needle family drops its minted log (`text`) and keeps seed, tokens, kind,
+  depth, lines, question, answer, key and the webserver's log id; `remint(ctx)` in `tasks/needle.js`
+  mints the log again from what the row keeps, so a replay ([39]) or a re-score has it, and the
+  tool-mode prompt re-renders from the recorded ctx alone. Before: 36 needle100k rows made a 15.4 MB
+  run file (`20260908T205940-a64b`), 14.9 MB of it the log under `ctx.text`; the same run would now
+  be 0.5 MB. Saved runs are not rewritten. The spec shape in CLAUDE.md documents the hook.
+- Tests: 241 (a needle row records no log text while the model and the webserver get the whole log;
+  ground, both scorers, the tool-use verdict and the tool-mode prompt work from the recorded ctx and
+  the seed re-mints the log, for all three question kinds; the runner caps strings in any context,
+  nested ones included, while scoring sees the whole thing).
+
 ## 2026-09-08 (night) — difficulty curves and regression detection
 
 ### Added

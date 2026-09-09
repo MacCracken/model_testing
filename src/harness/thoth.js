@@ -106,6 +106,7 @@ export class ThothClient {
       finishReason: parsed.turnEnd?.ok === false ? "error" : "stop",
       usage: parsed.tokens === null ? null : { total_tokens: parsed.tokens },
       elapsedMs: Math.round(performance.now() - t0),
+      transcript: { format: "thoth/events", text: stdout },
       harness: { kind: "thoth", model: parsed.model, system },
     };
   }
