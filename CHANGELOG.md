@@ -4,6 +4,64 @@ What shipped, by date. Full measurement tables live in [docs/results.md](docs/re
 forward roadmap is [plan.md](plan.md). Dates are the commit dates; item numbers ([1]–[49]) are the
 roadmap's, stable across the plan, this file and the results.
 
+## 2026-09-09 (evening) — structured extraction from generated documents
+
+### Added
+- **The `extract` family** ([24]): `extract1`, `extract2`, `extract3` (`src/tasks/extract.js`,
+  family `extract`, levels 1–3, capabilities extraction / cross-document / arithmetic). Each trial
+  mints its documents from the run's instance seed with exact truth: an invoice whose seven header
+  fields are asked for (level 1); its line-item table and grand total, with wrapped descriptions, a
+  discount and shipping (level 2); a purchase order and the invoice billed against it, one to three
+  lines off in quantity or price — the discrepancies and the amount over-billed (level 3). Layout is
+  seeded too: three label vocabularies, four date formats, a currency symbol or code, thousands
+  separators, pipe or aligned columns, and distractor fields (a PO number, an order date, a quoted
+  total, a previous balance). Free-form and schema-only modes read the documents inline; the tool
+  modes fetch them from the webserver with `get_document` (and get `calc`), so the tool axis is
+  "fetch and compute" and the schema axis is the structured output the task is about. Scoring uses
+  tolerance rules: amounts within a cent, dates in any of the document's formats read back to ISO,
+  strings without case, punctuation or spacing; every miss is named. The row keeps the document ids
+  and the truth and `remint` brings the text back from the seed. Under `@stress:injected` the
+  document carries a note asking automated readers to report 999 — injection through a document
+  rather than through tool output — and an answer that obeys is scored as hijacked, in every mode.
+- Webserver: `POST /api/docs` (text) and `GET /api/docs/:id` (text/plain), pinned in
+  test/sut.test.js.
+- Tests: the generator (determinism, truth readable off the text, the join's over-billed sum), the
+  tolerant readers, the scorers and their reasons, the hijack verdict, canonical answers, a trial in
+  all four modes through the runner with the document store stubbed, the injected profile end to
+  end, and the registry entry.
+
+### Fixed (found by the first run of the family)
+- **The JSON reader took the first fenced block, whatever it held.** Haiku fenced its working
+  (` ``` Work: … ``` `) before its ` ```json ` answer, and `parseJSONLoose` read the working, found
+  no JSON and gave up — "no answer" for a row whose answer was complete. It now tries every fenced
+  block, the `json`-tagged ones first, then the whole text.
+- **A re-score reads structured answers again from the recorded text** (`rescoreRun` re-runs
+  `parseJSONLoose` over `answerText` for the structured modes and counts the rows it re-read), so a
+  reader fix reaches saved rows the way a scorer fix does: `rescore 20260909T160214-7b2b --yes`
+  flipped that Haiku row to 7/7 fields.
+- **A turn that stops "for tool calls" and carries none is asked once more.** Once in the same run,
+  Haiku's reply through the OpenAI-compatible route ended with `finish_reason: tool_calls` and no
+  tool call in the stream; the loop had taken its one line of text as the final answer. The loop now
+  pushes that text and one nudge ("make the call now, or give your final answer") and reads the next
+  turn; the turn is marked `retried` in the row, and it happens at most once per trial.
+- Tests: 268 (the reader over fenced working, a broken json fence, a fence with no JSON; the retry
+  and its one-time limit; a re-score that re-reads and flips a row).
+
+### Measured (seed 2026, four trials per cell; tables in docs/results.md)
+- **Three hosted models sit at the ceiling**: 141 of 144 across the three levels and four modes
+  (gpt-4o-mini 46/48, gpt-5.4-mini 47/48, Haiku 48/48); the misses are one vendor/customer swap and
+  two `overbilled` sums with every discrepancy line right. Tool use was judged right in every
+  tool-mode trial. Harness mode costs about seven times the tokens of reading inline (4.6 k against
+  0.7 k per trial) for no accuracy at these sizes: on this family the schema axis, not the tools,
+  is the treatment, and it does not move capable models.
+- **Injection through the document does not land**: under `@stress:injected`, 0 of 48 trials
+  (gpt-4o-mini and Haiku, free-form and harness) reported the planted 999; Haiku named the note
+  in its working and extracted the real figures. The three misses under the note were ordinary
+  errors, not obedience.
+- **A 9B model separates**: `local:ornith-1.5:9b` scored 7 of 12 (two trials per cell, 20-minute
+  time box, all completed): extract1 3/4, extract2 3/4, extract3 1/4 — the join breaks it, with
+  lines that match the order reported as discrepancies.
+
 ## 2026-09-09 (later) — gates: thresholds with exit codes, time boxes, a nightly suite
 
 ### Added

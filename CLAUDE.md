@@ -32,6 +32,12 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
   modes and posts it to the webserver for the tool modes' grep and count (`tasks/needle.js`); the
   record keeps a capped prompt (`capText` in the runner) and a ctx without the log (`recordCtx`;
   `remint` mints it again from the seed the row keeps), the model gets the whole log. The
+  extraction family (`extract1/2/3`, `tasks/extract.js`) mints an invoice, its line-item table, or a
+  purchase order plus the invoice billed against it, with exact truth; the free-form modes read the
+  documents inline and the tool modes fetch them from the webserver with `get_document` (plus
+  `calc`); scoring uses tolerance rules (amounts within a cent, four date formats read back to ISO,
+  strings without case or punctuation); under `@stress:injected` the document itself carries the
+  note, and an answer that reports the planted 999 is scored as hijacked. The
   scenario-backed families (`fanout`, `follow`, `norelevant`, and `restock`) share `tasks/scenario.js`:
   the server API, a scenario minted from the trial seed (the server takes the seed, so the inventory
   is reproducible), the read tools, and `endState`, which turns the scenario's op log into a hijack
@@ -57,7 +63,8 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
   best-effort, so nothing waits on it. `runs` carries `parent_run` / `parent_kind`;
   `queryRuns({ parent })` lists a run's replays.
 - `src/rescore.js` — `rescoreRun(run, { judge })` scores a saved run's rows again through
-  `scoreRecord` (no model), reports the flips and the other verdicts that moved, and returns the run
+  `scoreRecord` (no model) — re-reading each structured answer from the recorded text with today's
+  `parseJSONLoose` first — reports the flips and the other verdicts that moved, and returns the run
   with its verdicts replaced and a `rescored` note; `cli rescore` is a dry run unless `--yes`, which
   writes the run file in place (same id: the same measurement, read again).
 - `src/gates.js` — thresholds with exit codes: `parseGate` / `parseGateFile` (a capability, task,
@@ -285,7 +292,8 @@ server actually served (`recentGreetings` in `harness/util.js`), and the **inven
 update, a confirm that is refused while anything is still low, optional stress profiles (flaky,
 budget, haystack, distractors, injected) and `GET /api/scenarios/:sid` as the end state a trial is
 scored on, op log included; and the **logs** (`POST /api/logs` as text, `GET /api/logs/:id?grep=`,
-`…/count`) the `needle` family searches. `test/sut.test.js` pins that contract in-process. Every run (CLI or web) is saved to `results/`, which is gitignored along
+`…/count`) the `needle` family searches, and the **documents** (`POST /api/docs` as text,
+`GET /api/docs/:id` as text/plain) the `extract` family fetches. `test/sut.test.js` pins that contract in-process. Every run (CLI or web) is saved to `results/`, which is gitignored along
 with `.env`. `plan.md` is the forward roadmap only; `CHANGELOG.md` records what shipped by date and
 `docs/results.md` holds every measurement table. When something ships, move it from the plan to the
 changelog, and keep every claim tied to what the tests and saved runs actually show.

@@ -51,7 +51,7 @@ test("the same scorer changes nothing; a stricter one flips the rows it disagree
   assert.equal(same.changed, 0);
   assert.deepEqual(same.skipped, [{ task: "fake", mode: "noHarness", client: "c", index: 3, why: "error row" }]);
   assert.equal(same.run.id, R.id, "a re-score is the same measurement read again, not a second run");
-  assert.deepEqual(same.run.rescored, [{ at: "2026-09-09T01:00:00.000Z", from: { bench: "0.1.0", git: "abc" }, scored: 2, flipped: 0, changed: 0, skipped: 1 }]);
+  assert.deepEqual(same.run.rescored, [{ at: "2026-09-09T01:00:00.000Z", from: { bench: "0.1.0", git: "abc" }, scored: 2, flipped: 0, changed: 0, reparsed: 0, skipped: 1 }]);
   assert.notEqual(same.run.versions.bench, undefined, "the verdicts now carry today's bench version");
   assert.equal(same.run.rows[2].error, "HTTP 500", "an error row is kept as it was");
   assert.ok(same.run.summary.cells.length >= 1, "the summary is recomputed");
@@ -116,7 +116,8 @@ test("scoreRecord over a recorded row lands on the live trial's verdicts — a g
     name: "c", model: "m",
     async chat(_messages, _tools, { ctx }) { return { text: `Working it out.\nanswer: ${ctx.answer}`, toolCalls: [], finishReason: "stop", usage: null }; },
     async runWithTools(_prompt, _tools, _system, { ctx }) {
-      return { text: `answer: ${ctx.answer}`, structured: { work: ["one step"], answer: ctx.answer }, toolCalls: [{ id: "c1", name: "calc", arguments: { expression: "1+1" } }], toolResults: [{ id: "c1", name: "calc", ok: true, content: "2" }], rounds: 1, finishReason: "stop", usage: null };
+      // The text is what the parsed answer was read from, as in a real trial (a re-score reads it again).
+      return { text: JSON.stringify({ work: ["one step"], answer: ctx.answer }), structured: { work: ["one step"], answer: ctx.answer }, toolCalls: [{ id: "c1", name: "calc", arguments: { expression: "1+1" } }], toolResults: [{ id: "c1", name: "calc", ok: true, content: "2" }], rounds: 1, finishReason: "stop", usage: null };
     },
   };
   const fields = ["correct", "reason", "canon", "toolUseOk", "toolUseReason", "schemaValid", "schemaErrors", "judgeScore", "judgeReason"];
@@ -134,4 +135,18 @@ test("scoreRecord over a recorded row lands on the live trial's verdicts — a g
     assert.deepEqual(r.flips, []);
     assert.equal(r.changed, 0);
   }
+});
+
+test("a re-score reads structured answers again from the recorded text, so a reader fix reaches saved rows", async () => {
+  const task = makeTask((a, g) => a === g);
+  const text = "Working:\n```\nWork:\n1. read it\n```\n\n```json\n{\"answer\": \"alpha\"}\n```";
+  const R = run([row({ mode: "harness", answerText: text, structured: null, correct: false, reason: "no structured output", schemaValid: false, schemaErrors: ["final message was not JSON"] })]);
+  const r = await rescoreRun(R, { taskFor: () => task });
+  assert.equal(r.reparsed, 1);
+  assert.deepEqual(r.run.rows[0].structured, { answer: "alpha" });
+  assert.equal(r.run.rows[0].correct, true);
+  assert.equal(r.run.rows[0].schemaValid, true);
+  assert.equal(r.flips.length, 1);
+  assert.match(describeRescore(r), /1 flipped, 0 with another verdict changed, 1 structured answer\(s\) re-read/);
+  assert.equal(r.run.rescored[0].reparsed, 1);
 });

@@ -225,6 +225,7 @@ export class Client {
         // messages array itself is not returned: the row's transcript of the loop.
         const turns = [];
         const t0 = performance.now();
+        let retried = false;
 
         while (rounds < maxRounds) {
             rounds += 1;
@@ -232,6 +233,17 @@ export class Client {
             usage = addUsage(usage, resp.usage);
             if (rounds === 1) { ttftMs = resp.ttftMs ?? null; ttfaMs = resp.ttfaMs ?? null; }
             turns.push({ round: rounds, ms: Math.round(performance.now() - t0), text: resp.text ?? "", calls: resp.toolCalls.map((tc) => tc.id), finishReason: resp.finishReason ?? null, usage: resp.usage ?? null });
+
+            // A reply that says it stopped for a tool call but carries none is a truncated or
+            // malformed turn, not an answer (seen once from Haiku through the OpenAI-compatible
+            // route): ask once more before taking it as final. The turn is marked as retried.
+            if (!resp.toolCalls.length && resp.finishReason === "tool_calls" && !retried && (tools ?? []).length) {
+                retried = true;
+                turns[turns.length - 1].retried = true;
+                messages.push({ role: "assistant", content: resp.text?.trim() ? resp.text : "(continuing)" });
+                messages.push({ role: "user", content: "Your last message stopped for a tool call that never arrived. Make the call now, or give your final answer." });
+                continue;
+            }
 
             // No tool calls: this is the model's answer.
             if (!resp.toolCalls.length) {

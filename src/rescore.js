@@ -14,7 +14,8 @@
 // scenario's op log is the environment's, not the scorer's).
 
 import { getTask, listTasks } from "./tasks/registry.js";
-import { scoreRecord, summarize } from "./runner.js";
+import { scoreRecord, summarize, isStructuredMode } from "./runner.js";
+import { parseJSONLoose } from "./json.js";
 import { benchVersions } from "./version.js";
 
 const VERDICT_FIELDS = ["correct", "reason", "toolUseOk", "toolUseReason", "schemaValid", "canon", "judgeScore", "judgeReason"];
@@ -34,6 +35,7 @@ export async function rescoreRun(run, { judge = null, taskFor = getTask, now = n
   const skipped = [];
   let scored = 0;
   let changed = 0;
+  let reparsed = 0;
   const skip = (row, why) => { rows.push(row); skipped.push({ ...where(row), why }); };
 
   for (const original of run.rows ?? []) {
@@ -44,6 +46,12 @@ export async function rescoreRun(run, { judge = null, taskFor = getTask, now = n
     if (!task[row.mode]) { skip(row, `no ${row.mode} spec any more`); continue; }
     if (task.eval?.needsJudge && !judge) { skip(row, "needs a judge (--judge)"); continue; }
     const before = verdicts(row);
+    // The JSON reader is part of the scoring pipeline too: a structured answer is read again from
+    // the final message the row keeps, so a reader fix reaches saved rows like a scorer fix does.
+    if (isStructuredMode(row.mode) && typeof row.answerText === "string" && row.answerText.length) {
+      const again = parseJSONLoose(row.answerText);
+      if (JSON.stringify(again) !== JSON.stringify(row.structured ?? null)) { row.structured = again; reparsed++; }
+    }
     try {
       await scoreRecord(task, row, { judge });
     } catch (err) {
@@ -66,19 +74,19 @@ export async function rescoreRun(run, { judge = null, taskFor = getTask, now = n
     capabilitiesOf: Object.fromEntries(tagged.map((t) => [t.name, t.capabilities])),
     levelsOf: Object.fromEntries(tagged.filter((t) => t.family).map((t) => [t.name, { family: t.family, level: t.level }])),
   });
-  const note = { at: now.toISOString(), from: run.versions ?? null, scored, flipped: flips.length, changed, skipped: skipped.length };
+  const note = { at: now.toISOString(), from: run.versions ?? null, scored, flipped: flips.length, changed, reparsed, skipped: skipped.length };
   const out = { ...run, versions: benchVersions(), summary, rows, rescored: [...(run.rescored ?? []), note] };
-  return { run: out, flips, skipped, scored, changed, note: null };
+  return { run: out, flips, skipped, scored, changed, reparsed, note: null };
 }
 
 // One run's re-score as text: the counts, then (verbose) every flipped row with both reasons.
 export function describeRescore(result, { verbose = true } = {}) {
-  const { run, flips, skipped, scored, changed, note } = result;
+  const { run, flips, skipped, scored, changed, reparsed = 0, note } = result;
   if (note) return `${run.id}  left alone (${note})`;
   const why = {};
   for (const s of skipped) why[s.why] = (why[s.why] ?? 0) + 1;
   const skippedNote = skipped.length ? `, ${skipped.length} skipped (${Object.entries(why).map(([k, n]) => `${n} ${k}`).join(", ")})` : "";
-  const L = [`${run.id}  ${scored} row(s) scored, ${flips.length} flipped, ${changed} with another verdict changed${skippedNote}`];
+  const L = [`${run.id}  ${scored} row(s) scored, ${flips.length} flipped, ${changed} with another verdict changed${reparsed ? `, ${reparsed} structured answer(s) re-read` : ""}${skippedNote}`];
   if (verbose) {
     for (const f of flips) {
       L.push(`  ${f.task} · ${f.mode} · ${f.client} · #${f.index}: ${f.before ? "pass" : "fail"} → ${f.after ? "pass" : "fail"}  ${f.reasonAfter}${f.reasonBefore ? `  (was: ${f.reasonBefore})` : ""}`);

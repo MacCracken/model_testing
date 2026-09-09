@@ -8,20 +8,23 @@ export function parseJSONLoose(text) {
   if (text === null || text === undefined) return null;
   if (typeof text === "object") return text;
 
-  let s = String(text).trim();
+  const s = String(text).trim();
   if (!s) return null;
 
-  // ```json … ``` fence
-  const fence = s.match(/```(?:json)?\s*\n?([\s\S]*?)```/i);
-  if (fence) s = fence[1].trim();
-
-  const direct = tryParse(s);
-  if (direct !== undefined) return direct;
-
-  const slice = firstJSONSlice(s);
-  if (slice !== null) {
-    const parsed = tryParse(slice);
-    if (parsed !== undefined) return parsed;
+  // Fenced blocks first — the ```json ones before the rest, since a model may fence its working
+  // before its answer — then the whole text. Each candidate is tried as is, then as its first
+  // balanced {...} or [...] block.
+  const fences = [...s.matchAll(/```([A-Za-z]*)[ \t]*\r?\n?([\s\S]*?)```/g)].map((m) => ({ lang: m[1].toLowerCase(), body: m[2].trim() }));
+  const candidates = [...fences.filter((f) => f.lang === "json").map((f) => f.body), ...fences.filter((f) => f.lang !== "json").map((f) => f.body), s];
+  for (const c of candidates) {
+    if (!c) continue;
+    const direct = tryParse(c);
+    if (direct !== undefined) return direct;
+    const slice = firstJSONSlice(c);
+    if (slice !== null) {
+      const parsed = tryParse(slice);
+      if (parsed !== undefined) return parsed;
+    }
   }
   return null;
 }

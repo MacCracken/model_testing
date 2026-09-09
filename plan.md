@@ -6,7 +6,7 @@ stands, what the field measures that it does not, and what to build next.
 
 ## Start here (handoff, 2026-09-08)
 
-- **Run it.** `npm test` (257 tests; no model or server needed), then `node src/cli.js serve` for
+- **Run it.** `npm test` (268 tests; no model or server needed), then `node src/cli.js serve` for
   the UI on :4000 and `node webserver/server.js` for the system under test on :3000 (`SUT_PORT`).
   Keys and `LOCAL_ENDPOINTS` live in `.env`; runs land in `results/runs/`, the SQLite index beside
   them (`node src/cli.js index --full` rebuilds it).
@@ -21,8 +21,8 @@ stands, what the field measures that it does not, and what to build next.
   lands, its numbers to docs/results.md; every claim is tied to a test or a saved run; zero
   runtime dependencies; the JSON run files are the source of truth and the index is rebuildable;
   a schema for a task that needs thinking has a `work` field before the answer.
-- **Next**, in the recommended order: [24] extraction, then [26] multi-turn. [48] and [49]
-  collect follow-ups on shipped work for any spare hour. The decisions at the end are the user's; two of them block work ([27]'s sandbox, the
+- **Next**: [26] multi-turn with a scripted user. [48] and [49] collect follow-ups on shipped work
+  for any spare hour. The decisions at the end are the user's; two of them block work ([27]'s sandbox, the
   hosted-model budget).
 - **Environment notes.** Ollama on :11434 serves `ornith-1.5:9b` (at ceiling on the easy tool
   tasks, 100 % on restock3); `qwen3.5` is parked on its thinking output. The arms need their own
@@ -57,7 +57,7 @@ rebuildable. Learned on 2026-09-07: a structured schema for a task that needs th
 
 | Dimension | What exists today |
 |---|---|
-| Tasks | 29: `health`, `hello`, `reason`, `lookup`, `regex`, `chain`, `transform`, `explain` (judged), `restock3/6/12/30` (stateful, end-state scored), the generated `wordmath2/4/6`, `datecalc1/3`, `logicgrid3/4`, `tally20/60`, the scenario-backed `fanout4/8`, `follow3/6`, `norelevant`, and the long-context `needle8k/32k/100k` (all minted per trial from the run's instance seed); every family with a knob carries `family` and `level` |
+| Tasks | 32: `health`, `hello`, `reason`, `lookup`, `regex`, `chain`, `transform`, `explain` (judged), `restock3/6/12/30` (stateful, end-state scored), the generated `wordmath2/4/6`, `datecalc1/3`, `logicgrid3/4`, `tally20/60`, the scenario-backed `fanout4/8`, `follow3/6`, `norelevant`, the long-context `needle8k/32k/100k`, and the extraction `extract1/2/3` (generated invoices and a purchase-order join with exact truth) — all minted per trial from the run's instance seed; every family with a knob carries `family` and `level` |
 | Modes | `noHarness`, `harness`, `schemaOnly`, `toolOnly` — the tools × schema 2×2 |
 | Models | OpenAI, Anthropic, Groq, DeepSeek, Ollama (live-probed), any named OpenAI-compatible endpoint (`LOCAL_ENDPOINTS`); real-harness arms Thoth, Claude Code, Pi, Codex; lineage per client from `models/lineage.json` |
 | Treatments | client variants paired against their base: `@skill:preload/ondemand/native`, `@agents:available/required`, `@stress:flaky/budget/haystack/distractors/injected`, `@constraints:light/medium/heavy` |
@@ -67,7 +67,7 @@ rebuildable. Learned on 2026-09-07: a structured schema for a task that needs th
 | Data | one JSON per run, SQLite index (`index`, `query`, `--sql`, `compact`), CSV, versions and lineage on every run, cross-run cell history, suite presets `smoke|standard|full`; every row keeps the model's turns (or an arm's raw transcript) beside its calls and results; `replay` (a new run parented to its original, paired against it), `rescore` (today's scorers over saved rows, in place), a trial as a timeline or a JSONL event log; gate verdicts on the run and in the index |
 | UI | Ledger design, live grid, dumbbell matrix, capability scorecard with regression lines, difficulty curves, paired comparison block, trial drawer with transcript and children, history filter |
 | SUT | the webserver: hello/health, the `/api/recent` log, inventory scenarios with tickets, confirm rules, stress profiles and op log, text logs with grep and count |
-| Tests | 257, none needing a model; the webserver runs in-process |
+| Tests | 268, none needing a model; the webserver runs in-process |
 
 ## What the field measures that we do not
 
@@ -94,14 +94,14 @@ with a priority for the stated purpose:
 | Reasoning / math | GPQA Diamond, HLE, ARC-AGI-2, FrontierMath, LiveBench math | `reason` plus the generated `wordmath`, `datecalc`, `logicgrid`, `tally` families with a calculator / date / query tool as the harness axis | harder tiers, unit conversions, spatial and ordering puzzles ([48]) | medium |
 | Instruction following | IFEval (verifiable constraints), LiveBench IF | `@constraints` variants: eleven requirement families checked by code on any task, adherence beside correctness | more families (sentences, language), requirements across turns, a `@format` variant ([48]) | low |
 | Long context | RULER / needle-in-a-haystack (multi-key, multi-value, aggregation) at 4 k–1 M | `needle8k/32k/100k`: single needle with recorded depth, multi-needle, aggregation; grep/count tools as the harness axis | larger sizes, a depth-sweep view, multi-hop questions ([48]) | medium |
-| Structured extraction | LiveBench data analysis, enterprise extraction evals | `transform`, schema modes | generated documents with exact truth, joins across two sources ([24]) | medium |
+| Structured extraction | LiveBench data analysis, enterprise extraction evals | `transform`, schema modes, the `extract` family: generated invoices with varied layouts, a line-item table, a purchase-order join, tolerance rules, injection through the document | other document kinds (tickets, statements), OCR-like noise, longer tables ([48]) | low |
 | Statistics & reproducibility | HELM CIs, Inspect logs, lm-eval fixed prompts and versions | Fisher, Wilson, seeds, versions, canonical answers, index, McNemar + bootstrap on paired instances, power guidance, Bonferroni, curves, regression flags, `cli compare`, replay and re-score | lineage-pooled scorecards and trend views ([49]) | low |
 | Own-model workflow | lm-eval HF/vLLM backends; W&B / MLflow tracking; per-checkpoint scoreboards | named endpoints for any OpenAI-compatible server, `docs/serving.md`, `models/lineage.json` on every run and in the index, `cli models` / `suite` / `compare --parent` / `regressions`, the UI compare block, `replay` / `rescore`, `gate` / `suite nightly` (thresholds judged on the Wilson band, exit codes, time boxes) | contamination policy ([38]) | medium |
 | Coding | HumanEval → LiveCodeBench → SWE-bench | none | sandboxed execution of generated specs with hidden tests ([27]) | medium (needs a sandbox decision) |
 | Calibration & abstention | HELM calibration (ECE); "answer or abstain" splits | hedge detection in one scorer, `norelevant`'s unanswerable half | confidence elicitation, Brier/ECE per cell, unanswerable variants everywhere ([28]) | medium |
 | Robustness / consistency | HELM perturbations; paraphrase suites | agreement, flaky cells, stressors | paraphrase and ordering perturbations minted by generators ([29]) | medium |
 | Multi-turn & user simulation | τ²-bench user simulator, MT-Bench | single-turn goals | scripted user turns driven by scenario state ([26]) | medium |
-| Safety for agents | AgentDojo (prompt injection through tool results), over-refusal suites | the `injected` stress profile (two payloads, hijack verdicts) | over-refusal on benign borderline tasks; injection through documents once [24] exists | medium |
+| Safety for agents | AgentDojo (prompt injection through tool results), over-refusal suites | the `injected` stress profile (two payloads, hijack verdicts), and injection through a document (`extract` under `@stress:injected`) | over-refusal on benign borderline tasks | medium |
 | Preference / open-ended | LMArena, Arena-Hard-Auto (pairwise judge, Bradley-Terry) | absolute judge score on one task | position-swapped pairwise judging, ratings, judge calibration against human labels ([30]) | low–medium |
 | Knowledge / factuality | MMLU-Pro, SimpleQA, HLE | none, by design | only open-book (facts served by the SUT) — closed-book knowledge is the most contaminated axis and the least ours | low |
 | Multimodal | MMMU and successors | none | out of scope unless the trained models are multimodal | low |
@@ -109,8 +109,8 @@ with a priority for the stated purpose:
 
 ## Roadmap
 
-Numbers are stable across this file, the changelog and the results. [1]–[23], [25], [31]–[37] and
-[39] have shipped and are described in the changelog; only open work is listed here.
+Numbers are stable across this file, the changelog and the results. [1]–[25], [31]–[37] and [39]
+have shipped and are described in the changelog; only open work is listed here.
 
 ### Tier 8 — Capability families by generator
 
@@ -121,9 +121,6 @@ here can leak into a training set we do not control; the LLM judge is used only 
 decide; every family declares the capabilities it measures and runs in the four modes where they
 mean something; a structured schema carries `work` before the answer.
 
-- **[24] Structured extraction from generated documents.** Invoices, tickets and tables with known
-  truth → JSON under a schema; joins across two documents; tolerance rules for numbers and dates.
-  The natural place for injection through documents rather than tool output.
 - **[26] Multi-turn with a scripted user.** The SUT plays the user from a scenario script —
   information revealed over turns, a change of mind mid-job — with τ²-style policy constraints
   ("never restock above target") whose violations are scored.
@@ -183,8 +180,7 @@ mean something; a structured schema carries `work` before the answer.
 
 ## Decisions needed
 
-1. **Order for the next month.** Recommendation: [24] extraction, then [26] multi-turn, with [48]
-   and [49] as fill-in.
+1. **Order for the next month.** Recommendation: [26] multi-turn, with [48] and [49] as fill-in.
 2. **Code sandbox.** Worker-thread isolation keeps the zero-dependency rule but is weaker; Docker is
    stronger and a dependency. This gates [27].
 3. **Scope of knowledge and safety.** Exclude closed-book knowledge as an axis? Add over-refusal on

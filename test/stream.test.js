@@ -103,3 +103,30 @@ test("an HTTP error on a streamed request still surfaces the provider's message"
   const client = new Client({ name: "t", model: "m", apiKey: "k", url: "http://x", fetchImpl: async () => new Response(JSON.stringify({ error: { message: "bad model" } }), { status: 400 }) });
   await assert.rejects(client.chat([{ role: "user", content: "hi" }]), /HTTP 400 from t: bad model/);
 });
+
+test("a turn that stops for a tool call it never made is asked once more, and the row's turns say so", async () => {
+  const bodies = [];
+  let n = 0;
+  const client = new Client({ name: "t", model: "m", apiKey: "k", url: "http://x", fetchImpl: async (_url, init) => {
+    bodies.push(JSON.parse(init.body));
+    n += 1;
+    return n === 1
+      ? sseFetch([chunk({ content: "Now I'll extract the fields:" }, "tool_calls"), "[DONE]"])()
+      : sseFetch([chunk({ content: "{\"total\":1}" }, "stop"), "[DONE]"])();
+  } });
+  const r = await client.runWithTools("go", [{ name: "get_document", parameters: {}, impl: async () => "doc" }], "");
+  assert.equal(r.text, "{\"total\":1}");
+  assert.deepEqual(r.structured, { total: 1 });
+  assert.equal(r.rounds, 2);
+  assert.deepEqual(r.turns.map((t) => [t.round, t.finishReason, t.retried ?? false]), [[1, "tool_calls", true], [2, "stop", false]]);
+  const last = bodies[1].messages.at(-1);
+  assert.equal(last.role, "user");
+  assert.match(last.content, /stopped for a tool call that never arrived/);
+  assert.equal(bodies[1].messages.at(-2).content, "Now I'll extract the fields:");
+  // Only once: a second such turn is taken as the answer.
+  n = 0;
+  const twice = new Client({ name: "t", model: "m", apiKey: "k", url: "http://x", fetchImpl: async () => sseFetch([chunk({ content: "still nothing" }, "tool_calls"), "[DONE]"])() });
+  const r2 = await twice.runWithTools("go", [{ name: "get_document", parameters: {}, impl: async () => "doc" }], "");
+  assert.equal(r2.text, "still nothing");
+  assert.equal(r2.rounds, 2);
+});

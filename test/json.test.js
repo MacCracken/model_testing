@@ -50,3 +50,11 @@ test("returns null when there is no object anywhere", () => {
 test("passes through a non-string object", () => {
   assert.deepEqual(parseJSONLoose({ a: 1 }), { a: 1 });
 });
+
+test("a fenced block that is not JSON does not hide the JSON fence after it; a broken json fence falls through to the prose", () => {
+  const worked = "Working:\n```\nWork:\n1. fetched doc-6bbe48f4\n2. \"Issued: 2026-12-04\"\n```\n\n```json\n{\"total\": 664.44}\n```";
+  assert.deepEqual(parseJSONLoose(worked), { total: 664.44 });
+  assert.deepEqual(parseJSONLoose("```text\nnote\n```\n```json\n[1,2]\n```"), [1, 2]);
+  assert.deepEqual(parseJSONLoose("```json\nnot json at all\n```\nthen {\"a\":2}"), { a: 2 });
+  assert.equal(parseJSONLoose("```\nno json here\n```"), null);
+});

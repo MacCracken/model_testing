@@ -354,6 +354,25 @@ app.get("/api/logs/:id/count", (req, res) => {
   res.json({ id: got.log.id, count: got.re ? got.log.lines.filter((l) => got.re.test(l)).length : got.log.lines.length });
 });
 
+// ---- documents (the extract family): posted as text, fetched whole ----------------------------
+const docStore = new Map();
+const DOC_MAX = 500;
+
+app.post("/api/docs", express.text({ type: "*/*", limit: "1mb" }), (req, res) => {
+  const text = String(req.body ?? "");
+  if (!text.trim()) return res.status(400).json({ error: "post the document as plain text" });
+  const id = `doc-${randomUUID().slice(0, 8)}`;
+  docStore.set(id, { id, text, createdAt: stamp() });
+  if (docStore.size > DOC_MAX) docStore.delete(docStore.keys().next().value);
+  res.status(201).json({ id, chars: text.length });
+});
+
+app.get("/api/docs/:id", (req, res) => {
+  const doc = docStore.get(req.params.id);
+  if (!doc) return res.status(404).json({ error: "unknown document", id: req.params.id });
+  res.type("text/plain").send(doc.text);
+});
+
 app.get("/", (req, res) => {
   res.json({
     service: "webserver",
@@ -374,6 +393,8 @@ app.get("/", (req, res) => {
       "POST /api/logs   (text/plain body, one event per line)",
       "GET /api/logs/:id?grep=<regex>&limit=<n>",
       "GET /api/logs/:id/count?grep=<regex>",
+      "POST /api/docs   (text/plain body)",
+      "GET /api/docs/:id   (the document as text/plain)",
     ],
   });
 });

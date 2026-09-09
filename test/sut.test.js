@@ -133,6 +133,21 @@ test("logs: posted as text, searched by regex with numbered matches and counts",
   assert.equal(empty.status, 400);
 });
 
+test("documents: posted as text, fetched whole as text/plain, unknown ids and empty bodies refused", async () => {
+  const text = "Acme Industrial Supply                   INVOICE\n\nInvoice No.: INV-2026-00001\n";
+  const res = await fetch(base + "/api/docs", { method: "POST", headers: { "content-type": "text/plain" }, body: text });
+  assert.equal(res.status, 201);
+  const { id, chars } = await res.json();
+  assert.match(id, /^doc-[0-9a-f]{8}$/);
+  assert.equal(chars, text.length);
+  const got = await fetch(base + `/api/docs/${id}`);
+  assert.equal(got.status, 200);
+  assert.match(got.headers.get("content-type"), /text\/plain/);
+  assert.equal(await got.text(), text);
+  assert.equal((await j("GET", "/api/docs/doc-nope")).status, 404);
+  assert.equal((await fetch(base + "/api/docs", { method: "POST", headers: { "content-type": "text/plain" }, body: "  " })).status, 400);
+});
+
 test("update hands out one ticket per item; confirm needs exactly the outstanding set; the state records it all", async () => {
   const { data: s } = await j("POST", "/api/scenarios", { low: 2, seed: 7 });
   const low = s.items.filter((i) => i.qty < i.min);
