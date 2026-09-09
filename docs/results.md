@@ -1361,3 +1361,39 @@ model answered in half the time; the one loss is a wordmath4 miss (184 for 760),
 OpenAI-compatible route `think: false`, `reasoning_effort` and the `/no_think` switch all left the
 reasoning untouched, and the graded levels (low, medium, high) of `reasoning.effort` returned the
 same 532 characters as the default; only `none` changes anything on this model.
+
+
+## Variance across settings: temperature 0 versus the default (2026-09-12, instance seed 7, four trials per cell)
+
+Runs `20260909T220216-7874` (temperature 0) and `20260909T220228-7a03` (the provider's default),
+each replayed on the same instances (`20260909T221430-81b1`, `20260909T221453-26df`), so every
+generated instance ran twice per setting and every fixed-truth cell eight times. Agreement is
+per instance (`cli variance --client <c> --since 2026-09-09T21:51`): the share of trials of the
+same problem that gave the modal canonical answer.
+
+| Client | Setting | Correct | Repeated instances | Flaky | Agreement |
+|---|---|---|---|---|---|
+| gpt-4o-mini | temperature 0 | 70/80 | 22 | 0 | 100 % |
+| gpt-4o-mini | default | 70/80 | 22 | 0 | 100 % |
+| ornith-1.5:9b | temperature 0 | 80/80 | 22 | 0 | 100 % |
+| ornith-1.5:9b | default | 66/76 | 18 | 2 | 94 % |
+
+gpt-4o-mini's ten misses are the same ten at both settings (reason free-form 0/8 and tally20
+free-form 6/8, both times), so on these cells the temperature changes nothing it says. The local
+model at Ollama's default temperature disagrees with itself in two ways the pair of numbers tells
+apart:
+
+| Cell (ornith, default) | Correct | Agreement | Reading |
+|---|---|---|---|
+| health · noHarness | 1/8 | 88 % | hedged seven times of eight ("I cannot determine…"): a systematic miss |
+| regex · harness | 5/8 | 63 % | no JSON three times of eight: noise |
+| tally20 · noHarness | 4/4 | — | four trials of the replay timed out at 120 s while both replays shared the daemon |
+
+At temperature 0 the same model answered every one of the 80 trials the same way twice. Mean
+reasoning per trial: 479 characters at temperature 0, 595 at the default; mean latency about 64 s
+either way under the shared load.
+
+Over the whole index, `chain` and `transform` now agree on the answer's shape: gpt-4o-mini reports
+the second greeting as `hello, <id>!` in every harness trial (100 %), and in free-form mode its
+answers take three shapes (73 % agreement) — the same fact the 0/22 free-form correctness states,
+now with the form of the miss.

@@ -11,6 +11,12 @@ import { statSync, readdirSync, readFileSync, writeFileSync, existsSync } from "
 import { join } from "node:path";
 import { runsDir, resultsRoot, loadRun, onRunSaved } from "./results.js";
 import { summarize } from "./runner.js";
+import { tasks as registeredTasks } from "./tasks/registry.js";
+
+// Rows written before the runner recorded `seeded` get the registry's word, so their agreement is
+// read per instance like everyone else's.
+const SEEDED = Object.fromEntries(registeredTasks.map((t) => [t.name, t.seeded === true]));
+const withSeeded = (rows) => rows.map((r) => (r.seeded === undefined ? { ...r, seeded: SEEDED[r.task] ?? false } : r));
 
 const SCHEMA = `
 create table if not exists runs (
@@ -119,7 +125,7 @@ export function indexRun(run, { mtime = null } = {}) {
         (run_id, task, client, mode, runs, correct, correct_pct, tool_use_pct, tool_args_ok_pct, schema_valid_pct, error_pct,
          avg_latency_ms, latency_p50_ms, latency_p95_ms, ttft_p50_ms, total_tokens, agreement_pct, distinct_answers, flaky, cost_usd)
         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-      for (const c of summarize(run.rows ?? []).cells) {
+      for (const c of summarize(withSeeded(run.rows ?? [])).cells) {
         cell.run(run.id, c.task, c.client, c.mode, c.runs, c.correct, c.correctPct, c.toolUsePct,
           c.toolArgsJudged ? c.toolArgsOkPct : null, c.schemaValidPct, c.errorPct, c.avgLatencyMs,
           c.latencyP50Ms, c.latencyP95Ms, c.ttftP50Ms ?? null, c.totalTokens,

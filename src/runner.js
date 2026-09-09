@@ -248,6 +248,9 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
     seed: instance,
     // A public anchor set says so on every row, with the contamination caveat it carries.
     source: task.source ?? null,
+    // A generated task mints a different instance per trial index: agreement is only measurable
+    // between trials of the same instance (the same seed), so the row says whether it is one.
+    seeded: task.seeded === true,
     // Cost in currency from the usage and the price table of the day (null when unpriced).
     cost: null,
     reasoningChars: null,
@@ -636,25 +639,39 @@ export function costView(rows) {
   return out;
 }
 
-// Variance across repeated trials of one cell. `agreementPct` is the share of trials that gave the
-// modal canonical answer (only for tasks that define `eval.canon`); `flaky` says the cell had both
-// passes and failures. Both are null until there are two trials to compare.
-function varianceFor(rows) {
-  const canon = rows.map((r) => r.canon).filter((c) => typeof c === "string");
-  const correct = rows.filter((r) => r.correct).length;
-  let agreementPct = null;
-  if (canon.length >= 2) {
-    const counts = new Map();
-    for (const c of canon) counts.set(c, (counts.get(c) ?? 0) + 1);
-    agreementPct = (Math.max(...counts.values()) / canon.length) * 100;
+// Variance across repeated trials of one cell, per instance: a fixed-truth task's trials are all
+// the same instance; a generated task's trials are the same instance only when they share a seed
+// (a replay, or another run on the same instance seed), and different problems are never compared.
+// `agreementPct` is the trial-weighted share of trials that gave the modal canonical answer over
+// the repeated instances (only for tasks that define `eval.canon`), `distinctAnswers` the mean
+// number of distinct answers per repeated instance, `flakyInstances` how many repeated instances
+// had both passes and failures; `flaky` says the cell had any. All null until an instance repeats.
+// The instance a row is a trial of: a generated task's seed, a public anchor's item (its trial
+// index picks the item from the set's fixed permutation), or the one fixed problem.
+export const instanceKey = (r) => (r.seeded ? `seed:${r.seed}` : r.source === "public" ? `item:${r.index}` : "fixed");
+export function instanceVariance(rows) {
+  const groups = new Map();
+  for (const r of rows) { const k = instanceKey(r); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(r); }
+  const repeated = [...groups.values()].filter((g) => g.length >= 2);
+  const canonGroups = repeated.map((g) => g.map((r) => r.canon).filter((c) => typeof c === "string")).filter((c) => c.length >= 2);
+  let agreementPct = null, distinctAnswers = null;
+  if (canonGroups.length) {
+    const weight = canonGroups.reduce((a, c) => a + c.length, 0);
+    const modal = (c) => { const counts = new Map(); for (const x of c) counts.set(x, (counts.get(x) ?? 0) + 1); return Math.max(...counts.values()); };
+    agreementPct = (canonGroups.reduce((a, c) => a + modal(c), 0) / weight) * 100;
+    distinctAnswers = Math.round((canonGroups.reduce((a, c) => a + new Set(c).size, 0) / canonGroups.length) * 10) / 10;
   }
+  const flakyGroups = repeated.filter((g) => { const k = g.filter((r) => r.correct).length; return k > 0 && k < g.length; });
   return {
-    canonRuns: canon.length,
+    canonRuns: canonGroups.reduce((a, c) => a + c.length, 0),
     agreementPct,
-    distinctAnswers: canon.length >= 2 ? new Set(canon).size : null,
-    flaky: rows.length >= 2 ? correct > 0 && correct < rows.length : null,
+    distinctAnswers,
+    repeatedInstances: repeated.length,
+    flakyInstances: flakyGroups.length,
+    flaky: repeated.length ? flakyGroups.length > 0 : null,
   };
 }
+const varianceFor = instanceVariance;
 
 // One phrasing of a mode's stability, shared by the CLI report and the web UI.
 export function describeStability(st) {
@@ -1040,7 +1057,9 @@ export function summarize(rows, { capabilitiesOf = null, levelsOf = null } = {})
   const stability = {};
   for (const m of modes) {
     const cs = cells.filter((c) => c.mode === m);
-    const repeated = cs.filter((c) => c.runs >= 2);
+    // A cell is repeated when some instance in it ran more than once — for a generated task that
+    // takes a replay or the same instance seed, four different problems are not a repeat.
+    const repeated = cs.filter((c) => c.repeatedInstances > 0);
     const canonCells = repeated.filter((c) => c.agreementPct !== null);
     const weight = canonCells.reduce((a, c) => a + c.canonRuns, 0);
     stability[m] = {

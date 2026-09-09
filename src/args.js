@@ -57,6 +57,8 @@ export function parseArgs(argv) {
       case "--fail": args.fail = true; break;
       case "--graph": args.graph = true; break;
       case "--effort": args.effort = next(); break;
+      case "--by": args.by = next(); break;
+      case "--over-time": args.overTime = true; break;
       case "--reprice": args.reprice = true; break;
       default: args._.push(a);
     }

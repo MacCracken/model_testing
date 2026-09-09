@@ -4,6 +4,48 @@ What shipped, by date. Full measurement tables live in [docs/results.md](docs/re
 forward roadmap is [plan.md](plan.md). Dates are the commit dates; item numbers ([1]–[49]) are the
 roadmap's, stable across the plan, this file and the results.
 
+## 2026-09-12 (later) — variance across settings
+
+### Changed
+- **Agreement is measured per instance** ([47]). A generated task mints a different problem per
+  trial index, so the old per-cell agreement compared answers to different problems and read a
+  deterministic model as disagreeing with itself. `instanceVariance` (the runner's `varianceFor`)
+  now groups a cell's trials by instance — every trial of a fixed-truth task, and only trials that
+  share a seed for a generated one (a replay, or another run on the same instance seed) — and
+  reports the trial-weighted agreement over the repeated instances, the mean distinct answers per
+  instance, `repeatedInstances` and `flakyInstances`. A cell counts as repeated in the run's
+  stability only when an instance in it ran more than once; four different word problems are not
+  a repeat. Rows record `seeded`, and the store stamps it from the registry on rows written before
+  the flag, so a full re-index reads every saved run the same way.
+
+### Added
+- **`cli variance --client <c> [--by temperature|seed|effort]`** ([47]): agreement and flakiness
+  per instance under each value of a model parameter, pooled over the index — the same cells at
+  temperature 0 and at the provider's default side by side (`varianceBySetting` in trends.js;
+  `GET /api/variance?client=`). `--over-time` gives one point per run — repeated instances, flaky
+  instances, agreement — with sparklines (`stabilityOverTime`).
+- **Canonical shapes for `chain` and `transform`** ([47]): their values are minted per call (a
+  random id), so their canonical form is the answer's shape — `hello, <id>!` reported verbatim for
+  chain; per name, the prefix length given and whether the shout had the right form for transform.
+  Agreement on those says whether a model reports what it fetched the same way every time.
+- Tests: 326 (per-instance agreement over fixed, distinct and repeated instances with weighting;
+  the run's stability over repeated instances; the settings table and the per-run series; the two
+  canonical shapes; the store's stamping of `seeded`).
+- Every saved run was re-scored in place with today's scorers (92 runs, 6 933 rows): 5 verdicts
+  flipped, all from scorer fixes shipped earlier and never applied to those runs (a fenced JSON
+  answer, positional regex answers from the local model), and 1 176 rows gained a canonical
+  answer they lacked.
+
+### Measured (health, reason, regex, wordmath4, tally20; noHarness and harness; instance seed 7; two runs per setting, the second a replay of the first; tables in docs/results.md)
+- **gpt-4o-mini does not care about the temperature on these cells**: 70/80 at temperature 0 and
+  70/80 at the default, 100 % agreement over 22 repeated instances at both, no flaky instance.
+- **The local thinking model does**: at temperature 0, 80/80 with 100 % agreement; at Ollama's
+  default, 66/76 with 94 % agreement and two flaky instances — and the disagreement is of two
+  kinds the numbers tell apart. Free-form `health` at the default hedged seven times of eight
+  (88 % agreement on the hedge: a systematic miss, not noise); `regex` in harness mode returned no
+  JSON three times of eight (63 % agreement: noise). Four free-form `tally20` trials timed out in
+  the replay while both replays shared the daemon — load, not temperature.
+
 ## 2026-09-12 — cost in currency, three providers and the effort knob
 
 ### Added

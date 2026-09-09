@@ -323,6 +323,27 @@ async function handle(req, res) {
     }
   }
 
+  // Variance across settings for a client: agreement and flakiness per instance under each value
+  // of a model parameter, pooled over the index.
+  if (req.method === "GET" && path === "/api/variance") {
+    const client = url.searchParams.get("client");
+    if (!client) return sendJSON(res, 400, { error: "client is required" });
+    try {
+      indexRuns();
+      const { rawQuery } = await import("../store.js");
+      const { varianceBySetting, stabilityOverTime } = await import("../trends.js");
+      const { tasks } = await import("../tasks/registry.js");
+      const q = (s) => s.replace(/'/g, "''");
+      const seededOf = Object.fromEntries(tasks.map((t) => [t.name, t.seeded === true]));
+      const by = url.searchParams.get("by") ?? "temperature";
+      const rows = rawQuery(`select t.run_id as runId, r.created_at as createdAt, r.model_params as params, t.task, t.mode, t.client, t.correct, t.canon, t.seed, t.trial_index as "index", t.source from trials t join runs r on r.id = t.run_id where t.client = '${q(client)}' and t.error is null and t.base_client is null`)
+        .map((r) => ({ ...r, correct: !!r.correct, seeded: seededOf[r.task] ?? false, params: (() => { try { return JSON.parse(r.params ?? "{}"); } catch { return {}; } })() }));
+      return sendJSON(res, 200, { client, by, settings: varianceBySetting(rows, { by }), overTime: stabilityOverTime(rows, { by }) });
+    } catch (err) {
+      return sendJSON(res, 500, { error: err?.message ?? "index unavailable" });
+    }
+  }
+
   // The lineage registry with what the index holds per checkpoint — the graph's data.
   if (req.method === "GET" && path === "/api/lineage") {
     try {

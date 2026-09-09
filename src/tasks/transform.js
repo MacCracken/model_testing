@@ -152,20 +152,34 @@ export const task = {
 
     // Free-form: one line per name, "<name>: <prefix> <SHOUT>" — parsed leniently.
     scoreNoHarness: (out, ground) => {
-      const lines = String(out ?? "").replace(/[*`"]/g, "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-      const entries = [];
-      for (const name of NAMES) {
-        const line = lines.find((l) => l.toLowerCase().startsWith(name));
-        if (!line) continue;
-        const rest = line.slice(name.length).replace(/^[\s:—-]+/, "");
-        const prefix = (rest.match(/[0-9a-f]{8}/i) ?? [])[0] ?? "";
-        const shout = (rest.match(/HELLO, [A-Z]+!/) ?? [])[0] ?? "";
-        entries.push({ name, idPrefix: prefix, shout });
-      }
+      const entries = parseLines(out);
       if (!entries.length) return { correct: false, reason: "no per-name lines found" };
       return judge(entries, ground);
     },
+    // The ids are minted per call, so the canonical form is the answer's shape per name: how many
+    // characters of prefix were given and whether the shout had the right form. Agreement then
+    // says whether the model reshapes what it fetched the same way every time.
+    canon: (answer, { structured }) => {
+      const entries = structured ? (answer && typeof answer === "object" ? entriesFrom(answer) : []) : parseLines(answer);
+      if (!entries.length) return "none";
+      const byName = new Map(entries.map((e) => [String(e?.name ?? "").trim().toLowerCase(), e]));
+      return NAMES.map((name) => { const e = byName.get(name); return e ? `${name}:${String(e.idPrefix ?? "").trim().length}${/^HELLO, [A-Z]+!$/.test(String(e.shout ?? "").trim()) ? "+shout" : "-shout"}` : `${name}:missing`; }).join("|");
+    },
   },
 };
+
+function parseLines(text) {
+  const lines = String(text ?? "").replace(/[*`"]/g, "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const entries = [];
+  for (const name of NAMES) {
+    const line = lines.find((l) => l.toLowerCase().startsWith(name));
+    if (!line) continue;
+    const rest = line.slice(name.length).replace(/^[\s:—-]+/, "");
+    const prefix = (rest.match(/[0-9a-f]{8}/i) ?? [])[0] ?? "";
+    const shout = (rest.match(/HELLO, [A-Z]+!/) ?? [])[0] ?? "";
+    entries.push({ name, idPrefix: prefix, shout });
+  }
+  return entries;
+}
 
 export { schema, PREFIX };

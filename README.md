@@ -159,6 +159,7 @@ node src/cli.js scorecard --family ornith                # a lineage family's ch
 node src/cli.js models --graph                           # the registry as a tree per family, each checkpoint with its pooled harness rate
 node src/cli.js anchors list | anchors openai:gpt-4o-mini   # the public sets in the cache with their provenance; a client's anchor rates next to its own tasks
 node src/cli.js cost <run-id> [--reprice]                # correctness × cost × latency per model and mode (models/prices.json; --reprice prices old rows for the view)
+node src/cli.js variance --client openai:gpt-4o-mini [--by temperature] [--over-time]   # agreement and flakiness per instance under each setting, or per run
 node src/cli.js compare <run> --a <client> --b <client> --mode harness   # paired: McNemar + bootstrap band per task
 node src/cli.js compare <run-A> <run-B> --mode schemaOnly               # two runs on the same instance seed
 node src/cli.js curve restock [--mode harness] [--client <c>]           # success per difficulty level over every saved run, with each model's breaking point
@@ -189,6 +190,14 @@ capability and mode, a model's latest run of each task with its earlier runs of 
 the same number of trials per task on both sides, so a change of task mix never reads as a change
 in the model — and a checkpoint with its lineage parent; a flag needs the later band to lie
 entirely under the earlier one, and names the per-task split behind it.
+
+**Variance.** Agreement (the share of trials giving the modal canonical answer) and flakiness
+(both outcomes for one problem) are measured per instance: every trial of a fixed-truth task is
+the same problem, but a generated task's trials only repeat an instance across a replay or runs on
+the same instance seed, and different problems are never compared. `cli variance --client <c>`
+puts the same cells at temperature 0 and at the provider's default side by side (`--by seed` or
+`--by effort` for another setting), and `--over-time` gives one point per run. `chain` and
+`transform`, whose values are minted per call, agree on the answer's shape.
 
 **Cost and effort.** `models/prices.json` holds per-million-token prices by model id (source and
 date beside each; local serving is 0; check them — the bench cannot). Every row is priced when it

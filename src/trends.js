@@ -3,7 +3,7 @@
 // indexed trial rows ({ runId, createdAt, task, mode, client, correct }); the CLI and the web API
 // fetch the rows from the SQLite index and hand them here.
 
-import { wilsonInterval, deltaBetween, capabilityStats } from "./runner.js";
+import { wilsonInterval, deltaBetween, capabilityStats, instanceVariance } from "./runner.js";
 
 const rate = (rows) => {
   const correct = rows.filter((r) => r.correct).length;
@@ -141,6 +141,48 @@ export function lineageStats(rows, capabilitiesOf, entries, { minTrials = 4 } = 
     out[id] = { trials: own.length, runs: new Set(own.map((r) => r.runId)).size, last: own.map((r) => String(r.createdAt)).sort().pop() ?? null, harnessN: h.length, harnessCorrect: correct, harnessPct: h.length ? (correct / h.length) * 100 : null, flags: flagsFor[id] ?? { own: 0, parent: 0 } };
   }
   return out;
+}
+
+// Variance across settings: the same cells under each value of one model parameter (temperature
+// by default; seed, effort…), pooled over every run at that setting — agreement and flakiness per
+// instance, so a generated task's repeats come from replays and runs on the same instance seed.
+// Rows: { runId, createdAt, task, mode, client, correct, canon, seed, seeded, params }.
+export function varianceBySetting(rows, { by = "temperature" } = {}) {
+  const settingOf = (r) => { const v = r.params?.[by]; return v === undefined || v === null ? "default" : String(v); };
+  const out = {};
+  for (const setting of [...new Set(rows.map(settingOf))].sort((a, b) => (a === "default") - (b === "default") || a.localeCompare(b, undefined, { numeric: true }))) {
+    const sub = rows.filter((r) => settingOf(r) === setting);
+    const cells = [];
+    for (const key of [...new Set(sub.map((r) => `${r.task}|${r.mode}`))].sort()) {
+      const [task, mode] = key.split("|");
+      const cr = sub.filter((r) => r.task === task && r.mode === mode);
+      cells.push({ task, mode, runs: new Set(cr.map((r) => r.runId)).size, trials: cr.length, correct: cr.filter((r) => r.correct).length, ...instanceVariance(cr) });
+    }
+    const canonCells = cells.filter((c) => c.agreementPct !== null);
+    const weight = canonCells.reduce((a, c) => a + c.canonRuns, 0);
+    out[setting] = {
+      setting: by, value: setting,
+      runs: new Set(sub.map((r) => r.runId)).size, trials: sub.length, correct: sub.filter((r) => r.correct).length,
+      repeatedInstances: cells.reduce((a, c) => a + c.repeatedInstances, 0), flakyInstances: cells.reduce((a, c) => a + c.flakyInstances, 0),
+      agreementPct: weight ? canonCells.reduce((a, c) => a + c.agreementPct * c.canonRuns, 0) / weight : null,
+      canonCells: canonCells.length, cells,
+    };
+  }
+  return out;
+}
+
+// Stability per run over time: each run's repeated instances, how many were flaky, and the
+// agreement — one point per run, oldest first, with the run's setting for the sparkline's label.
+export function stabilityOverTime(rows, { by = "temperature" } = {}) {
+  const runs = [...new Map(rows.map((r) => [r.runId, r])).values()].sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+  return runs.map((run) => {
+    const own = rows.filter((r) => r.runId === run.runId);
+    const cells = [...new Set(own.map((r) => `${r.task}|${r.mode}`))].map((key) => { const [task, mode] = key.split("|"); return { task, mode, ...instanceVariance(own.filter((r) => r.task === task && r.mode === mode)) }; });
+    const canonCells = cells.filter((c) => c.agreementPct !== null);
+    const weight = canonCells.reduce((a, c) => a + c.canonRuns, 0);
+    const v = run.params?.[by];
+    return { runId: run.runId, createdAt: run.createdAt, setting: v === undefined || v === null ? "default" : String(v), trials: own.length, correct: own.filter((r) => r.correct).length, repeatedInstances: cells.reduce((a, c) => a + c.repeatedInstances, 0), flakyInstances: cells.reduce((a, c) => a + c.flakyInstances, 0), agreementPct: weight ? canonCells.reduce((a, c) => a + c.agreementPct * c.canonRuns, 0) / weight : null };
+  });
 }
 
 // A checkpoint against its parent, both pooled over every run, per capability and mode, on the

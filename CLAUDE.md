@@ -299,6 +299,11 @@ correctness × cost × latency view per client and mode, from the `cost` rows ca
 failures) and `agreementPct` (share of trials giving the modal canonical answer, over cells whose
 task defines `eval.canon`). `describeStability` is the one phrasing for it. Agreement separates a
 systematic miss (wrong the same way every time) from noise, which a correctness percentage cannot.
+Both are measured **per instance** (`instanceVariance`): every trial of a fixed-truth task is the
+same instance, a generated task's trials only when they share a seed (rows record `seeded`), so a
+cell of four different word problems has nothing to compare and says so (`repeatedInstances` 0).
+`varianceBySetting` / `stabilityOverTime` in trends.js pool the same per instance across the
+index under each value of a model parameter, behind `cli variance` and `/api/variance`.
 
 When both sides of a comparison ran the same instances (same task and index; for generated tasks
 the same seed), `deltaBetween` pairs them (`pairRows`) and adds `paired`: McNemar's exact test on the

@@ -118,6 +118,16 @@ export const task = {
     // Truth: what the second call really returned — only knowable from this trial's tool results.
     ground: ({ toolResults = [] } = {}) => chainFrom(toolResults),
 
+    // The greeting's value is minted per trial (a random id), so the canonical form is its shape:
+    // "hello, <id>!" reported verbatim, or whatever else came back. Agreement then says whether the
+    // model reports the tool's words the same way every time, not whether the id repeats.
+    canon: (answer, { structured }) => {
+      const text = structured ? String(answer?.greeting ?? answer?.message ?? "") : String(answer ?? "");
+      const shaped = text.replace(/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/gi, "<id>").replace(/\b[0-9a-f]{8,}\b/gi, "<id>").replace(/["*`]/g, "").trim().toLowerCase();
+      if (!shaped) return "none";
+      if (structured) return shaped === "hello, <id>!" ? "hello, <id>!" : shaped.slice(0, 60);
+      return shaped.includes("hello, <id>!") ? "hello, <id>!" : "no-greeting";
+    },
     scoreHarness: (out, ground) => {
       if (out === null || out === undefined) return { correct: false, reason: "no structured output" };
       const why = chainVerdict(ground);

@@ -222,6 +222,46 @@ async function main() {
     }
 
     // A client's capabilities over time, from the index.
+    // Variance across settings: agreement and flakiness per instance under each value of a model
+    // parameter (temperature by default), pooled over the index; --over-time gives one point per run.
+    case "variance": {
+      const args = parseArgs(rest);
+      if (!args.client) { console.error("usage: node src/cli.js variance --client <c> [--by temperature|seed|effort] [--task t] [--mode m] [--since D] [--over-time] [--json]"); process.exit(1); }
+      const { indexRuns, rawQuery } = await import("./store.js");
+      const { varianceBySetting, stabilityOverTime } = await import("./trends.js");
+      const { tasks } = await import("./tasks/registry.js");
+      const { sparklineText } = await import("./charts.js");
+      indexRuns();
+      const q = (s) => s.replace(/'/g, "''");
+      const seededOf = Object.fromEntries(tasks.map((t) => [t.name, t.seeded === true]));
+      const by = args.by ?? "temperature";
+      const rows = rawQuery(`select t.run_id as runId, r.created_at as createdAt, r.model_params as params, t.task, t.mode, t.client, t.correct, t.canon, t.seed, t.trial_index as "index", t.source from trials t join runs r on r.id = t.run_id where t.client = '${q(args.client)}' and t.error is null and t.base_client is null${args.task ? ` and t.task in (${args.task.split(",").map((x) => `'${q(x.trim())}'`).join(",")})` : ""}${args.mode ? ` and t.mode = '${q(args.mode)}'` : ""}${args.since ? ` and r.created_at >= '${q(args.since)}'` : ""}`)
+        .map((r) => ({ ...r, correct: !!r.correct, seeded: seededOf[r.task] ?? false, params: (() => { try { return JSON.parse(r.params ?? "{}"); } catch { return {}; } })() }));
+      if (!rows.length) { console.log(`no trials for ${args.client}`); break; }
+      if (args.overTime) {
+        const series = stabilityOverTime(rows, { by });
+        if (args.json) { console.log(JSON.stringify(series, null, 2)); break; }
+        console.log(`${args.client} — stability per run, oldest first (repeated instances: the same problem run more than once within the run)\n`);
+        console.log(`${"run".padEnd(24)} ${"date".padEnd(11)} ${by.padEnd(12)} ${"trials".padEnd(7)} ${"correct".padEnd(8)} ${"repeated".padEnd(9)} ${"flaky".padEnd(6)} agreement`);
+        for (const p of series) console.log(`${p.runId.padEnd(24)} ${String(p.createdAt).slice(0, 10).padEnd(11)} ${p.setting.padEnd(12)} ${String(p.trials).padEnd(7)} ${`${p.correct}`.padEnd(8)} ${String(p.repeatedInstances).padEnd(9)} ${String(p.flakyInstances).padEnd(6)} ${p.agreementPct === null ? "—" : `${p.agreementPct.toFixed(0)}%`}`);
+        const agree = series.map((p) => p.agreementPct);
+        console.log(`\nagreement ${sparklineText(agree)} · flaky instances ${series.map((p) => (p.repeatedInstances ? Math.round((100 * p.flakyInstances) / p.repeatedInstances) : null)).map((v) => (v === null ? "·" : v === 0 ? "▁" : v < 25 ? "▃" : v < 50 ? "▅" : "█")).join("")} (one bar per run)`);
+        break;
+      }
+      const table = varianceBySetting(rows, { by });
+      if (args.json) { console.log(JSON.stringify(table, null, 2)); break; }
+      console.log(`${args.client} — variance across ${by} settings, per instance (a generated task's repeats come from replays and runs on the same instance seed)\n`);
+      for (const v of Object.values(table)) {
+        console.log(`${by}=${v.value} · ${v.runs} run(s) · ${v.correct}/${v.trials} correct (${((100 * v.correct) / v.trials).toFixed(0)}%) · ${v.repeatedInstances} repeated instance(s), ${v.flakyInstances} flaky · agreement ${v.agreementPct === null ? "— (no repeated instance with a canonical answer)" : `${v.agreementPct.toFixed(0)}% over ${v.canonCells} cell(s)`}`);
+        console.log(`  ${"task".padEnd(12)} ${"mode".padEnd(11)} ${"trials".padEnd(7)} ${"correct".padEnd(8)} ${"repeated".padEnd(9)} ${"flaky".padEnd(6)} ${"agreement".padEnd(10)} distinct/instance`);
+        for (const c of v.cells) console.log(`  ${c.task.padEnd(12)} ${c.mode.padEnd(11)} ${String(c.trials).padEnd(7)} ${`${c.correct}`.padEnd(8)} ${String(c.repeatedInstances).padEnd(9)} ${String(c.flakyInstances).padEnd(6)} ${(c.agreementPct === null ? "—" : `${c.agreementPct.toFixed(0)}%`).padEnd(10)} ${c.distinctAnswers ?? "—"}`);
+        console.log("");
+      }
+      const vals = Object.values(table).filter((v) => v.agreementPct !== null);
+      if (vals.length >= 2) console.log(`agreement by ${by}: ${vals.map((v) => `${v.value} ${v.agreementPct.toFixed(0)}%`).join(" · ")}; flaky instances: ${Object.values(table).map((v) => `${v.value} ${v.flakyInstances}/${v.repeatedInstances}`).join(" · ")}`);
+      break;
+    }
+
     case "trend": {
       const args = parseArgs(rest);
       if (!args.client) { console.error("usage: node src/cli.js trend --client <c> [--capability <cap>] [--mode harness] [--since D]"); process.exit(1); }
@@ -555,6 +595,7 @@ async function main() {
       console.log("  node src/cli.js cost <run-id> [--reprice]            # correctness × cost × latency per model and mode (models/prices.json)");
       console.log("  node src/cli.js curve <family> [--mode] [--client]   # success per difficulty level, with the breaking point");
       console.log("  node src/cli.js trend --client <c> [--capability]    # a client's capabilities per run over time, with sparklines");
+      console.log("  node src/cli.js variance --client <c> [--by temperature] [--over-time]   # agreement and flakiness per instance under each setting, or per run");
       console.log("  node src/cli.js regressions [--client <c>] [--json|--format md] [--out <file>] [--webhook <url>] [--fail]   # latest run vs earlier runs, and checkpoint vs parent; delivered to a file or a webhook");
       console.log("  node src/cli.js suite smoke|standard|full --clients … # preset runs for a fresh checkpoint");
       console.log("  node src/cli.js serve [--port 4000] [--host 127.0.0.1] [--open]");
