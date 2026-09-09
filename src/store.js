@@ -57,8 +57,8 @@ export function openStore() {
 // table alone, so each new column is added here when missing; the next `index --full` fills it.
 const LATER_COLUMNS = {
   runs: { parallel: "integer", instance_seed: "integer", lineage: "text", suite: "text", parent_run: "text", parent_kind: "text", gate_verdict: "text" },
-  trials: { canon: "text", skill: "text", base_client: "text", agents: "text", delegations: "integer", stress: "text", seed: "integer", constraints: "text", adherence_pct: "real", family: "text", checkpoint: "text", step: "integer", parent: "text", format: "text", depth: "real", source: "text" },
-  cells: { agreement_pct: "real", distinct_answers: "integer", flaky: "integer" },
+  trials: { canon: "text", skill: "text", base_client: "text", agents: "text", delegations: "integer", stress: "text", seed: "integer", constraints: "text", adherence_pct: "real", family: "text", checkpoint: "text", step: "integer", parent: "text", format: "text", depth: "real", source: "text", cost_usd: "real", effort: "text" },
+  cells: { agreement_pct: "real", distinct_answers: "integer", flaky: "integer", cost_usd: "real" },
 };
 function migrate(d) {
   for (const [table, cols] of Object.entries(LATER_COLUMNS)) {
@@ -100,8 +100,8 @@ export function indexRun(run, { mtime = null } = {}) {
     if (run.status !== "running") {
       const ins = d.prepare(`insert into trials
         (run_id, idx, task, mode, client, model, harness, trial_index, correct, reason, error, tool_calls, tool_use_ok, tool_use_reason,
-         schema_valid, judge_score, judge_reason, latency_ms, ttft_ms, ttfa_ms, prompt_tokens, completion_tokens, total_tokens, rounds, finish_reason, started_at, canon, skill, base_client, agents, delegations, stress, seed, constraints, adherence_pct, family, checkpoint, step, parent, format, depth, source)
-        values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+         schema_valid, judge_score, judge_reason, latency_ms, ttft_ms, ttfa_ms, prompt_tokens, completion_tokens, total_tokens, rounds, finish_reason, started_at, canon, skill, base_client, agents, delegations, stress, seed, constraints, adherence_pct, family, checkpoint, step, parent, format, depth, source, cost_usd, effort)
+        values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
       const lineageOfRow = (r) => run.config?.lineage?.[r.client] ?? run.config?.lineage?.[String(r.client).replace(/@(skill|agents|stress|constraints|format)(:[a-z]+)?$/, "")] ?? null;
       (run.rows ?? []).forEach((r, i) => ins.run(
         run.id, i, r.task ?? null, r.mode ?? null, r.client ?? null, r.model ?? null, r.harness ?? null,
@@ -113,17 +113,17 @@ export function indexRun(run, { mtime = null } = {}) {
         r.skill?.how ?? null, r.baseClient ?? null, r.agents?.how ?? null, r.agents ? num(r.agents.delegations) ?? 0 : null, r.stress?.how ?? null, num(r.seed),
         r.constraints?.how ?? null, r.constraints?.total ? (100 * r.constraints.met) / r.constraints.total : null,
         lineageOfRow(r)?.family ?? null, lineageOfRow(r)?.checkpoint ?? null, num(lineageOfRow(r)?.step), lineageOfRow(r)?.parent ?? null,
-        r.format?.how ?? null, num(r.ctx?.depth), r.source ?? null,
+        r.format?.how ?? null, num(r.ctx?.depth), r.source ?? null, num(r.cost?.usd), r.effort?.how ?? null,
       ));
       const cell = d.prepare(`insert into cells
         (run_id, task, client, mode, runs, correct, correct_pct, tool_use_pct, tool_args_ok_pct, schema_valid_pct, error_pct,
-         avg_latency_ms, latency_p50_ms, latency_p95_ms, ttft_p50_ms, total_tokens, agreement_pct, distinct_answers, flaky)
-        values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+         avg_latency_ms, latency_p50_ms, latency_p95_ms, ttft_p50_ms, total_tokens, agreement_pct, distinct_answers, flaky, cost_usd)
+        values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
       for (const c of summarize(run.rows ?? []).cells) {
         cell.run(run.id, c.task, c.client, c.mode, c.runs, c.correct, c.correctPct, c.toolUsePct,
           c.toolArgsJudged ? c.toolArgsOkPct : null, c.schemaValidPct, c.errorPct, c.avgLatencyMs,
           c.latencyP50Ms, c.latencyP95Ms, c.ttftP50Ms ?? null, c.totalTokens,
-          c.agreementPct ?? null, c.distinctAnswers ?? null, flag(c.flaky ?? null));
+          c.agreementPct ?? null, c.distinctAnswers ?? null, flag(c.flaky ?? null), num(c.costUsd));
       }
     }
     d.exec("commit");

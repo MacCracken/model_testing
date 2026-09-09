@@ -125,6 +125,8 @@ node src/bench.js --task hello,regex,tally20 --clients openai:gpt-4o-mini,openai
 node src/bench.js --task fanout8,follow6,norelevant --modes harness --clients openai:gpt-4o-mini,openai:gpt-4o-mini@stress:injected --count 4 --instance-seed 7   # tool-use breadth + injection
 node src/bench.js --task paged6,typed,nearmiss --modes toolOnly,harness --clients openai:gpt-4o-mini,anthropic:claude-haiku-4-5 --count 4 --instance-seed 7   # paged results, strict types, near misses
 node src/cli.js anchors fetch all && node src/bench.js --task gsm8k,ifeval,bfclsimple --modes noHarness,harness --clients openai:gpt-4o-mini --count 50   # public anchors: 50 items each, the same fixed subset every run
+node src/bench.js --task wordmath4,chain --modes harness --clients local:ornith-1.5:9b,local:ornith-1.5:9b@effort:none --count 4   # thinking on vs off, paired (delta.effort)
+node src/bench.js --task gsm8k --modes noHarness --clients openai:gpt-5-mini --count 20 --effort low   # one effort level for the whole run
 
 # A bare provider name expands to all of its models
 node src/aggregate.js --tasks health,hello --clients local
@@ -156,6 +158,7 @@ node src/cli.js scorecard openai:gpt-4o-mini --svg radar.svg   # the same as a r
 node src/cli.js scorecard --family ornith                # a lineage family's checkpoints side by side, per capability, with a trend across them
 node src/cli.js models --graph                           # the registry as a tree per family, each checkpoint with its pooled harness rate
 node src/cli.js anchors list | anchors openai:gpt-4o-mini   # the public sets in the cache with their provenance; a client's anchor rates next to its own tasks
+node src/cli.js cost <run-id> [--reprice]                # correctness × cost × latency per model and mode (models/prices.json; --reprice prices old rows for the view)
 node src/cli.js compare <run> --a <client> --b <client> --mode harness   # paired: McNemar + bootstrap band per task
 node src/cli.js compare <run-A> <run-B> --mode schemaOnly               # two runs on the same instance seed
 node src/cli.js curve restock [--mode harness] [--client <c>]           # success per difficulty level over every saved run, with each model's breaking point
@@ -186,6 +189,17 @@ capability and mode, a model's latest run of each task with its earlier runs of 
 the same number of trials per task on both sides, so a change of task mix never reads as a change
 in the model — and a checkpoint with its lineage parent; a flag needs the later band to lie
 entirely under the earlier one, and names the per-task split behind it.
+
+**Cost and effort.** `models/prices.json` holds per-million-token prices by model id (source and
+date beside each; local serving is 0; check them — the bench cannot). Every row is priced when it
+runs, so a run keeps the price of its day, and a model without an entry runs unpriced and is
+counted as such. The report, the UI and `cli cost <run>` show correctness × cost × latency per
+model and mode: what a right answer costs and how long it takes. `--effort <level>` sets the
+reasoning effort for a run and `<client>@effort:<level>` runs it as a paired variant; each is
+translated to what the provider's route takes (`reasoning_effort`, or `reasoning: { effort }` on
+Ollama), and every row records the characters of reasoning that came back, so whether the knob
+took effect is visible. Gemini, Mistral and xAI are providers (`GEMINI_API_KEY`, `MISTRAL_API_KEY`,
+`XAI_API_KEY`); with a key their model lists are probed from the route.
 
 **Public anchors.** `gsm8k`, `ifeval`, `bfclsimple` and `bfclmultiple` run public sets through
 the same client against the same endpoint, scored by dependency-free reimplementations of their

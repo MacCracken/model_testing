@@ -54,15 +54,18 @@ export class Client {
      * time to the first token of any kind (reasoning included) and to the first *answer* token
      * (content or a tool call); both null when the request was not streamed.
      */
-    async chat(messages, tools, { signal } = {}) {
+    async chat(messages, tools, { signal, extraParams } = {}) {
         const normalizedTools = tools && tools.length ? this.normalizeTools(tools) : undefined;
 
+        // `extraParams` are per-call additions a variant sends (the effort knob's translation);
+        // they sit after the client's own params so the variant wins.
         const body = {
             model: this.model,
             messages,
             ...(normalizedTools ? { tools: normalizedTools } : {}),
             ...(this.stream ? { stream: true, ...(this.streamUsage ? { stream_options: { include_usage: true } } : {}) } : {}),
             ...(this.modelParams ?? {}),
+            ...(extraParams ?? {}),
         };
         const t0 = performance.now();
 
@@ -121,6 +124,8 @@ export class Client {
                 usage: parsed.usage ?? null,
                 ttftMs: null,
                 ttfaMs: null,
+                // How much thinking came back (a reasoning model's separate channel), in characters.
+                reasoningChars: String(choice.message?.reasoning ?? choice.message?.reasoning_content ?? "").length,
             };
         } finally {
             clearTimeout(timer);
@@ -143,6 +148,7 @@ export class Client {
         let usage = null;
         let ttftMs = null;
         let ttfaMs = null;
+        let reasoningChars = 0;
         const calls = [];
         const mark = () => Math.round(performance.now() - t0);
 
@@ -157,6 +163,7 @@ export class Client {
             const delta = choice.delta ?? {};
             if (delta.reasoning || delta.reasoning_content) {
                 if (ttftMs === null) ttftMs = mark();
+                reasoningChars += String(delta.reasoning ?? delta.reasoning_content ?? "").length;
             }
             if (typeof delta.content === "string" && delta.content.length) {
                 if (ttftMs === null) ttftMs = mark();
@@ -200,6 +207,7 @@ export class Client {
             usage,
             ttftMs,
             ttfaMs,
+            reasoningChars,
         };
     }
 
@@ -209,7 +217,8 @@ export class Client {
      * Returns { text, structured, toolCalls, toolResults, rounds, finishReason, usage }.
      * `structured` is the final message parsed as JSON (tolerantly) — null if it wasn't JSON.
      */
-    async runWithTools(initialPrompt, tools, systemMessage, { maxRounds = 4, signal, history = [] } = {}) {
+    async runWithTools(initialPrompt, tools, systemMessage, { maxRounds = 4, signal, history = [] , extraParams } = {}) {
+        let reasoningChars = 0;
         // `history` is the conversation so far (a scripted dialogue's earlier turns, tool calls and
         // results included); the loop continues it and hands it back grown as `messages`.
         const messages = [
@@ -233,7 +242,8 @@ export class Client {
 
         while (rounds < maxRounds) {
             rounds += 1;
-            const resp = await this.chat(messages, tools, { signal });
+            const resp = await this.chat(messages, tools, { signal, extraParams });
+            reasoningChars += resp.reasoningChars ?? 0;
             usage = addUsage(usage, resp.usage);
             if (rounds === 1) { ttftMs = resp.ttftMs ?? null; ttfaMs = resp.ttfaMs ?? null; }
             turns.push({ round: rounds, ms: Math.round(performance.now() - t0), text: resp.text ?? "", calls: resp.toolCalls.map((tc) => tc.id), finishReason: resp.finishReason ?? null, usage: resp.usage ?? null });
@@ -260,6 +270,7 @@ export class Client {
                     turns,
                     finishReason: resp.finishReason,
                     usage,
+                    reasoningChars,
                     ttftMs,
                     ttfaMs,
                     messages: transcript(resp.text),
@@ -306,8 +317,9 @@ export class Client {
         const finalResp = await this.chat(
             [...messages, { role: "user", content: "Now give your final answer. Do not call any more tools." }],
             undefined,
-            { signal },
+            { signal, extraParams },
         );
+        reasoningChars += finalResp.reasoningChars ?? 0;
         usage = addUsage(usage, finalResp.usage);
         turns.push({ round: rounds + 1, ms: Math.round(performance.now() - t0), text: finalResp.text ?? "", calls: [], finishReason: "max_rounds", usage: finalResp.usage ?? null, forced: true });
 
@@ -320,6 +332,7 @@ export class Client {
             turns,
             finishReason: "max_rounds",
             usage,
+            reasoningChars,
             ttftMs,
             ttfaMs,
             messages: [...messages.filter((m) => m.role !== "system"), { role: "user", content: "Now give your final answer. Do not call any more tools." }, { role: "assistant", content: finalResp.text ?? "" }],

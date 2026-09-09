@@ -63,6 +63,18 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
   `bfclsimple`, `bfclmultiple`) carry `source: "public"` and `public:<capability>` tags, so they
   never pool with the generated families; every row records the provenance and the contamination
   caveat. `cli anchors fetch | list | <client>`.
+- `src/prices.js` — cost in currency: `models/prices.json` (or PRICES_FILE) by model id, client id
+  or wildcard, with source and date per price; `priceFor`, `costOf(usage, price)` (cached input at
+  its rate), `pricingFor()` — the `(client, usage) → row.cost` the entry points hand to `runMatrix`,
+  so a row is priced on its day and an unpriced model stays visibly unpriced. `costStats` /
+  `costView` in the runner give per-cell and per-model × mode cost, per trial and per correct
+  answer; `cli cost <run>` prints the view.
+- `src/effort.js` — the reasoning-effort knob: `EFFORT_LEVELS`, `effortParams(provider, level)`
+  (`reasoning_effort` for most routes, `reasoning: { effort }` for Ollama, nothing for Mistral),
+  `withEffort(client, level)` — the `@effort:<level>` variant that adds the parameters to every
+  call through `extraParams`, paired by `summarize` as `delta.byEffort` / `delta.effort` — and the
+  run-level `--effort` translated in `buildClient`. Rows record `reasoningChars` (the client counts
+  the reasoning channel), so the knob's effect is measured, not assumed.
 - `src/runner.js` — **the execution core**: runs one (task, mode, client) trial, scores it,
   aggregates the matrix, and owns the statistics. Every surface (CLI and web) goes through this so
   they can't disagree — the web server serves it to the browser as `/lib/runner.js`, so it must
@@ -273,12 +285,15 @@ schema's own `items` key scores the same as a bare array.
 own (a real-harness arm), its delta against the free-form rows of the same model from any other
 client in the run, matched on the model id with any `provider/` prefix stripped.
 
-A client run as `…@skill:<how>`, `…@agents:<how>`, `…@stress:<profile>`, `…@constraints:<level>` or
-`…@format:<how>` is paired by `summarize` with its base client on the same task and mode
-(`variantDeltas`): `delta.bySkill` / `delta.byAgents` / `delta.byStress` / `delta.byConstraints` /
-`delta.byFormat` per cell and `delta.skill[how]` / `delta.agents[how]` / `delta.stress[profile]` /
-`delta.constraints[level]` / `delta.format[how]` pooled, the same shape as the harness delta (`deltaBetween` is the shared baseline-versus-treatment calculation; its
-`noHarness*`/`harness*` fields mean baseline/treatment, with `base*`/`treat*` aliases).
+A client run as `…@skill:<how>`, `…@agents:<how>`, `…@stress:<profile>`, `…@constraints:<level>`,
+`…@format:<how>` or `…@effort:<level>` is paired by `summarize` with its base client on the same
+task and mode (`variantDeltas`): `delta.bySkill` / `delta.byAgents` / `delta.byStress` /
+`delta.byConstraints` / `delta.byFormat` / `delta.byEffort` per cell and `delta.skill[how]` /
+`delta.agents[how]` / `delta.stress[profile]` / `delta.constraints[level]` / `delta.format[how]` /
+`delta.effort[level]` pooled, the same shape as the harness delta (`deltaBetween` is the shared
+baseline-versus-treatment calculation; its `noHarness*`/`harness*` fields mean
+baseline/treatment, with `base*`/`treat*` aliases). `summarize` also returns `cost`, the
+correctness × cost × latency view per client and mode, from the `cost` rows carry.
 
 `summarize` also reports `stability` per mode from repeated cells: `flaky` (both passes and
 failures) and `agreementPct` (share of trials giving the modal canonical answer, over cells whose
@@ -307,7 +322,10 @@ as helpers. `describeSignificance` is the one phrasing every surface prints — 
 
 Add entries to `PROVIDERS` in `src/providers/index.js` (name → baseUrl, auth, default models)
 and labels to `MODEL_LABELS`. Keys live in `.env`. `local` (Ollama) needs no key; its models are
-probed live from `/v1/models` and the UI marks the provider offline when the daemon is down.
+probed live from `/v1/models` and the UI marks the provider offline when the daemon is down. A
+hosted provider with `probeModels: true` (Gemini, Mistral, xAI) is probed the same way when it has
+a key, so its list is the route's. `--effort <level>` rides in `modelParams.effort` and is
+translated per provider when the client is built (`effortParams`).
 `OLLAMA_BASE_URL`, `LOCAL_ENDPOINTS` (named OpenAI-compatible servers for your own checkpoints),
 `LINEAGE_FILE`, `SUT_PORT` (the webserver's port; `PORT` is a legacy fallback) and `RESULTS_DIR` are
 honored from `.env` too.

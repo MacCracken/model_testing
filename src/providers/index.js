@@ -10,6 +10,7 @@ import { withDelegation, parseAgentsSuffix } from "../agents.js";
 import { withStress, parseStressSuffix } from "../stress.js";
 import { withConstraints, parseConstraintsSuffix } from "../constraints.js";
 import { withFormat, parseFormatSuffix } from "../format.js";
+import { withEffort, parseEffortSuffix, effortParams } from "../effort.js";
 
 // Provider registry: maps a stable provider name -> a list of models to try, plus the URL and
 // auth scheme. Kept here so CLI flags and the web UI can select providers/tasks/models without
@@ -39,6 +40,26 @@ const PROVIDERS = {
     baseUrl: "https://api.deepseek.com/v1/chat/completions",
     auth: (key) => `Bearer ${key}`,
     models: ["deepseek-chat", "deepseek-reasoner"],
+  },
+  // Gemini through its OpenAI-compatible route (GEMINI_API_KEY). The model list is a fallback: with
+  // a key, the live list is probed from the route's /models like a local daemon's.
+  gemini: {
+    baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+    auth: (key) => `Bearer ${key}`,
+    models: ["gemini-2.5-flash", "gemini-2.5-pro"],
+    probeModels: true,
+  },
+  mistral: {
+    baseUrl: "https://api.mistral.ai/v1/chat/completions",
+    auth: (key) => `Bearer ${key}`,
+    models: ["mistral-small-latest", "mistral-large-latest"],
+    probeModels: true,
+  },
+  xai: {
+    baseUrl: "https://api.x.ai/v1/chat/completions",
+    auth: (key) => `Bearer ${key}`,
+    models: ["grok-4-fast", "grok-4"],
+    probeModels: true,
   },
   // A real agent harness as the harness arm (see harness/thoth.js). Needs no key; THOTH_CMD says
   // how to invoke it (e.g. `ssh -n arch cd ~/Repos/thoth && thoth`). Structured modes only.
@@ -133,6 +154,12 @@ const MODEL_LABELS = {
   default: "Thoth (its own routed model)",
   "gpt-6-astra": "GPT-6 Astra (Codex default)",
   "gpt-5.4-mini": "GPT-5.4 mini",
+  "gemini-2.5-flash": "Gemini 2.5 Flash",
+  "gemini-2.5-pro": "Gemini 2.5 Pro",
+  "mistral-small-latest": "Mistral Small (latest)",
+  "mistral-large-latest": "Mistral Large (latest)",
+  "grok-4-fast": "Grok 4 Fast",
+  "grok-4": "Grok 4",
 };
 
 export function labelModel(model) {
@@ -165,6 +192,10 @@ export function buildClient({ provider, model, modelParams = {} }) {
   }
   if (cfg.harness === "codex") return new CodexClient({ name: `${provider}:${model}`, model, command: cfg.baseUrl });
   const key = apiKeyFor(provider) || "local";
+  // A run-level effort knob (--effort) is translated per provider here; the knob itself stays in
+  // the run's recorded model params, the translated parameters are what is sent.
+  const { effort, ...plain } = modelParams ?? {};
+  const sent = effort ? { ...plain, ...effortParams(provider, effort) } : plain;
   return new Client({
     name: `${provider}:${model}`,
     provider,
@@ -172,7 +203,7 @@ export function buildClient({ provider, model, modelParams = {} }) {
     apiKey: key,
     url: cfg.baseUrl,
     headers: { Authorization: cfg.auth(key) },
-    modelParams,
+    modelParams: sent,
     // Per-request timeout. Thinking-heavy local models can take minutes on a free-form answer.
     timeoutMs: Number(envValue("BENCH_TIMEOUT_MS", "120000")) || 120_000,
   });
@@ -189,9 +220,10 @@ export function parseClientSpec(spec) {
   const st = parseStressSuffix(ag.base);
   const co = parseConstraintsSuffix(st.base);
   const fo = parseFormatSuffix(co.base);
-  const base = fo.base;
-  if (/@(skill|agents|stress|constraints|format)(:|$)/.test(base)) throw new Error(`"${spec}": one variant per client — @skill:<how>, @agents:<how>, @stress:<profile>, @constraints:<level> or @format:<how>, not several`);
-  const variant = { ...(sk.how ? { skill: sk.how } : {}), ...(ag.how ? { agents: ag.how } : {}), ...(st.how ? { stress: st.how } : {}), ...(co.how ? { constraints: co.how } : {}), ...(fo.how ? { format: fo.how } : {}) };
+  const ef = parseEffortSuffix(fo.base);
+  const base = ef.base;
+  if (/@(skill|agents|stress|constraints|format|effort)(:|$)/.test(base)) throw new Error(`"${spec}": one variant per client — @skill:<how>, @agents:<how>, @stress:<profile>, @constraints:<level>, @format:<how> or @effort:<level>, not several`);
+  const variant = { ...(sk.how ? { skill: sk.how } : {}), ...(ag.how ? { agents: ag.how } : {}), ...(st.how ? { stress: st.how } : {}), ...(co.how ? { constraints: co.how } : {}), ...(fo.how ? { format: fo.how } : {}), ...(ef.how ? { effort: ef.how } : {}) };
   const idx = base.indexOf(":");
   if (idx === -1) return Object.keys(variant).length ? { provider: base, ...variant } : base;
   return { provider: base.slice(0, idx), model: base.slice(idx + 1), ...variant };
@@ -211,12 +243,12 @@ export function resolveClients(spec, { modelParams = {} } = {}) {
   const clients = [];
   const seen = new Set();
   const push = (provider, model, variant = {}) => {
-    const key = `${provider}:${model}${variant.skill ? `@skill:${variant.skill}` : ""}${variant.agents ? `@agents:${variant.agents}` : ""}${variant.stress ? `@stress:${variant.stress}` : ""}${variant.constraints ? `@constraints:${variant.constraints}` : ""}${variant.format ? `@format:${variant.format}` : ""}`;
+    const key = `${provider}:${model}${variant.skill ? `@skill:${variant.skill}` : ""}${variant.agents ? `@agents:${variant.agents}` : ""}${variant.stress ? `@stress:${variant.stress}` : ""}${variant.constraints ? `@constraints:${variant.constraints}` : ""}${variant.format ? `@format:${variant.format}` : ""}${variant.effort ? `@effort:${variant.effort}` : ""}`;
     if (seen.has(key)) return;
     seen.add(key);
     const c = buildClient({ provider, model, modelParams });
     if (!c) return;
-    clients.push(variant.skill ? withSkill(c, variant.skill) : variant.agents ? withDelegation(c, variant.agents) : variant.stress ? withStress(c, variant.stress) : variant.constraints ? withConstraints(c, variant.constraints) : variant.format ? withFormat(c, variant.format) : c);
+    clients.push(variant.skill ? withSkill(c, variant.skill) : variant.agents ? withDelegation(c, variant.agents) : variant.stress ? withStress(c, variant.stress) : variant.constraints ? withConstraints(c, variant.constraints) : variant.format ? withFormat(c, variant.format) : variant.effort ? withEffort(c, variant.effort) : c);
   };
 
   if (!spec || (Array.isArray(spec) && !spec.length)) {
@@ -229,7 +261,7 @@ export function resolveClients(spec, { modelParams = {} } = {}) {
   for (const item of normalizeClientSpecs(spec)) {
     const provider = typeof item === "string" ? item : item.provider;
     const model = typeof item === "string" ? undefined : item.model;
-    const variant = typeof item === "string" ? {} : { skill: item.skill ?? null, agents: item.agents ?? null, stress: item.stress ?? null, constraints: item.constraints ?? null, format: item.format ?? null };
+    const variant = typeof item === "string" ? {} : { skill: item.skill ?? null, agents: item.agents ?? null, stress: item.stress ?? null, constraints: item.constraints ?? null, format: item.format ?? null, effort: item.effort ?? null };
     if (!PROVIDERS[provider]) continue;
     if (model === undefined) {
       for (const m of PROVIDERS[provider].models) push(provider, m, variant);
@@ -247,7 +279,9 @@ export async function probeLocalModels({ timeoutMs = 1500, provider = "local" } 
   if (!cfg) return null;
   const url = cfg.baseUrl.replace(/\/chat\/completions$/, "/models");
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+    // A hosted route wants the key; a local daemon ignores the header.
+    const key = cfg.local ? null : apiKeyFor(provider);
+    const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs), ...(key ? { headers: { Authorization: cfg.auth(key) } } : {}) });
     if (!res.ok) return null;
     const data = await res.json();
     const ids = (data?.data ?? []).map((m) => m.id).filter(Boolean);
@@ -260,10 +294,11 @@ export async function probeLocalModels({ timeoutMs = 1500, provider = "local" } 
 // Provider metadata for the web UI: which providers are usable, and what models to offer.
 // `live` is null for hosted providers, true/false for the local daemon.
 export async function describeProviders({ probe = true } = {}) {
-  // Every local provider (Ollama and any named endpoint) is probed; hosted ones are not.
+  // Every local provider (Ollama and any named endpoint) is probed; a hosted one is probed when it
+  // opts in (`probeModels`) and has a key, so its list is the route's rather than a fallback.
   const live = {};
   if (probe) {
-    await Promise.all(Object.entries(PROVIDERS).filter(([, c]) => c.local).map(async ([name]) => { live[name] = await probeLocalModels({ provider: name }); }));
+    await Promise.all(Object.entries(PROVIDERS).filter(([name, c]) => c.local || (c.probeModels && hasCredentials(name))).map(async ([name]) => { live[name] = await probeLocalModels({ provider: name, timeoutMs: PROVIDERS[name].local ? 1500 : 4000 }); }));
   }
   return Object.entries(PROVIDERS).map(([name, cfg]) => ({
     name,
@@ -274,8 +309,8 @@ export async function describeProviders({ probe = true } = {}) {
     hasKey: hasCredentials(name),
     local: !!cfg.local,
     endpoint: !!cfg.endpoint,
-    live: cfg.local ? (live[name] ?? null) !== null : null,
-    models: (cfg.local && live[name] ? live[name] : cfg.models).map((model) => ({
+    live: cfg.local || cfg.probeModels ? (live[name] ?? null) !== null : null,
+    models: (live[name] ? live[name] : cfg.models).map((model) => ({
       id: model,
       label: labelModel(model),
       client: `${name}:${model}`,

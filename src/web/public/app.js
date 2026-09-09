@@ -651,6 +651,7 @@ function renderReport() {
   });
   renderHeadline(s);
   renderTwoByTwo(s);
+  renderCost(s);
   renderScorecard(s);
   renderLineage();
   renderCurves(s);
@@ -853,6 +854,37 @@ function renderLive() {
       grid.append(cell);
     }
     box.append(el("div", { className: "live-row" }, el("div", { className: "live-label" }, MODE_LABEL[mode] ?? mode), grid));
+  }
+}
+
+// Correctness × cost × latency: per client and mode, what a right answer costs and how long it
+// takes. Rows are priced when they run, from models/prices.json; unpriced rows are counted, not
+// guessed. Hidden when nothing in the run carries a price.
+const fmtUsd = (v) => (v === null || v === undefined || !Number.isFinite(v) ? "—" : v >= 1 ? `$${v.toFixed(2)}` : v === 0 ? "$0" : `$${parseFloat(v.toFixed(5))}`);
+function renderCost(s) {
+  const block = $("#cost-block");
+  const box = $("#cost");
+  box.replaceChildren();
+  const rows = (s.cost ?? []).filter((c) => c.priced || c.reasoningCharsMean > 0);
+  block.hidden = !rows.length;
+  if (!rows.length) return;
+  const withReasoning = rows.some((c) => c.reasoningCharsMean > 0);
+  $("#cost-legend").replaceChildren(el("span", {}, `prices from the table on the run's day · $/correct = the run's spend divided by its right answers${withReasoning ? " · reasoning = characters of thinking returned per trial" : ""}`));
+  const cols = ["model", "mode", "correct", "total", "per trial", "per correct", "p50 latency", "tokens", ...(withReasoning ? ["reasoning"] : [])];
+  box.style.gridTemplateColumns = `minmax(160px, 1.4fr) repeat(${cols.length - 1}, minmax(70px, 1fr))`;
+  box.append(...cols.map((c) => el("div", { className: "mh" }, c)));
+  for (const c of rows) {
+    box.append(
+      el("div", { className: "ellipsis", title: c.client }, c.client),
+      el("div", {}, MODE_LABEL[c.mode] ?? c.mode),
+      el("div", { className: "num" }, `${c.correct}/${c.runs} · ${fmtPct(c.correctPct)}`),
+      el("div", { className: "num" }, c.priced ? fmtUsd(c.costUsd) + (c.unpriced ? ` (${c.unpriced} unpriced)` : "") : el("span", { className: "faint" }, "no price")),
+      el("div", { className: "num" }, c.priced ? fmtUsd(c.costPerTrialUsd) : "—"),
+      el("div", { className: "num" }, c.priced ? fmtUsd(c.costPerCorrectUsd) : "—"),
+      el("div", { className: "num" }, fmtMs(c.latencyP50Ms)),
+      el("div", { className: "num" }, fmtInt(c.totalTokens)),
+      ...(withReasoning ? [el("div", { className: "num" }, c.reasoningCharsMean !== null ? fmtInt(c.reasoningCharsMean) : "—")] : []),
+    );
   }
 }
 

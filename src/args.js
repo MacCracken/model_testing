@@ -56,6 +56,8 @@ export function parseArgs(argv) {
       case "--webhook": args.webhook = next(); break;
       case "--fail": args.fail = true; break;
       case "--graph": args.graph = true; break;
+      case "--effort": args.effort = next(); break;
+      case "--reprice": args.reprice = true; break;
       default: args._.push(a);
     }
   }

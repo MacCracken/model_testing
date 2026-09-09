@@ -4,6 +4,50 @@ What shipped, by date. Full measurement tables live in [docs/results.md](docs/re
 forward roadmap is [plan.md](plan.md). Dates are the commit dates; item numbers ([1]–[49]) are the
 roadmap's, stable across the plan, this file and the results.
 
+## 2026-09-12 — cost in currency, three providers and the effort knob
+
+### Added
+- **Cost in currency** ([45]): `models/prices.json` gives per-million-token prices by model id (a
+  client id or a trailing `*` works too; local serving is 0 — electricity and hardware are not
+  counted), with the source and date of each price; the table is the user's to check, the bench
+  cannot verify a price. Every row is priced when it runs (`row.cost`: dollars, the input, cached
+  and output parts, the table's date), so a run keeps the price of its day; a model without an
+  entry runs unpriced and the view says how many rows had no price. `summarize` adds cost to every
+  cell and mode (`costUsd`, per trial, per correct answer) and a **correctness × cost × latency**
+  view per model and mode — printed by the report, drawn by the UI as a new block, and by
+  `cli cost <run> [--reprice]` (`--reprice` prices a run's unpriced rows from today's table for the
+  view only). The index carries `cost_usd` per trial and per cell.
+- **Providers** ([46]): Gemini (its OpenAI-compatible route), Mistral and xAI, keyed by
+  `GEMINI_API_KEY`, `MISTRAL_API_KEY`, `XAI_API_KEY`. With a key, their model lists are probed from
+  the route's `/models` like a local daemon's, so the UI offers what the route has rather than a
+  list that drifts. Untested here — no key for them in this `.env`; the routes are documented
+  OpenAI-compatible and the client sends nothing provider-specific.
+- **The reasoning-effort knob** ([46]): `--effort none|minimal|low|medium|high` for a run, or
+  `<client>@effort:<level>` as a paired variant against the base (`delta.byEffort` / `delta.effort`,
+  like the other treatments). Translated per provider in `src/effort.js`: `reasoning_effort` on
+  OpenAI, Anthropic, Gemini, xAI, DeepSeek and Groq; `reasoning: { effort }` on Ollama's route, the
+  one form it honours (checked against Ollama 0.33.3: `think: false`, `reasoning_effort` and the
+  `/no_think` switch all left the local thinking model's reasoning untouched, `reasoning: { effort:
+  "none" }` emptied it — and the graded levels change nothing there, only none does); nothing on
+  Mistral, which has no such parameter. Every row now records `reasoningChars`, the characters of
+  thinking the model returned (the client counts the reasoning channel while streaming), so whether
+  a knob took effect is a number on the row — the cost view and the effort delta print it.
+- Tests: 320 (the price table's matching and the cost of a row, the stats and the view, the index
+  columns, the report block; the effort levels and their translation, the variant through the
+  client spec and the run-level knob, the paired delta with reasoning characters).
+
+### Measured (tables in docs/results.md)
+- **What a right answer costs** (health, chain, wordmath4, restock6; four trials per cell, seed
+  2026): in harness mode gpt-4o-mini answers 14/16 at $0.0012 per correct answer and Haiku 4.5
+  16/16 at $0.0086 — seven times the price for the two extra answers; free-form, gpt-4o-mini's
+  8/16 cost $0.0002 each. The whole matrix, 64 trials, came to $0.17.
+- **Thinking off on the local model** (`local:ornith-1.5:9b@effort:none`, wordmath4 and chain in
+  harness mode, four trials each, paired): the variant returned 0 characters of reasoning against
+  326–562 for the base, answered in half the time (p50 4.5 s against 8.9 s) and lost one of eight
+  answers (7/8 against 8/8, a wordmath4 miss; not significant at this size). `reasoning: { effort:
+  "none" }` is the one form Ollama 0.33.3's route honours — the graded levels change nothing
+  there.
+
 ## 2026-09-11 (later) — public anchors: GSM8K, IFEval and BFCL run here
 
 ### Added

@@ -167,6 +167,7 @@ async function runDialogue(client, prompts, tools, system, opts) {
   const toolResults = [];
   const turns = [];
   let usage = null;
+  let reasoningChars = 0;
   let rounds = 0;
   let ttftMs = null;
   let ttfaMs = null;
@@ -179,17 +180,18 @@ async function runDialogue(client, prompts, tools, system, opts) {
     for (const r of resp.toolResults ?? []) toolResults.push({ ...r, turn: n });
     for (const x of resp.turns ?? []) turns.push({ ...x, dialogueTurn: n });
     usage = sumUsage(usage, resp.usage);
+    reasoningChars += resp.reasoningChars ?? 0;
     rounds += resp.rounds ?? 0;
     if (t === 0) { ttftMs = resp.ttftMs ?? null; ttfaMs = resp.ttfaMs ?? null; }
     dialogue.push({ turn: n, user: prompts[t], answer: resp.text ?? "", calls: (resp.toolCalls ?? []).length, rounds: resp.rounds ?? 0, ms: Math.round(performance.now() - started) });
     history = Array.isArray(resp.messages) ? resp.messages : [...history, { role: "user", content: prompts[t] }, { role: "assistant", content: resp.text ?? "" }];
     last = resp;
   }
-  return { ...last, toolCalls, toolResults, turns: turns.length ? turns : null, usage, rounds, ttftMs, ttfaMs, dialogue };
+  return { ...last, toolCalls, toolResults, turns: turns.length ? turns : null, usage, reasoningChars, rounds, ttftMs, ttfaMs, dialogue };
 }
 
 /** Run a single (task, mode, client) trial once and score it. Never throws. */
-export async function runTrial({ task, mode, client, index = 1, signal, maxRounds = 4, judge = null, seed = null }) {
+export async function runTrial({ task, mode, client, index = 1, signal, maxRounds = 4, judge = null, seed = null, pricing = null }) {
   // The instance seed: a generated task mints its problem from it, so the same seed re-mints the same
   // problem for every mode, client and later checkpoint. runMatrix derives it from the run's seed.
   const instance = Number.isInteger(seed) ? seed >>> 0 : seedFor(0, task.name, index);
@@ -240,10 +242,15 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
     stress: client.stress ? { how: client.stress, applied: false } : null,
     constraints: client.constraints ? { how: client.constraints, applied: false, total: 0, met: 0, list: [] } : null,
     format: client.format ? { how: client.format, applied: false, complied: null } : null,
+    // The reasoning-effort knob as a variant: the level and the parameters it was sent as.
+    effort: client.effort ? { how: client.effort, applied: true, params: client.effortParams ?? {} } : null,
     baseClient: client.baseName ?? null,
     seed: instance,
     // A public anchor set says so on every row, with the contamination caveat it carries.
     source: task.source ?? null,
+    // Cost in currency from the usage and the price table of the day (null when unpriced).
+    cost: null,
+    reasoningChars: null,
     error: null,
   };
 
@@ -331,6 +338,8 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
     record.usage = resp.usage ?? null;
     record.ttftMs = resp.ttftMs ?? null;
     record.ttfaMs = resp.ttfaMs ?? null;
+    record.reasoningChars = typeof resp.reasoningChars === "number" ? resp.reasoningChars : null;
+    record.cost = typeof pricing === "function" ? pricing(client, record.usage, { model: record.model }) ?? null : null;
 
     // Truth: fetched after the model's reply, so the answer and the ground are taken at the same
     // wall-clock point (the model never sees it). The trial is passed in so a task can define
@@ -404,7 +413,7 @@ export function planMatrix({ tasks, modes, clients, count = 1 }) {
  * Run the full tasks x modes x clients matrix, `count` trials per cell.
  * `onEvent` receives { type: "start" | "trial" | "done", ... } as work completes.
  */
-export async function runMatrix({ tasks, modes, clients, count = 1, parallel = 1, instanceSeed = null, onEvent, signal, maxRounds, judge = null }) {
+export async function runMatrix({ tasks, modes, clients, count = 1, parallel = 1, instanceSeed = null, onEvent, signal, maxRounds, judge = null, pricing = null }) {
   const { cells, skipped, total } = planMatrix({ tasks, modes, clients, count });
   const limit = Math.max(1, Math.floor(Number(parallel)) || 1);
   // One seed per run mints every generated instance; recorded so a run can be replayed exactly.
@@ -437,7 +446,7 @@ export async function runMatrix({ tasks, modes, clients, count = 1, parallel = 1
   const running = new Set();
   const start = (item) => {
     onEvent?.({ type: "trial-start", task: item.task.name, mode: item.mode, client: item.client.name, index: item.index, total });
-    const p = runTrial({ ...item, seed: seedFor(runSeed, item.task.name, item.index), signal, maxRounds, judge })
+    const p = runTrial({ ...item, seed: seedFor(runSeed, item.task.name, item.index), signal, maxRounds, judge, pricing })
       .then((row) => {
         rows.push(row);
         completed += 1;
@@ -597,7 +606,34 @@ function statsFor(rows) {
     ttftP50Ms: ttft.length ? Math.round(percentile(ttft, 50)) : null,
     ttfaP50Ms: ttfa.length ? Math.round(percentile(ttfa, 50)) : null,
     totalTokens: rows.reduce((a, r) => a + (r.usage?.total_tokens ?? 0), 0),
+    ...costStats(rows),
   };
+}
+
+// Cost in currency over rows that carry a price: the total, per trial, per correct answer, and how
+// many rows had no price (a model missing from the table) — reported, never guessed.
+export function costStats(rows) {
+  const priced = rows.filter((r) => r.cost && Number.isFinite(r.cost.usd));
+  if (!priced.length) return { costUsd: null, costPerTrialUsd: null, costPerCorrectUsd: null, priced: 0, unpriced: rows.length };
+  const usd = priced.reduce((a, r) => a + r.cost.usd, 0);
+  const correct = priced.filter((r) => r.correct).length;
+  return { costUsd: usd, costPerTrialUsd: usd / priced.length, costPerCorrectUsd: correct ? usd / correct : null, priced: priced.length, unpriced: rows.length - priced.length };
+}
+
+// Correctness × cost × latency, per client and mode: what a right answer costs and how long it
+// takes, side by side with how often it comes.
+export function costView(rows) {
+  const out = [];
+  for (const client of [...new Set(rows.map((r) => r.client))]) {
+    for (const mode of [...new Set(rows.filter((r) => r.client === client).map((r) => r.mode))]) {
+      const sub = rows.filter((r) => r.client === client && r.mode === mode && !r.error);
+      if (!sub.length) continue;
+      const correct = sub.filter((r) => r.correct).length;
+      const reasoning = sub.map((r) => r.reasoningChars).filter((v) => typeof v === "number");
+      out.push({ client, mode, runs: sub.length, correct, correctPct: (100 * correct) / sub.length, latencyP50Ms: Math.round(percentile(sub.map((r) => r.latencyMs ?? 0), 50)), totalTokens: sub.reduce((a, r) => a + (r.usage?.total_tokens ?? 0), 0), reasoningCharsMean: reasoning.length ? Math.round(mean(reasoning)) : null, ...costStats(sub) });
+    }
+  }
+  return out;
 }
 
 // Variance across repeated trials of one cell. `agreementPct` is the share of trials that gave the
@@ -886,6 +922,8 @@ function variantDeltas(rows, kind) {
     met: treat.reduce((a, r) => a + (r[kind]?.met ?? 0), 0),                       // constraints: adherence
     total: treat.reduce((a, r) => a + (r[kind]?.total ?? 0), 0),
     complied: treat.filter((r) => r[kind]?.complied === true).length,             // format: the answer followed the treatment
+    reasoningCharsMean: (() => { const v = treat.map((r) => r.reasoningChars).filter((x) => typeof x === "number"); return v.length ? Math.round(mean(v)) : null; })(), // effort: how much reasoning came back
+    costUsd: treat.reduce((a, r) => a + (r.cost?.usd ?? 0), 0),
   });
   for (const key of new Set(treated.map((r) => `${r.task}|${r.mode}|${r.client}`))) {
     const [task, mode, client] = key.split("|");
@@ -1045,9 +1083,11 @@ export function summarize(rows, { capabilitiesOf = null, levelsOf = null } = {})
   const stressD = variantDeltas(rows, "stress");
   const constraintsD = variantDeltas(rows, "constraints");
   const formatD = variantDeltas(rows, "format");
+  const effortD = variantDeltas(rows, "effort");
 
   return {
     runs: rows.length,
+    cost: costView(rows),
     tasks: taskNames,
     modes,
     clients: clientNames,
@@ -1074,6 +1114,8 @@ export function summarize(rows, { capabilitiesOf = null, levelsOf = null } = {})
       constraints: constraintsD.pooled,
       byFormat: formatD.by,
       format: formatD.pooled,
+      byEffort: effortD.by,
+      effort: effortD.pooled,
     },
   };
 }

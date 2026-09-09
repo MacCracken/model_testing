@@ -1,4 +1,5 @@
 import { traceEvents } from "./export.js";
+import { fmtUsd } from "./prices.js";
 // report.js — print a run summary the same way everywhere (aggregate.js after a run, `cli show`
 // for a saved one). Pure formatting over the runner's summary shape.
 
@@ -37,6 +38,17 @@ export function printSummary(summary, { log = console.log } = {}) {
     log(`   no tools      ${c("noHarness").padEnd(16)} ${c("schemaOnly")}`);
     log(`   tools         ${c("toolOnly").padEnd(16)} ${c("harness")}`);
     log(`   tools effect ${pp(box.toolsEffect)} · schema effect ${pp(box.schemaEffect)} · interaction ${pp(box.interaction)}`);
+  }
+
+  if (summary.cost?.some((c) => c.priced)) {
+    const usd = fmtUsd;
+    const showReasoning = summary.cost.some((c) => c.reasoningCharsMean > 0);
+    log("\n-- correctness × cost × latency (per model and mode; prices from models/prices.json on the run's day)");
+    for (const c of summary.cost) log(`   ${c.client.padEnd(30)} ${c.mode.padEnd(10)} ${`${c.correct}/${c.runs} (${c.correctPct.toFixed(0)}%)`.padEnd(14)} ${`${usd(c.costUsd)} total`.padEnd(15)} ${`${usd(c.costPerTrialUsd)}/trial`.padEnd(15)} ${`${usd(c.costPerCorrectUsd)}/correct`.padEnd(17)} p50 ${c.latencyP50Ms}ms${c.unpriced ? `  (${c.unpriced} unpriced)` : ""}${showReasoning && c.reasoningCharsMean !== null ? `  reasoning ${c.reasoningCharsMean} chars` : ""}`);
+  }
+  if (summary.delta?.effort) {
+    log("\n-- effort variants (paired against the base client)");
+    for (const [how, d] of Object.entries(summary.delta.effort)) log(`   @effort:${how.padEnd(8)} ${fmtDelta(d)}${d.reasoningCharsMean !== null ? ` · reasoning ${d.reasoningCharsMean} chars` : ""}`);
   }
 
   log("\n-- harness delta (correctness)");

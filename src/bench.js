@@ -17,6 +17,7 @@ import { getTask, tasks as allTasks } from "./tasks/registry.js";
 import { resolveClients } from "./providers/index.js";
 import { runMatrix, planMatrix, isStructuredMode, describeSignificance, compareRows, describePaired, MODE_NAMES, DEFAULT_MODES } from "./runner.js";
 import { newRunId, saveRun, loadRun } from "./results.js";
+import { pricingFor } from "./prices.js";
 import { parseArgs } from "./args.js";
 import { benchVersions } from "./version.js";
 import { makeJudge } from "./judge.js";
@@ -62,10 +63,12 @@ export function resolveModes(spec) {
 // The determinism knobs from the CLI, keeping only the ones actually given.
 // `--model-param key=value` covers everything else a provider accepts (e.g. `think=false` for
 // Ollama's thinking models); values parse as JSON when they can, else stay strings.
-export function modelParamsFrom({ temperature, seed, modelParam } = {}) {
+export function modelParamsFrom({ temperature, seed, modelParam, effort } = {}) {
   const params = {};
   if (Number.isFinite(temperature)) params.temperature = temperature;
   if (Number.isFinite(seed)) params.seed = seed;
+  // The reasoning-effort knob for the whole run; translated per provider when the client is built.
+  if (effort) params.effort = effort;
   for (const kv of modelParam ?? []) {
     const eq = String(kv).indexOf("=");
     if (eq === -1) throw new Error(`--model-param expects key=value, got "${kv}"`);
@@ -175,6 +178,7 @@ async function main() {
   }
 
   const { rows, summary, skipped, instanceSeed } = await runMatrix({
+    pricing: pricingFor(),
     tasks: taskList,
     modes: modeList,
     clients,

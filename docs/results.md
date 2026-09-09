@@ -1327,3 +1327,37 @@ hours 11 for 23). No item was wrong for every model in every mode. Against the b
 tasks (gpt-4o-mini 78 % in harness mode over 388 trials, Haiku 99 %) the anchor sits far above:
 the leaderboard's simple and multiple categories are one call from a short request, the bench's
 tasks are scenarios with state, pages and traps — which is what an anchor is for.
+
+
+## Cost in currency and the effort knob (2026-09-12, seed 2026, four trials per cell)
+
+**Correctness × cost × latency** — run `20260909T214202-c0be` (health, chain, wordmath4,
+restock6; prices from `models/prices.json` as of 2026-09-11: gpt-4o-mini $0.15 / $0.60 per
+million tokens in / out, Claude Haiku 4.5 $1 / $5). Every row was priced when it ran.
+
+| Model | Mode | Correct | Total | Per trial | Per correct | p50 latency | Tokens |
+|---|---|---|---|---|---|---|---|
+| gpt-4o-mini | noHarness | 8/16 (50 %) | $0.0015 | $0.0001 | $0.0002 | 1.0 s | 3 874 |
+| gpt-4o-mini | harness | 14/16 (88 %) | $0.0170 | $0.0011 | $0.0012 | 3.0 s | 100 607 |
+| claude-haiku-4-5 | noHarness | 4/16 (25 %) | $0.0158 | $0.0010 | $0.0039 | 1.8 s | 4 654 |
+| claude-haiku-4-5 | harness | 16/16 (100 %) | $0.1372 | $0.0086 | $0.0086 | 3.6 s | 104 742 |
+
+The harness multiplies tokens by 25 (the tool loop's rounds) and cost by 9–11; Haiku's two extra
+right answers over gpt-4o-mini cost seven times as much per answer. The whole matrix came to
+$0.17.
+
+**Thinking on versus off** — run `20260909T214327-9269`, `local:ornith-1.5:9b` against
+`local:ornith-1.5:9b@effort:none` (`reasoning: { effort: "none" }` on Ollama's route), wordmath4
+and chain in harness mode, the same instances on both sides:
+
+| Client | Correct | Reasoning chars (mean) | p50 latency | Tokens per trial |
+|---|---|---|---|---|
+| ornith-1.5:9b | 8/8 | 466 (326–562) | 8.9 s | 2 126 |
+| ornith-1.5:9b@effort:none | 7/8 | 0 | 4.5 s | 2 071 |
+
+The variant's rows carry `reasoningChars: 0` on every trial — the knob took effect — and the
+model answered in half the time; the one loss is a wordmath4 miss (184 for 760), a paired delta of
+−12.5 pp that eight trials cannot call significant. Checked before this run: on Ollama 0.33.3's
+OpenAI-compatible route `think: false`, `reasoning_effort` and the `/no_think` switch all left the
+reasoning untouched, and the graded levels (low, medium, high) of `reasoning.effort` returned the
+same 532 characters as the default; only `none` changes anything on this model.

@@ -1,0 +1,10 @@
+{
+  "_comment": "Prices per million tokens, by model id (a client id like openai:gpt-4o-mini works too, and a trailing * matches a prefix). Every row of a run is priced from this table when it runs (cost.usd on the row, with the table's asOf), so a run keeps the price of its day. Check these against the provider's price list before trusting a number: they change, and the bench cannot verify them. Local serving is priced at 0 — electricity and hardware are not counted. Add the models you run; a model with no entry runs unpriced and the cost view says so.",
+  "gpt-4o-mini": { "input": 0.15, "cachedInput": 0.075, "output": 0.60, "per": 1000000, "currency": "USD", "asOf": "2026-09-11", "source": "https://openai.com/api/pricing/" },
+  "gpt-4.1-mini": { "input": 0.40, "cachedInput": 0.10, "output": 1.60, "per": 1000000, "currency": "USD", "asOf": "2026-09-11", "source": "https://openai.com/api/pricing/" },
+  "gpt-5-mini": { "input": 0.25, "cachedInput": 0.025, "output": 2.00, "per": 1000000, "currency": "USD", "asOf": "2026-09-11", "source": "https://openai.com/api/pricing/" },
+  "claude-haiku-4-5": { "input": 1.00, "cachedInput": 0.10, "output": 5.00, "per": 1000000, "currency": "USD", "asOf": "2026-09-11", "source": "https://www.anthropic.com/pricing" },
+  "local:*": { "input": 0, "output": 0, "per": 1000000, "currency": "USD", "asOf": "2026-09-11", "note": "served locally; electricity and hardware are not counted" },
+  "vllm:*": { "input": 0, "output": 0, "per": 1000000, "currency": "USD", "asOf": "2026-09-11", "note": "served locally; electricity and hardware are not counted" },
+  "mlx:*": { "input": 0, "output": 0, "per": 1000000, "currency": "USD", "asOf": "2026-09-11", "note": "served locally; electricity and hardware are not counted" }
+}

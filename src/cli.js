@@ -276,6 +276,34 @@ async function main() {
       break;
     }
 
+    // Cost in currency: a saved run's correctness × cost × latency view (rows priced on the run's
+    // day; --reprice prices unpriced rows from today's table for the view only).
+    case "cost": {
+      const args = parseArgs(rest);
+      const id = args._[0];
+      if (!id) { console.error("usage: node src/cli.js cost <run-id> [--reprice] [--json]"); process.exit(1); }
+      const { loadRun } = await import("./results.js");
+      const { summarize } = await import("./runner.js");
+      const { pricingFor, loadPrices, fmtUsd } = await import("./prices.js");
+      const run = loadRun(id);
+      if (!run) { console.error(`unknown run ${id}`); process.exit(1); }
+      let rows = run.rows ?? [];
+      let repriced = 0;
+      if (args.reprice) {
+        const price = pricingFor();
+        rows = rows.map((r) => { if (r.cost || r.error) return r; const c = price({ name: r.client, model: r.model }, r.usage, { model: r.model }); if (c) repriced++; return c ? { ...r, cost: c } : r; });
+      }
+      const view = summarize(rows).cost;
+      if (args.json) { console.log(JSON.stringify({ run: id, repriced, table: loadPrices().file, cost: view }, null, 2)); break; }
+      console.log(`${id} — correctness × cost × latency${repriced ? ` (${repriced} rows priced now from ${loadPrices().file})` : ""}\n`);
+      console.log(`${"model".padEnd(34)} ${"mode".padEnd(11)} ${"correct".padEnd(14)} ${"total".padEnd(10)} ${"per trial".padEnd(11)} ${"per correct".padEnd(12)} ${"p50".padEnd(9)} tokens`);
+      const showReasoning = view.some((c) => c.reasoningCharsMean > 0);
+      for (const c of view) console.log(`${c.client.padEnd(34)} ${c.mode.padEnd(11)} ${`${c.correct}/${c.runs} ${c.correctPct.toFixed(0)}%`.padEnd(14)} ${(c.priced ? fmtUsd(c.costUsd) : "no price").padEnd(10)} ${(c.priced ? fmtUsd(c.costPerTrialUsd) : "—").padEnd(11)} ${(c.priced ? fmtUsd(c.costPerCorrectUsd) : "—").padEnd(12)} ${`${c.latencyP50Ms}ms`.padEnd(9)} ${c.totalTokens}${c.unpriced ? `  (${c.unpriced} unpriced)` : ""}${showReasoning && c.reasoningCharsMean !== null ? `  reasoning ${c.reasoningCharsMean} chars` : ""}`);
+      const total = view.reduce((a, c) => a + (c.costUsd ?? 0), 0);
+      console.log(`\ntotal ${fmtUsd(total)} over ${view.reduce((a, c) => a + c.priced, 0)} priced trial(s); prices: ${loadPrices().file} (check them against the provider's list — the bench cannot)`);
+      break;
+    }
+
     // Public anchor sets: fetch them, list them, or put a client's anchor rates next to its own tasks.
     case "anchors": {
       const args = parseArgs(rest);
@@ -524,12 +552,13 @@ async function main() {
       console.log("  node src/cli.js compare <run> --a <c1> --b <c2> | compare <runA> <runB>   # paired comparison (McNemar)");
       console.log("  node src/cli.js models [--graph]                      # the lineage registry and what the index holds per checkpoint (--graph: as a tree with rates)");
       console.log("  node src/cli.js anchors fetch [all|gsm8k,ifeval,bfclsimple,bfclmultiple] | anchors list | anchors <client>   # public sets as anchors, next to the own tasks");
+      console.log("  node src/cli.js cost <run-id> [--reprice]            # correctness × cost × latency per model and mode (models/prices.json)");
       console.log("  node src/cli.js curve <family> [--mode] [--client]   # success per difficulty level, with the breaking point");
       console.log("  node src/cli.js trend --client <c> [--capability]    # a client's capabilities per run over time, with sparklines");
       console.log("  node src/cli.js regressions [--client <c>] [--json|--format md] [--out <file>] [--webhook <url>] [--fail]   # latest run vs earlier runs, and checkpoint vs parent; delivered to a file or a webhook");
       console.log("  node src/cli.js suite smoke|standard|full --clients … # preset runs for a fresh checkpoint");
       console.log("  node src/cli.js serve [--port 4000] [--host 127.0.0.1] [--open]");
-      console.log("  node src/cli.js bench --task <name|all> --modes noHarness,harness,schemaOnly,toolOnly --clients <p:model,...> [--count N] [--temperature T] [--seed S] [--model-param k=v]... [--json]");
+      console.log("  node src/cli.js bench --task <name|all> --modes noHarness,harness,schemaOnly,toolOnly --clients <p:model,...> [--count N] [--temperature T] [--seed S] [--effort none|low|medium|high] [--model-param k=v]... [--json]");
       console.log("  node src/cli.js aggregate [--tasks <name,...>] [--modes ...] [--clients ...] [--count N]");
       process.exit(cmd ? 1 : 0);
   }

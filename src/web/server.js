@@ -25,6 +25,7 @@ import { describeProviders, resolveClients } from "../providers/index.js";
 import { runMatrix, MODE_NAMES, DEFAULT_MODES } from "../runner.js";
 import { describeSkipped, resolveJudge } from "../bench.js";
 import { newRunId, saveRun, loadRun, listRuns, deleteRun, runHeader } from "../results.js";
+import { pricingFor } from "../prices.js";
 import { benchVersions } from "../version.js";
 import { rowsToCsv, cellsToCsv } from "../export.js";
 import { summarize } from "../runner.js";
@@ -108,6 +109,7 @@ function startRun({ tasks, modes, clients, count, parallel = 1, instanceSeed = n
   (async () => {
     try {
       await runMatrix({
+        pricing: pricingFor(),
         tasks: taskObjs,
         modes,
         clients: clientObjs,
