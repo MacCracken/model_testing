@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { generate, needleTasks, linesFor, remint } from "../src/tasks/needle.js";
+import { generate, needleTasks, needlehopTasks, linesFor, remint, KINDS } from "../src/tasks/needle.js";
 import { runTrial } from "../src/runner.js";
 
 test("the log is deterministic, sized to the token target, and its truth is recomputable from the lines", () => {
@@ -100,7 +100,7 @@ test("the row records the needle context without the log; scoring, the tool-mode
       assert.equal(posted.at(-1).body, live.text, "the same log went to the webserver");
       assert.equal(f.ctx.text, undefined, "the record has no log text");
       assert.ok(!JSON.stringify(f.ctx).includes(live.text.slice(0, 120)), "nor a copy of it under another key");
-      assert.deepEqual(Object.keys(f.ctx).sort(), ["answer", "approxTokens", "depth", "key", "kind", "lines", "log", "question", "seed", "tokens"]);
+      assert.deepEqual(Object.keys(f.ctx).sort(), ["answer", "approxTokens", "depth", "hops", "key", "kind", "lines", "log", "question", "seed", "tokens"]);
       assert.ok(JSON.stringify(f.ctx).length < 600, `the recorded ctx is small (${JSON.stringify(f.ctx).length} chars)`);
       assert.deepEqual(f.ground, { kind: live.kind, answer: live.answer, depth: live.depth });
       assert.ok(f.prompt.length <= 20_200, "the prompt is capped in the record");
@@ -159,4 +159,55 @@ test("the run record caps every string in a trial context like the prompt, while
   const bare = await runTrial({ task: { ...task, setup: undefined, recordCtx: () => { throw new Error("never called without a context"); }, noHarness: { prompt: "p" }, eval: { ground: () => 1, scoreNoHarness: () => ({ correct: true, reason: "" }) } }, mode: "noHarness", client });
   assert.equal(bare.ctx, null);
   assert.equal(bare.correct, true);
+});
+
+test("the hop question plants a line that retries an earlier request; the answer is the earlier request's latency", () => {
+  assert.deepEqual(KINDS, ["single", "multi", "agg", "hop"]);
+  for (let seed = 1; seed <= 12; seed++) {
+    const g = generate(seed, 8000, { kind: 3 });
+    assert.equal(g.kind, "hop");
+    assert.deepEqual(g, generate(seed, 8000, { kind: 3 }));
+    const [a, x] = g.key;
+    assert.notEqual(a, x);
+    const lines = g.text.split("\n");
+    const aLine = lines.filter((l) => l.includes(`req=${a}`));
+    const xLine = lines.filter((l) => l.includes(`req=${x}`));
+    assert.equal(aLine.length, 1); assert.equal(xLine.length, 1);
+    assert.match(aLine[0], new RegExp(`msg="retry of req ${x}"`), "the first line names the second");
+    assert.match(xLine[0], new RegExp(`latency=${g.answer}ms`), "the answer is the second line's latency");
+    assert.match(g.question, new RegExp(`Request ${a} was a retry`));
+    assert.doesNotMatch(g.question, new RegExp(x), "the second key is not in the question");
+    assert.equal(g.depth, null);
+    assert.equal(g.hops.length, 2);
+    assert.equal(generate(seed, 8000).kind, ["single", "multi", "agg"][seed % 3], "the plain rotation is unchanged");
+  }
+  assert.equal(remint({ seed: 4, tokens: 8000, kind: "hop" }).text, generate(4, 8000, { kind: 3 }).text);
+  assert.deepEqual(needlehopTasks.map((t) => [t.name, t.family, t.level, t.capabilities.includes("multi-hop")]), [["needlehop8k", "needlehop", 8000, true], ["needlehop32k", "needlehop", 32000, true], ["needlehop100k", "needlehop", 100000, true]]);
+  const t = needlehopTasks[0];
+  const g = generate(9, 8000, { kind: 3 });
+  const ground = { kind: "hop", answer: g.answer, depth: null };
+  assert.equal(t.eval.scoreHarness({ work: [], answer: g.answer }, ground).correct, true);
+  assert.equal(t.eval.scoreNoHarness(`answer: ${g.answer + 1}`, ground).correct, false);
+  assert.equal(t.eval.toolUse({ toolCalls: [{ name: "grep_log", arguments: { pattern: `req=${g.key[0]}` } }], ctx: g }).ok, false, "one hop is not enough");
+  assert.equal(t.eval.toolUse({ toolCalls: [{ name: "grep_log", arguments: { pattern: `req=${g.key[0]}` } }, { name: "grep_log", arguments: { pattern: g.key[1] } }], ctx: g }).ok, true);
+});
+
+test("a needlehop trial through the runner in harness mode: the second key comes from the first line's text", async () => {
+  const task = needlehopTasks[0];
+  await withLogServer(async () => {
+    const hopper = { name: "c", model: "m", async runWithTools(_p, _t, _s, { ctx }) {
+      const first = ctx.text.split("\n").find((l) => l.includes(`req=${ctx.key[0]}`));
+      const next = first.match(/retry of req (\w+)/)[1];
+      const second = ctx.text.split("\n").find((l) => l.includes(`req=${next}`));
+      const latency = Number(second.match(/latency=(\d+)ms/)[1]);
+      return { text: "{}", structured: { work: ["two hops"], answer: latency }, toolCalls: [{ name: "grep_log", arguments: { log: ctx.log, pattern: `req=${ctx.key[0]}` } }, { name: "grep_log", arguments: { log: ctx.log, pattern: `req=${next}` } }], toolResults: [], rounds: 2, finishReason: "stop", usage: null };
+    } };
+    const r = await runTrial({ task, mode: "harness", client: hopper, index: 3, seed: 5 });
+    assert.equal(r.error, null, r.error);
+    assert.equal(r.correct, true, r.reason);
+    assert.equal(r.toolUseOk, true, r.toolUseReason);
+    assert.equal(r.ctx.kind, "hop");
+    assert.equal(r.ctx.text, undefined, "the record keeps no log text");
+    assert.equal(remint(r.ctx).answer, r.ground.answer);
+  });
 });

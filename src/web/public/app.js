@@ -912,9 +912,10 @@ function renderCurves(s) {
   const box = $("#curves");
   box.replaceChildren();
   const families = Object.entries(s.curves ?? {}).filter(([, c]) => c.levels.length >= 2);
-  block.hidden = !families.length;
-  if (!families.length) return;
-  const modesPresent = [...new Set(families.flatMap(([, c]) => Object.values(c.byClient).flatMap((bm) => Object.keys(bm))))];
+  const sweep = s.depths ?? null;
+  block.hidden = !families.length && !sweep;
+  if (!families.length && !sweep) return;
+  const modesPresent = [...new Set([...families.flatMap(([, c]) => Object.values(c.byClient).flatMap((bm) => Object.keys(bm))), ...(sweep ? Object.values(sweep.byClient).flatMap((bm) => Object.keys(bm)) : [])])];
   const sel = $("#curves-mode");
   const cur = sel.value && modesPresent.includes(sel.value) ? sel.value : (modesPresent.includes("harness") ? "harness" : modesPresent[0]);
   sel.replaceChildren(...modesPresent.map((m) => el("option", { value: m }, MODE_LABEL[m] ?? m)));
@@ -939,6 +940,16 @@ function renderCurves(s) {
       if (m.breakingPoint !== null) { const bp = pts.find(([, , p]) => p.level === m.breakingPoint); if (bp) svg.append(svgEl("rect", { class: "break", x: bp[0] - 6, y: bp[1] - 6, width: 12, height: 12, stroke: color })); foot.push(`${client.split(":").pop()} breaks at ${shortLevel(family, m.breakingPoint)}`); }
     });
     box.append(el("div", { className: "curve" }, el("h4", {}, `${family} · ${c.levels.map((l) => shortLevel(family, l)).join(" → ")}`), svg, el("div", { className: "foot" }, foot.length ? foot.join(" · ") : "no breaking point at these levels")));
+  }
+  // The needle depth sweep: one planted line, success by where it sat in the log.
+  if (sweep) {
+    const lines = [];
+    for (const client of clients) {
+      const byDepth = sweep.byClient[client]?.[cur] ?? Object.values(sweep.byClient[client] ?? {})[0];
+      if (!byDepth) continue;
+      lines.push(el("div", { className: "foot" }, `${client} · ${sweep.depths.map((d) => { const p = byDepth[d]; return p ? `${Math.round(d * 100)}%: ${p.correct}/${p.runs}` : null; }).filter(Boolean).join(" · ")}`));
+    }
+    if (lines.length) box.append(el("div", { className: "curve" }, el("h4", {}, "needle · one planted line, by depth"), ...lines));
   }
 }
 

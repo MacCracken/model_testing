@@ -31,7 +31,11 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
   long-context family (`needle8k/32k/100k`) mints a server log per trial, inlines it in the free-form
   modes and posts it to the webserver for the tool modes' grep and count (`tasks/needle.js`); the
   record keeps a capped prompt (`capText` in the runner) and a ctx without the log (`recordCtx`;
-  `remint` mints it again from the seed the row keeps), the model gets the whole log. The
+  `remint` mints it again from the seed the row keeps), the model gets the whole log; the
+  `needlehop` family (same sizes, family `needlehop`) asks the fourth question kind, a line that
+  retried an earlier request whose latency is the answer. Rows that record a `depth` (the
+  single-needle question) feed `depthSweep` in the runner (`summarize`'s `depths`, the report, the
+  curves panel) and the index's `depth` column (`cli query depth`). The
   extraction family (`extract1/2/3/4`, `tasks/extract.js`) mints an invoice, its line-item table, a
   purchase order plus the invoice billed against it, or a month's account statement plus the open
   invoices it settles, with exact truth; the free-form modes read the

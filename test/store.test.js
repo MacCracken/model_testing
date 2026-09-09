@@ -133,3 +133,16 @@ test("a replay's parent reaches the index and runs can be listed by parent; comp
   unlinkSync(join(dir, "runs", `${child.id}.json`));
   store.indexRuns();
 });
+
+test("a trial's recorded depth reaches the index; the depth sweep pools it per client, mode and depth", () => {
+  const deep = run("20260905T000000-ffff", "2026-09-05T00:00:00.000Z", [
+    row("needle8k", "harness", "openai:m", true, 1, { ctx: { kind: "single", depth: 0.1 } }), row("needle8k", "harness", "openai:m", false, 2, { ctx: { kind: "single", depth: 0.9 } }),
+    row("needle8k", "harness", "openai:m", true, 3, { ctx: { kind: "single", depth: 0.9 } }), row("needle8k", "harness", "openai:m", true, 4, { ctx: { kind: "agg", depth: null } }),
+  ]);
+  saveRun(deep);
+  const sweep = store.depthSweep({ client: "openai:m", mode: "harness" }).map((r) => ({ ...r }));
+  assert.deepEqual(sweep.map((r) => [r.depth, r.correct, r.trials]), [[0.1, 1, 1], [0.9, 1, 2]]);
+  assert.equal(store.depthSweep({ client: "nobody" }).length, 0);
+  unlinkSync(join(dir, "runs", `${deep.id}.json`));
+  store.indexRuns();
+});

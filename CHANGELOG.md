@@ -4,6 +4,34 @@ What shipped, by date. Full measurement tables live in [docs/results.md](docs/re
 forward roadmap is [plan.md](plan.md). Dates are the commit dates; item numbers ([1]–[49]) are the
 roadmap's, stable across the plan, this file and the results.
 
+## 2026-09-10 (later) — two-hop needles and the depth sweep
+
+### Added
+- **The `needlehop` family** ([48]): `needlehop8k`, `needlehop32k`, `needlehop100k` — the same
+  seeded server log, with a fourth question kind: one line's message says it retried an earlier
+  request (`msg="retry of req <id>"`), and the answer is that earlier request's latency. Two
+  lookups, the second key only readable from the first; the tool-use verdict wants both ids
+  searched. Same tools, schema, scorers and `remint` as the plain family (the kind list gains
+  `hop`; the plain family's rotation over its three kinds is unchanged, so old rows re-mint as
+  before). Capabilities long-context / retrieval / multi-hop; the family's knob is the log size.
+- **The depth sweep** ([48]): rows that record a `depth` (the single-needle question, planted at
+  10 %, 50 % or 90 %) are pooled per client, mode and depth by `depthSweep` in the runner —
+  `summarize`'s `depths`, printed by the report and shown under the difficulty curves — and the
+  index carries a `depth` column, so `node src/cli.js query depth [--client] [--mode]` pools the
+  sweep over every saved run.
+- Tests: 285 (the hop question and its keys, the plain rotation unchanged, `remint` of a hop row,
+  the hop tasks and their tool-use verdict, a hop trial through the runner, the sweep in the
+  summary and in the index).
+
+### Measured (seed 2026, four trials per cell; tables in docs/results.md)
+- **The second hop breaks gpt-4o-mini inline**: 0/8 at 8 k and 32 k (a wrong latency, or no number),
+  against 8/8 for gpt-5.4-mini and Haiku; with grep every model is at or near ceiling (34/36 over
+  8 k, 32 k and 100 k) on 2–4 k tokens a trial instead of 8–31 k.
+- **The depth sweep over the index** says the same thing about the weaker model on the plain
+  family: read inline, gpt-4o-mini finds the planted line at 10 % depth (6/7) and misses it at 50 %
+  and 90 % (0/4); searched with grep it finds it everywhere (11/11). The other models have too few
+  deep trials in the index yet; `query depth` pools them as runs accumulate.
+
 ## 2026-09-10 — the format axis on demand
 
 ### Added

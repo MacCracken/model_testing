@@ -1177,3 +1177,38 @@ in 16 (dialogue2's final report ignored it all four times). A first run had appl
 to array-typed schemas too (regex, transform, hello), where a `work` property has no place and the
 list moved under a key the scorers do not read — the run was discarded and the treatment now
 applies to object schemas only.
+
+## Two-hop needles and the depth sweep (2026-09-10, seed 2026, four trials per cell)
+
+Runs `20260909T171829-c197` (8 k and 32 k, inline and with grep tools) and `20260909T171838-182f`
+(100 k, tools only): one line says it retried an earlier request; the answer is that earlier
+request's latency — the second key is only readable from the first line. Correct trials out of four.
+
+| Size | Mode | gpt-4o-mini | gpt-5.4-mini | claude-haiku-4-5 |
+|---|---|---|---|---|
+| 8 k | noHarness (inline) | 0 | 4 | 4 |
+| | harness (grep) | 3 | 4 | 4 |
+| 32 k | noHarness (inline) | 0 | 4 | 4 |
+| | harness (grep) | 4 | 4 | 4 |
+| 100 k | harness (grep) | 4 | 3 | 4 |
+
+Inline, the second hop is where gpt-4o-mini fails outright (0/8 across both sizes: a wrong latency
+or no number at all) while the other two models are 8/8; with grep, 34 of 36 — one gpt-4o-mini
+trial searched twice for the wrong ids, and one gpt-5.4-mini trial at 100 k searched both ids and
+read the latency off a neighbouring line (847 for 842). Tokens per trial: 8 k and 31 k inline, 2–4 k
+with the tools, at every size.
+
+**The depth sweep** pooled over the index (`node src/cli.js query depth`, the single-needle rows
+of every saved needle run; the seed hash gave the 10 % depth most of the trials):
+
+| Client | Mode | 10 % | 50 % | 90 % |
+|---|---|---|---|---|
+| gpt-4o-mini | noHarness | 6/7 | 0/1 | 0/3 |
+| gpt-4o-mini | harness | 7/7 | 1/1 | 3/3 |
+| gpt-5.4-mini | noHarness | 4/4 | | 1/1 |
+| claude-haiku-4-5 | noHarness | 4/4 | | 1/1 |
+| claude-haiku-4-5 | schemaOnly | 4/4 | | 0/1 |
+
+Read inline, gpt-4o-mini finds a line planted near the start and misses the same kind of line
+planted deep; searched with grep, depth does not exist. The other models have too few deep trials
+in the index to say; the sweep is there to fill as runs accumulate.

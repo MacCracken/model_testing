@@ -6,7 +6,7 @@ stands, what the field measures that it does not, and what to build next.
 
 ## Start here (handoff, 2026-09-08)
 
-- **Run it.** `npm test` (281 tests; no model or server needed), then `node src/cli.js serve` for
+- **Run it.** `npm test` (285 tests; no model or server needed), then `node src/cli.js serve` for
   the UI on :4000 and `node webserver/server.js` for the system under test on :3000 (`SUT_PORT`).
   Keys and `LOCAL_ENDPOINTS` live in `.env`; runs land in `results/runs/`, the SQLite index beside
   them (`node src/cli.js index --full` rebuilds it).
@@ -58,7 +58,7 @@ rebuildable. Learned on 2026-09-07: a structured schema for a task that needs th
 
 | Dimension | What exists today |
 |---|---|
-| Tasks | 36: `health`, `hello`, `reason`, `lookup`, `regex`, `chain`, `transform`, `explain` (judged), `restock3/6/12/30` (stateful, end-state scored), the generated `wordmath2/4/6`, `datecalc1/3`, `logicgrid3/4`, `tally20/60`, the scenario-backed `fanout4/8`, `follow3/6`, `norelevant`, the long-context `needle8k/32k/100k`, the extraction `extract1/2/3/4`, and the multi-turn `dialogue2/3/4` (a scripted user over the restock scenario, with policy constraints) — all minted per trial from the run's instance seed; every family with a knob carries `family` and `level` |
+| Tasks | 39: `health`, `hello`, `reason`, `lookup`, `regex`, `chain`, `transform`, `explain` (judged), `restock3/6/12/30` (stateful, end-state scored), the generated `wordmath2/4/6`, `datecalc1/3`, `logicgrid3/4`, `tally20/60`, the scenario-backed `fanout4/8`, `follow3/6`, `norelevant`, the long-context `needle8k/32k/100k` and `needlehop8k/32k/100k`, the extraction `extract1/2/3/4`, and the multi-turn `dialogue2/3/4` (a scripted user over the restock scenario, with policy constraints) — all minted per trial from the run's instance seed; every family with a knob carries `family` and `level` |
 | Modes | `noHarness`, `harness`, `schemaOnly`, `toolOnly` — the tools × schema 2×2 |
 | Models | OpenAI, Anthropic, Groq, DeepSeek, Ollama (live-probed), any named OpenAI-compatible endpoint (`LOCAL_ENDPOINTS`); real-harness arms Thoth, Claude Code, Pi, Codex; lineage per client from `models/lineage.json` |
 | Treatments | client variants paired against their base: `@skill:preload/ondemand/native`, `@agents:available/required`, `@stress:flaky/budget/haystack/distractors/injected`, `@constraints:light/medium/heavy`, `@format:nowork/work` (the `work` field stripped from or added to any schema) |
@@ -68,7 +68,7 @@ rebuildable. Learned on 2026-09-07: a structured schema for a task that needs th
 | Data | one JSON per run, SQLite index (`index`, `query`, `--sql`, `compact`), CSV, versions and lineage on every run, cross-run cell history, suite presets `smoke|standard|full`; every row keeps the model's turns (or an arm's raw transcript) beside its calls and results; `replay` (a new run parented to its original, paired against it), `rescore` (today's scorers over saved rows, in place), a trial as a timeline or a JSONL event log; gate verdicts on the run and in the index |
 | UI | Ledger design, live grid, dumbbell matrix, capability scorecard with regression lines, difficulty curves, paired comparison block, trial drawer with transcript and children, history filter |
 | SUT | the webserver: hello/health, the `/api/recent` log, inventory scenarios with tickets, confirm rules, stress profiles and op log, text logs with grep and count |
-| Tests | 281, none needing a model; the webserver runs in-process |
+| Tests | 285, none needing a model; the webserver runs in-process |
 
 ## What the field measures that we do not
 
@@ -94,7 +94,7 @@ with a priority for the stated purpose:
 | Agentic multi-step | SWE-bench Verified, Terminal-Bench, GAIA, BrowseComp, OSWorld | restock family (3–30 steps), four real arms | other domains (files, terminal, scheduling), longer horizons, policy constraints | **high** |
 | Reasoning / math | GPQA Diamond, HLE, ARC-AGI-2, FrontierMath, LiveBench math | `reason` plus the generated `wordmath`, `datecalc`, `logicgrid`, `tally` families with a calculator / date / query tool as the harness axis | harder tiers, unit conversions, spatial and ordering puzzles ([48]) | medium |
 | Instruction following | IFEval (verifiable constraints), LiveBench IF | `@constraints` variants: eleven requirement families checked by code on any task, adherence beside correctness | more families (sentences, language), requirements across turns, a `@format` variant ([48]) | low |
-| Long context | RULER / needle-in-a-haystack (multi-key, multi-value, aggregation) at 4 k–1 M | `needle8k/32k/100k`: single needle with recorded depth, multi-needle, aggregation; grep/count tools as the harness axis | larger sizes, a depth-sweep view, multi-hop questions ([48]) | medium |
+| Long context | RULER / needle-in-a-haystack (multi-key, multi-value, aggregation) at 4 k–1 M | `needle8k/32k/100k`: single needle with recorded depth, multi-needle, aggregation; `needlehop8k/32k/100k`: two-hop retrieval; grep/count tools as the harness axis; the depth sweep in the report, the UI and `query depth` | larger sizes for models that take them ([48]) | medium |
 | Structured extraction | LiveBench data analysis, enterprise extraction evals | `transform`, schema modes, the `extract` family: generated invoices with varied layouts, a line-item table, a purchase-order join, a statement reconciliation with a running balance, tolerance rules, injection through the document | other document kinds (tickets, contracts), OCR-like noise, multi-page tables ([48]) | low |
 | Statistics & reproducibility | HELM CIs, Inspect logs, lm-eval fixed prompts and versions | Fisher, Wilson, seeds, versions, canonical answers, index, McNemar + bootstrap on paired instances, power guidance, Bonferroni, curves, regression flags, `cli compare`, replay and re-score | lineage-pooled scorecards and trend views ([49]) | low |
 | Own-model workflow | lm-eval HF/vLLM backends; W&B / MLflow tracking; per-checkpoint scoreboards | named endpoints for any OpenAI-compatible server, `docs/serving.md`, `models/lineage.json` on every run and in the index, `cli models` / `suite` / `compare --parent` / `regressions`, the UI compare block, `replay` / `rescore`, `gate` / `suite nightly` (thresholds judged on the Wilson band, exit codes, time boxes) | contamination policy ([38]) | medium |
@@ -133,8 +133,8 @@ mean something; a structured schema carries `work` before the answer.
   ratings across models; the judge calibrated against a small human-labelled set before it is trusted.
 - **[48] Follow-ups on the shipped families.** Generators: unit conversions, spatial and ordering
   puzzles, harder tiers once the current ones saturate (Haiku 4.5 already sits at ceiling on most).
-  Constraints: language and length-in-sentences families; requirements composed across turns. Long context: sizes past 100 k for models that take them, a depth-sweep view over the
-  recorded needle depths, multi-hop questions (a line that refers to a second line). Tool breadth:
+  Constraints: language and length-in-sentences families; requirements composed across turns.
+  Long context: sizes past 100 k for models that take them. Tool breadth:
   argument-type strictness (a tool whose server rejects wrong types), near-miss irrelevance
   (questions about fields that almost exist), recovery from partial results.
 

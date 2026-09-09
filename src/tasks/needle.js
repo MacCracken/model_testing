@@ -6,6 +6,9 @@
 // (which hosts logged a CRITICAL event), or an aggregation (how many ERROR lines one service logged).
 // Free-form and schema-only modes read the whole log inline; the tool modes get a grep and a count
 // over the same log served by the webserver — so the harness delta here is "search versus read".
+// The `needlehop` family asks a fourth kind of question at the same sizes: one line says it retried
+// an earlier request, and the answer is that earlier request's latency — two lookups, the second
+// one's key only readable from the first.
 
 import { labelModel } from "../providers/index.js";
 import { dice, numberIn } from "./gen.js";
@@ -22,7 +25,7 @@ const MSGS = {
 };
 const TOKENS_PER_LINE = 42; // calibrated live: ~41 tokens a line on OpenAI's tokenizer, ~47 on Anthropic's (hex ids and timestamps tokenize badly)
 const DEPTHS = [0.1, 0.5, 0.9];
-const KINDS = ["single", "multi", "agg"];
+const KINDS = ["single", "multi", "agg", "hop"];
 
 const hex = (d, n) => Array.from({ length: n }, () => "0123456789abcdef"[d.int(0, 15)]).join("");
 const pad = (n) => String(n).padStart(2, "0");
@@ -44,8 +47,10 @@ export function generate(seed, tokens, { kind: kindIndex = null } = {}) {
     seen.add(req);
     rows.push({ ts: `${dt.getUTCFullYear()}-${pad(dt.getUTCMonth() + 1)}-${pad(dt.getUTCDate())}T${pad(dt.getUTCHours())}:${pad(dt.getUTCMinutes())}:${pad(dt.getUTCSeconds())}Z`, host: `host-${d.int(1, 40)}`, svc: d.pick(SERVICES), level, req, latency: d.int(5, 900), bytes: d.int(100, 50000), msg: d.pick(MSGS[level]) });
   }
-  const kind = KINDS[(kindIndex ?? seed) % 3];
-  let question, answer, key, depth = null;
+  // The plain family rotates its three question kinds with the trial index; a kind asked for by
+  // index (the hop family asks for the fourth) is taken as is.
+  const kind = kindIndex === null || kindIndex === undefined ? KINDS[seed % 3] : KINDS[kindIndex];
+  let question, answer, key, depth = null, hops = null;
   if (kind === "single") {
     depth = DEPTHS[d.int(0, 2)];
     const i = Math.min(n - 1, Math.max(0, Math.round(depth * n)));
@@ -63,6 +68,18 @@ export function generate(seed, tokens, { kind: kindIndex = null } = {}) {
     question = "Which hosts logged a CRITICAL event? List every one of them.";
     answer = [...hosts].sort();
     key = ["CRITICAL"];
+  } else if (kind === "hop") {
+    // One line says it retried an earlier request; the answer is that earlier request's latency.
+    const i = d.int(0, n - 1);
+    let j = d.int(0, n - 1);
+    while (j === i) j = d.int(0, n - 1);
+    const a = rows[i];
+    const x = rows[j];
+    rows[i] = { ...a, msg: `retry of req ${x.req}` };
+    question = `Request ${a.req} was a retry of an earlier request. What latency (in ms) was recorded for the request it retried?`;
+    answer = x.latency;
+    key = [a.req, x.req];
+    hops = [Math.round((100 * i) / n) / 100, Math.round((100 * j) / n) / 100];
   } else {
     const svc = d.pick(SERVICES);
     const count = rows.filter((r) => r.svc === svc && r.level === "ERROR").length;
@@ -72,7 +89,7 @@ export function generate(seed, tokens, { kind: kindIndex = null } = {}) {
   }
   const lines = rows.map((r) => `${r.ts} ${r.host} svc=${r.svc} level=${r.level} req=${r.req} latency=${r.latency}ms bytes=${r.bytes} msg="${r.msg}"`);
   const text = lines.join("\n");
-  return { seed, tokens, kind, depth, lines: n, question, answer, key, text, approxTokens: n * TOKENS_PER_LINE };
+  return { seed, tokens, kind, depth, hops, lines: n, question, answer, key, text, approxTokens: n * TOKENS_PER_LINE };
 }
 
 // The instance a saved row ran against, minted again from what the row's ctx keeps (seed, tokens,
@@ -122,23 +139,26 @@ function judge(kind, got, ground) {
   return n === ground.answer ? { correct: true, reason: `${n} — right` } : { correct: false, reason: `answered ${n}, expected ${ground.answer}` };
 }
 
-function makeNeedle(tokens, label) {
+function makeNeedle(tokens, label, { hop = false } = {}) {
   const intro = (ctx) => `A server log of ${ctx.lines} lines follows (one event per line: timestamp, host, svc, level, req, latency, bytes, msg).`;
   const fmt = (ctx) => (ctx.kind === "multi" ? "the host names, comma-separated" : "the number");
   return {
-    name: `needle${label}`,
-    family: "needle",
+    name: `${hop ? "needlehop" : "needle"}${label}`,
+    family: hop ? "needlehop" : "needle",
     level: tokens,
     category: "long-context",
-    capabilities: ["long-context", "retrieval"],
+    capabilities: hop ? ["long-context", "retrieval", "multi-hop"] : ["long-context", "retrieval"],
     seeded: true,
-    description: `A ~${label}-token server log with one question per trial — one planted line, three CRITICAL hosts, or an ERROR count per service; read inline, or searched with grep and count tools. Minted per trial.`,
+    description: hop
+      ? `A ~${label}-token server log where one line says it retried an earlier request; the answer is that request's latency — two lookups, the second key only readable from the first. Read inline, or searched with grep and count tools. Minted per trial.`
+      : `A ~${label}-token server log with one question per trial — one planted line, three CRITICAL hosts, or an ERROR count per service; read inline, or searched with grep and count tools. Minted per trial.`,
     model: labelModel,
-    maxRounds: 6,
+    maxRounds: hop ? 8 : 6,
 
     setup: async ({ seed, index = 1 }) => {
-      // The kind rotates with the trial index, so six trials per cell cover each kind twice.
-      const g = generate(seed >>> 0, tokens, { kind: (index - 1) % 3 });
+      // The plain family's kind rotates with the trial index, so six trials per cell cover each
+      // kind twice; the hop family always asks its own question.
+      const g = generate(seed >>> 0, tokens, { kind: hop ? 3 : (index - 1) % 3 });
       // The tool modes and the arms read the same log from the webserver.
       const res = await fetch(`${BASE}/api/logs`, { method: "POST", headers: { "content-type": "text/plain" }, body: g.text });
       if (!res.ok) throw new Error(`POST /api/logs → ${res.status}`);
@@ -201,5 +221,7 @@ function makeNeedle(tokens, label) {
   };
 }
 
-export const needleTasks = [[8000, "8k"], [32000, "32k"], [100000, "100k"]].map(([t, l]) => makeNeedle(t, l));
-export { tools, schema, makeNeedle, SERVICES };
+const SIZES = [[8000, "8k"], [32000, "32k"], [100000, "100k"]];
+export const needleTasks = SIZES.map(([t, l]) => makeNeedle(t, l));
+export const needlehopTasks = SIZES.map(([t, l]) => makeNeedle(t, l, { hop: true }));
+export { tools, schema, makeNeedle, SERVICES, KINDS };

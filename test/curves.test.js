@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { curves, summarize } from "../src/runner.js";
+import { curves, summarize, depthSweep } from "../src/runner.js";
 import { seriesFor, bandsSeparate, regressionsFor, parentGaps } from "../src/trends.js";
 import { listTasks } from "../src/tasks/registry.js";
 
@@ -97,4 +97,25 @@ test("parentGaps: a checkpoint against its parent, pooled per capability", () =>
   // The parent ran a task the child never did: it drops out of the comparison rather than tilting it.
   assert.equal(parentGaps(child, [...parent, ...mk("p", "follow3", true, 10)], { ...caps, follow3: ["dependent-calls"] }).flags[0].parent.runs, 10);
   assert.deepEqual(parentGaps(child, parent, caps, { minTrials: 20 }).flags, []);
+});
+
+test("depthSweep pools single-needle rows by the depth their context records, per client and mode", () => {
+  const nd = (client, mode, depth, correct, i) => ({ task: "needle8k", client, mode, model: "m", index: i, correct, error: null, toolCalls: [], latencyMs: 1, ctx: { kind: "single", depth } });
+  const rows = [
+    nd("a", "harness", 0.1, true, 1), nd("a", "harness", 0.1, true, 2), nd("a", "harness", 0.9, false, 3), nd("a", "harness", 0.9, true, 4),
+    nd("a", "noHarness", 0.5, false, 5), nd("b", "harness", 0.1, true, 6),
+    { task: "needle8k", client: "a", mode: "harness", index: 7, correct: true, error: null, toolCalls: [], latencyMs: 1, ctx: { kind: "agg", depth: null } },
+    { task: "needle8k", client: "a", mode: "harness", index: 8, correct: false, error: "boom", toolCalls: [], latencyMs: 1, ctx: { kind: "single", depth: 0.5 } },
+  ];
+  const d = depthSweep(rows);
+  assert.deepEqual(d.depths, [0.1, 0.5, 0.9]);
+  assert.equal(d.trials, 6, "rows without a depth, and error rows, are left out");
+  assert.deepEqual(Object.keys(d.byClient.a.harness).sort(), ["0.1", "0.9"]);
+  assert.equal(d.byClient.a.harness[0.1].correct, 2);
+  assert.equal(d.byClient.a.harness[0.9].correctPct, 50);
+  assert.equal(d.byClient.a.noHarness[0.5].runs, 1);
+  assert.equal(d.byClient.b.harness[0.1].runs, 1);
+  assert.equal(depthSweep([rows[6]]), null);
+  assert.equal(summarize(rows).depths.trials, 6);
+  assert.equal(summarize([rows[6]]).depths, null);
 });

@@ -951,6 +951,31 @@ export function curves(rows, levelsOf = {}) {
   return out;
 }
 
+// Success by the depth of a single planted line, for rows whose context records one (the needle
+// family's single-needle question): per client and mode, one point per depth with its band. Null
+// when no row carries a depth.
+export function depthSweep(rows) {
+  const tagged = rows.filter((r) => typeof r.ctx?.depth === "number" && !r.error);
+  if (!tagged.length) return null;
+  const depths = [...new Set(tagged.map((r) => r.ctx.depth))].sort((a, b) => a - b);
+  const byClient = {};
+  for (const client of [...new Set(tagged.map((r) => r.client))]) {
+    const byMode = {};
+    for (const mode of [...new Set(tagged.filter((r) => r.client === client).map((r) => r.mode))]) {
+      const byDepth = {};
+      for (const depth of depths) {
+        const ps = tagged.filter((r) => r.client === client && r.mode === mode && r.ctx.depth === depth);
+        if (!ps.length) continue;
+        const correct = ps.filter((r) => r.correct).length;
+        byDepth[depth] = { depth, runs: ps.length, correct, correctPct: (correct / ps.length) * 100, wilson: wilsonInterval(correct, ps.length) };
+      }
+      byMode[mode] = byDepth;
+    }
+    byClient[client] = byMode;
+  }
+  return { depths, trials: tagged.length, byClient };
+}
+
 export function summarize(rows, { capabilitiesOf = null, levelsOf = null } = {}) {
   const modes = [...new Set(rows.map((r) => r.mode))];
   const taskNames = [...new Set(rows.map((r) => r.task))];
@@ -1029,6 +1054,7 @@ export function summarize(rows, { capabilitiesOf = null, levelsOf = null } = {})
     stability,
     capabilities,
     curves: levelsOf && Object.keys(levelsOf).length ? curves(rows, levelsOf) : {},
+    depths: depthSweep(rows),
     multiple: multipleComparisons(byTaskClient),
     delta: {
       overall: deltaFor(rows),

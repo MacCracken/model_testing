@@ -69,6 +69,15 @@ export function printSummary(summary, { log = console.log } = {}) {
     }
   }
 
+  if (summary.depths) {
+    log("\n-- needle depth sweep (one planted line: success by its depth in the log)");
+    for (const [client, byMode] of Object.entries(summary.depths.byClient)) {
+      for (const [mode, byDepth] of Object.entries(byMode)) {
+        log(`   ${client.padEnd(30)} ${mode.padEnd(10)} ${summary.depths.depths.map((d) => { const p = byDepth[d]; return p ? `${Math.round(d * 100)}%: ${p.correct}/${p.runs}` : ""; }).filter(Boolean).join("  ")}`);
+      }
+    }
+  }
+
   if (summary.delta.skill) {
     log("\n-- skill delta (same task, mode and model: without → with the playbook)");
     for (const [how, d] of Object.entries(summary.delta.skill)) {

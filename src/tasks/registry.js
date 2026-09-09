@@ -27,14 +27,14 @@ import { tallyTasks } from "./tally.js";
 import { fanoutTasks } from "./fanout.js";
 import { followTasks } from "./follow.js";
 import { task as norelevantTask } from "./norelevant.js";
-import { needleTasks } from "./needle.js";
+import { needleTasks, needlehopTasks } from "./needle.js";
 import { extractTasks } from "./extract.js";
 import { dialogueTasks } from "./dialogue.js";
 
 export const tasks = [
   healthTask, helloTask, reasonTask, lookupTask, regexTask, chainTask, transformTask, explainTask,
   ...restockTasks, ...wordmathTasks, ...datecalcTasks, ...logicgridTasks, ...tallyTasks,
-  ...fanoutTasks, ...followTasks, norelevantTask, ...needleTasks, ...extractTasks, ...dialogueTasks,
+  ...fanoutTasks, ...followTasks, norelevantTask, ...needleTasks, ...needlehopTasks, ...extractTasks, ...dialogueTasks,
 ];
 
 export function getTask(name) {

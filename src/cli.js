@@ -103,7 +103,7 @@ async function main() {
 
     case "query": {
       const args = parseArgs(rest);
-      const { indexRuns, queryRuns, trend, cellHistory, worstCells, rawQuery } = await import("./store.js");
+      const { indexRuns, queryRuns, trend, cellHistory, worstCells, rawQuery, depthSweep } = await import("./store.js");
       indexRuns();
       const what = args._[0];
       const table = (rows) => { if (!rows.length) { console.log("(no rows)"); return; } console.table(rows); };
@@ -122,8 +122,11 @@ async function main() {
         table(c.history);
       } else if (what === "worst") {
         table(worstCells({ mode: args.mode ?? "harness", limit: args.limit ?? 10 }));
+      } else if (what === "depth") {
+        // The needle depth sweep pooled over the index: one planted line, success by its depth.
+        table(depthSweep({ client: args.client ?? null, mode: args.mode ?? null }).map((r) => ({ ...r, depth: `${Math.round(r.depth * 100)}%`, correct_pct: Math.round(r.correct_pct) })));
       } else {
-        console.error("usage: node src/cli.js query runs|trend|cell|worst [--task] [--client] [--mode] [--q] [--since] [--limit] | --sql \"select …\"");
+        console.error("usage: node src/cli.js query runs|trend|cell|worst|depth [--task] [--client] [--mode] [--q] [--since] [--limit] | --sql \"select …\"");
         process.exit(1);
       }
       break;
