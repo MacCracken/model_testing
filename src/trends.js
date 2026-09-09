@@ -3,7 +3,7 @@
 // indexed trial rows ({ runId, createdAt, task, mode, client, correct }); the CLI and the web API
 // fetch the rows from the SQLite index and hand them here.
 
-import { wilsonInterval, deltaBetween } from "./runner.js";
+import { wilsonInterval, deltaBetween, capabilityStats } from "./runner.js";
 
 const rate = (rows) => {
   const correct = rows.filter((r) => r.correct).length;
@@ -86,6 +86,61 @@ export function regressionsFor(rows, capabilitiesOf, { minTrials = 4, modes = ["
     }
   }
   return { flags, compared, latestRuns: [...latestRuns].sort() };
+}
+
+// A lineage family across its checkpoints: per member (in the registry's order), the rate per
+// capability in one mode, pooled over every run the index holds; and the whole family pooled.
+export function familyScorecard(rowsByClient, capabilitiesOf, members, { mode = "harness" } = {}) {
+  const out = [];
+  for (const m of members) {
+    const rows = rowsByClient[m.id] ?? [];
+    const own = rows.filter((r) => r.mode === mode);
+    const byCapability = {};
+    for (const cap of [...new Set(own.flatMap((r) => capabilitiesOf[r.task] ?? []))].sort()) byCapability[cap] = rate(own.filter((r) => (capabilitiesOf[r.task] ?? []).includes(cap)));
+    out.push({ id: m.id, checkpoint: m.checkpoint ?? null, step: m.step ?? null, parent: m.parent ?? null, trials: rows.length, runs: new Set(rows.map((r) => r.runId)).size, byCapability });
+  }
+  const all = members.flatMap((m) => rowsByClient[m.id] ?? []);
+  const capabilities = [...new Set(out.flatMap((m) => Object.keys(m.byCapability)))].sort();
+  return { mode, members: out, capabilities, pooled: capabilityStats(all, capabilitiesOf), trials: all.length };
+}
+
+// Every client's regressions in one document — the shape a CI step reads or a webhook receives:
+// per client its own flags (latest run against earlier runs) and, for a checkpoint with a
+// registered parent, the gaps against it; plus one flat list of flags across clients.
+export function regressionsReport(rows, capabilitiesOf, entries = {}, { client = null, since = null, minTrials = 4, now = new Date() } = {}) {
+  const clients = client ? [client] : [...new Set(rows.map((r) => r.client))].sort();
+  const flat = [];
+  const perClient = [];
+  for (const c of clients) {
+    const own = rows.filter((r) => r.client === c);
+    const runs = new Set(own.map((r) => r.runId)).size;
+    const reg = runs >= 2 ? regressionsFor(own, capabilitiesOf, { minTrials }) : { flags: [], compared: 0, latestRuns: [] };
+    const e = entries[c];
+    const parentRows = e?.parent ? rows.filter((r) => r.client === e.parent) : [];
+    const vsParent = e?.parent && own.length && parentRows.length ? { parent: e.parent, ...parentGaps(own, parentRows, capabilitiesOf, { minTrials }) } : null;
+    perClient.push({ client: c, runs, trials: own.length, own: reg, vsParent });
+    for (const f of reg.flags) flat.push({ kind: "own", client: c, capability: f.capability, mode: f.mode, from: f.earlier, to: f.later, dropPp: f.dropPp, pValue: f.delta.pValue, earlierRuns: f.earlierRuns, latestRuns: f.latestRuns, latestAt: f.latestAt, perTask: f.perTask });
+    for (const f of vsParent?.flags ?? []) flat.push({ kind: "parent", client: c, parent: e.parent, capability: f.capability, mode: f.mode, from: f.parent, to: f.child, dropPp: f.dropPp, pValue: f.delta.pValue, perTask: f.perTask });
+  }
+  // The biggest drop first; at a tie a client's own regression before a gap against its parent.
+  flat.sort((a, b) => b.dropPp - a.dropPp || (a.kind === "own" ? 0 : 1) - (b.kind === "own" ? 0 : 1) || a.client.localeCompare(b.client));
+  return { generatedAt: now.toISOString(), since, minTrials, clients: perClient, flags: flat, count: flat.length };
+}
+
+// What the index holds per registered checkpoint, for the lineage graph: trials, runs, the last
+// run, the pooled harness rate, and how many regression flags (own, and against the parent).
+export function lineageStats(rows, capabilitiesOf, entries, { minTrials = 4 } = {}) {
+  const report = regressionsReport(rows, capabilitiesOf, entries, { minTrials });
+  const flagsFor = Object.fromEntries(report.clients.map((c) => [c.client, { own: c.own.flags.length, parent: c.vsParent?.flags.length ?? 0 }]));
+  const out = {};
+  for (const id of Object.keys(entries)) {
+    const own = rows.filter((r) => r.client === id);
+    if (!own.length) continue;
+    const h = own.filter((r) => r.mode === "harness");
+    const correct = h.filter((r) => r.correct).length;
+    out[id] = { trials: own.length, runs: new Set(own.map((r) => r.runId)).size, last: own.map((r) => String(r.createdAt)).sort().pop() ?? null, harnessN: h.length, harnessCorrect: correct, harnessPct: h.length ? (correct / h.length) * 100 : null, flags: flagsFor[id] ?? { own: 0, parent: 0 } };
+  }
+  return out;
 }
 
 // A checkpoint against its parent, both pooled over every run, per capability and mode, on the

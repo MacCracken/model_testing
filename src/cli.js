@@ -136,16 +136,50 @@ async function main() {
     case "scorecard": {
       const args = parseArgs(rest);
       const client = args._[0];
-      if (!client) { console.error("usage: node src/cli.js scorecard <client> [--since YYYY-MM-DD] [--json]"); process.exit(1); }
+      if (!client && !args.family) { console.error("usage: node src/cli.js scorecard <client> [--since YYYY-MM-DD] [--json] [--svg <file>]\n       node src/cli.js scorecard --family <family> [--mode harness] [--since D] [--json]"); process.exit(1); }
       const { indexRuns, rawQuery } = await import("./store.js");
       const { capabilityStats } = await import("./runner.js");
       const { listTasks } = await import("./tasks/registry.js");
       indexRuns();
       const q = (s) => s.replace(/'/g, "''");
+      // --family: a lineage family's checkpoints side by side, per capability, with a trend across them.
+      if (args.family) {
+        const { familyMembers } = await import("./lineage.js");
+        const { familyScorecard } = await import("./trends.js");
+        const { sparklineText } = await import("./charts.js");
+        const members = familyMembers(args.family);
+        if (!members.length) { console.log(`no lineage entries in family ${args.family} (see models/lineage.json)`); break; }
+        const mode = args.mode ?? "harness";
+        const rowsByClient = {};
+        for (const m of members) rowsByClient[m.id] = rawQuery(`select t.run_id as runId, t.task, t.mode, t.client, t.correct from trials t join runs r on r.id = t.run_id where t.client = '${q(m.id)}' and t.error is null and t.base_client is null${args.since ? ` and r.created_at >= '${q(args.since)}'` : ""}`).map((r) => ({ ...r, correct: !!r.correct }));
+        const card = familyScorecard(rowsByClient, Object.fromEntries(listTasks().map((t) => [t.name, t.capabilities])), members, { mode });
+        if (args.json) { console.log(JSON.stringify({ family: args.family, ...card }, null, 2)); break; }
+        console.log(`family ${args.family} · ${mode} — ${card.members.length} checkpoint(s), ${card.trials} scored trials${args.since ? ` since ${args.since}` : ""}\n`);
+        const col = (m) => `${m.checkpoint ?? m.id.split(":").pop()}${m.step !== null ? ` @${m.step}` : ""}`;
+        console.log(`${"capability".padEnd(22)} ${card.members.map((m) => col(m).slice(0, 15).padEnd(16)).join("")} trend`);
+        for (const cap of card.capabilities) {
+          const cells = card.members.map((m) => { const r = m.byCapability[cap]; return (r ? `${r.correct}/${r.runs} ${r.correctPct.toFixed(0)}%` : "—").padEnd(16); });
+          console.log(`${cap.padEnd(22)} ${cells.join("")} ${sparklineText(card.members.map((m) => m.byCapability[cap]?.correctPct ?? null))}`);
+        }
+        console.log(`${"trials".padEnd(22)} ${card.members.map((m) => `${m.trials} in ${m.runs} run(s)`.padEnd(16)).join("")}`);
+        console.log("\nper checkpoint in registry order (step, then date), pooled over every saved run; the trend reads left to right across the checkpoints (· = no trials)");
+        break;
+      }
       const rows = rawQuery(`select t.task, t.mode, t.client, t.idx as trialIndex, t.trial_index as "index", t.correct, r.created_at as createdAt from trials t join runs r on r.id = t.run_id where t.client = '${q(client)}' and t.error is null${args.since ? ` and r.created_at >= '${q(args.since)}'` : ""}`)
         .map((r) => ({ ...r, correct: !!r.correct }));
       if (!rows.length) { console.log(`no trials for ${client}${args.since ? ` since ${args.since}` : ""}`); break; }
       const card = capabilityStats(rows, Object.fromEntries(listTasks().map((t) => [t.name, t.capabilities])));
+      // --svg: the radar as a file — harness filled, no harness dashed, one axis per capability.
+      if (args.svg) {
+        const { radarSvg } = await import("./charts.js");
+        const { writeFileSync } = await import("node:fs");
+        const axes = Object.keys(card).sort();
+        writeFileSync(args.svg, radarSvg(axes, [
+          { name: `${client} · no harness`, values: axes.map((a) => card[a].byMode.noHarness?.correctPct ?? null), color: "#888", dashed: true },
+          { name: `${client} · harness`, values: axes.map((a) => card[a].byMode.harness?.correctPct ?? null), color: "#6d5bd0", fill: true },
+        ], { size: 360, title: `${client} — capability radar over ${rows.length} scored trials` }));
+        console.log(`wrote ${args.svg}: ${axes.length} axes over ${rows.length} trials (filled = harness, dashed = no harness)`);
+      }
       if (args.json) { console.log(JSON.stringify({ client, trials: rows.length, since: args.since ?? null, capabilities: card }, null, 2)); break; }
       console.log(`${client} — ${rows.length} scored trials${args.since ? ` since ${args.since}` : ""}, ${Object.keys(card).length} capabilities\n`);
       const cell = (m) => (m ? `${String(m.correct).padStart(3)}/${String(m.runs).padEnd(4)} ${m.correctPct.toFixed(0).padStart(3)}%  [${(m.wilson.low * 100).toFixed(0)}–${(m.wilson.high * 100).toFixed(0)}]`.padEnd(24) : "—".padEnd(24));
@@ -204,6 +238,15 @@ async function main() {
       console.log(`${args.client} · ${args.mode ?? "harness"} — correct/trials per run\n`);
       console.log(`${"run".padEnd(24)} ${"date".padEnd(11)} ${names.map((n) => n.slice(0, 12).padEnd(13)).join("")}`);
       for (const s of series) console.log(`${s.runId.padEnd(24)} ${String(s.createdAt).slice(0, 10).padEnd(11)} ${names.map((n) => { const m = s.byCapability[n]?.[args.mode ?? "harness"]; return (m ? `${m.correct}/${m.runs} ${m.correctPct.toFixed(0)}%` : "").padEnd(13); }).join("")}`);
+      // The same series as sparklines: one bar per run, oldest first.
+      const { sparklineText } = await import("./charts.js");
+      console.log("");
+      for (const n of names) {
+        const vals = series.map((s) => s.byCapability[n]?.[args.mode ?? "harness"]?.correctPct ?? null);
+        const seen = vals.filter((v) => v !== null);
+        console.log(`${n.padEnd(22)} ${sparklineText(vals)}  ${seen.length ? `${seen[0].toFixed(0)}% → ${seen[seen.length - 1].toFixed(0)}% over ${seen.length} run(s)` : ""}`);
+      }
+      console.log("\nsparkline: one bar per run, oldest first (· = the run did not carry the capability)");
       break;
     }
 
@@ -212,29 +255,24 @@ async function main() {
     case "regressions": {
       const args = parseArgs(rest);
       const { indexRuns, rawQuery } = await import("./store.js");
-      const { regressionsFor, parentGaps } = await import("./trends.js");
+      const { regressionsReport } = await import("./trends.js");
+      const { formatRegressions, writeReport, postReport } = await import("./notify.js");
       const { listTasks } = await import("./tasks/registry.js");
       const { loadLineage } = await import("./lineage.js");
       indexRuns();
       const q = (s) => s.replace(/'/g, "''");
       const caps = Object.fromEntries(listTasks().map((t) => [t.name, t.capabilities]));
       const all = rawQuery(`select t.run_id as runId, r.created_at as createdAt, t.task, t.mode, t.client, t.correct from trials t join runs r on r.id = t.run_id where t.error is null and t.base_client is null${args.since ? ` and r.created_at >= '${q(args.since)}'` : ""}`).map((r) => ({ ...r, correct: !!r.correct }));
-      const clients = args.client ? [args.client] : [...new Set(all.map((r) => r.client))].sort();
-      let any = false;
-      for (const client of clients) {
-        const rows = all.filter((r) => r.client === client);
-        if (new Set(rows.map((r) => r.runId)).size < 2) continue;
-        const reg = regressionsFor(rows, caps);
-        for (const f of reg.flags) { any = true; console.log(`${client.padEnd(34)} ${f.capability.padEnd(20)} ${f.mode.padEnd(10)} ${f.earlier.correctPct.toFixed(0)}% (${f.earlier.correct}/${f.earlier.runs} over ${f.earlierRuns} earlier runs) → ${f.later.correctPct.toFixed(0)}% (${f.later.correct}/${f.later.runs} in ${f.latestRuns.join("+")}, ${String(f.latestAt).slice(0, 10)})  −${f.dropPp.toFixed(0)}pp  p=${f.delta.pValue.toFixed(3)}  ${f.perTask.map((t) => `${t.task} ${t.earlier}→${t.later}/${t.n}`).join(", ")}`); }
+      const report = regressionsReport(all, caps, loadLineage().entries, { client: args.client ?? null, since: args.since ?? null, minTrials: args.minTrials ?? 4 });
+      process.stdout.write(formatRegressions(report, args.json ? "json" : args.format ?? "text"));
+      // Delivered elsewhere: a file a CI step reads (JSON, or Markdown for a step summary), a webhook.
+      if (args.out) { writeReport(args.out, report, { format: args.format ?? (/\.md$/i.test(args.out) ? "md" : "json") }); console.error(`wrote ${args.out}`); }
+      if (args.webhook) {
+        const r = await postReport(args.webhook, report);
+        console.error(r.ok ? `posted to ${args.webhook} (HTTP ${r.status})` : `webhook ${args.webhook} failed: ${r.error ?? `HTTP ${r.status}`}`);
+        if (!r.ok) process.exitCode = 2;
       }
-      for (const e of Object.values(loadLineage().entries)) {
-        if (!e.parent || (args.client && e.id !== args.client)) continue;
-        const child = all.filter((r) => r.client === e.id), parent = all.filter((r) => r.client === e.parent);
-        if (!child.length || !parent.length) continue;
-        const gaps = parentGaps(child, parent, caps);
-        for (const f of gaps.flags) { any = true; console.log(`${e.id.padEnd(34)} ${f.capability.padEnd(20)} ${f.mode.padEnd(10)} parent ${e.parent} ${f.parent.correctPct.toFixed(0)}% → ${f.child.correctPct.toFixed(0)}%  −${f.dropPp.toFixed(0)}pp  p=${f.delta.pValue.toFixed(3)}  ${f.perTask.map((t) => `${t.task} ${t.earlier}→${t.later}/${t.n}`).join(", ")}`); }
-      }
-      if (!any) console.log(`no regressions: no capability's latest band lies under its earlier band${args.client ? ` for ${args.client}` : ""}`);
+      if (args.fail && report.count) process.exitCode = 1;
       break;
     }
 
@@ -253,6 +291,15 @@ async function main() {
       }
       const unlisted = Object.keys(counts).filter((c) => !entries[c] && !/@/.test(c));
       if (unlisted.length) console.log(`\nclients with runs but no lineage entry: ${unlisted.join(", ")}`);
+      // --graph: the registry as a tree per family, each checkpoint with its pooled harness rate.
+      if (rest.includes("--graph") && Object.keys(entries).length) {
+        const { lineageStats } = await import("./trends.js");
+        const { lineageLayout, lineageText } = await import("./charts.js");
+        const { listTasks } = await import("./tasks/registry.js");
+        const q = (s) => s.replace(/'/g, "''");
+        const rows = rawQuery(`select t.run_id as runId, r.created_at as createdAt, t.task, t.mode, t.client, t.correct from trials t join runs r on r.id = t.run_id where t.error is null and t.base_client is null and t.client in (${Object.keys(entries).map((id) => `'${q(id)}'`).join(",")})`).map((r) => ({ ...r, correct: !!r.correct }));
+        console.log(`\n${lineageText(lineageLayout(entries, { stats: lineageStats(rows, Object.fromEntries(listTasks().map((t) => [t.name, t.capabilities])), entries) }))}`);
+      }
       break;
     }
 
@@ -428,12 +475,13 @@ async function main() {
       console.log("  node src/cli.js index [--full]                        # rebuild the SQLite index over results/runs");
       console.log("  node src/cli.js query runs|trend|cell|worst [...]    # cross-run questions (or --sql)");
       console.log("  node src/cli.js compact --older-than <days> [--yes]  # strip prompts/transcripts from old runs");
-      console.log("  node src/cli.js scorecard <client> [--since D]       # capability scorecard pooled over the index");
+      console.log("  node src/cli.js scorecard <client> [--since D] [--svg <file>]   # capability scorecard pooled over the index; --svg writes the radar");
+      console.log("  node src/cli.js scorecard --family <family> [--mode] # a lineage family's checkpoints side by side, per capability");
       console.log("  node src/cli.js compare <run> --a <c1> --b <c2> | compare <runA> <runB>   # paired comparison (McNemar)");
-      console.log("  node src/cli.js models                                # the lineage registry and what the index holds per checkpoint");
+      console.log("  node src/cli.js models [--graph]                      # the lineage registry and what the index holds per checkpoint (--graph: as a tree with rates)");
       console.log("  node src/cli.js curve <family> [--mode] [--client]   # success per difficulty level, with the breaking point");
-      console.log("  node src/cli.js trend --client <c> [--capability]    # a client's capabilities per run over time");
-      console.log("  node src/cli.js regressions [--client <c>]           # latest run vs earlier runs, and checkpoint vs parent");
+      console.log("  node src/cli.js trend --client <c> [--capability]    # a client's capabilities per run over time, with sparklines");
+      console.log("  node src/cli.js regressions [--client <c>] [--json|--format md] [--out <file>] [--webhook <url>] [--fail]   # latest run vs earlier runs, and checkpoint vs parent; delivered to a file or a webhook");
       console.log("  node src/cli.js suite smoke|standard|full --clients … # preset runs for a fresh checkpoint");
       console.log("  node src/cli.js serve [--port 4000] [--host 127.0.0.1] [--open]");
       console.log("  node src/cli.js bench --task <name|all> --modes noHarness,harness,schemaOnly,toolOnly --clients <p:model,...> [--count N] [--temperature T] [--seed S] [--model-param k=v]... [--json]");

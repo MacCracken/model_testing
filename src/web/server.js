@@ -38,7 +38,7 @@ const SUT_BASE = `http://localhost:${SUT_PORT}`;
 // (see runner.js). Served under /lib/ and nowhere else.
 // Every module runner.js imports (transitively) must be listed here, or the browser's import graph
 // fails and the UI goes blank — test/browser-lib.test.js checks it.
-const BROWSER_LIB = new Set(["runner.js", "schema.js", "tasks/gen.js", "format.js"]);
+const BROWSER_LIB = new Set(["runner.js", "schema.js", "tasks/gen.js", "format.js", "charts.js"]);
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -276,18 +276,66 @@ async function handle(req, res) {
     return sendJSON(res, 200, { runs: listRuns({ limit: 100 }) });
   }
 
-  // A client's capability scorecard pooled over the index.
+  // A client's capability scorecard pooled over the index — or, with ?family=, a lineage family's
+  // checkpoints side by side.
   if (req.method === "GET" && path === "/api/scorecard") {
     const client = url.searchParams.get("client");
-    if (!client) return sendJSON(res, 400, { error: "client is required" });
+    const family = url.searchParams.get("family");
+    if (!client && !family) return sendJSON(res, 400, { error: "client or family is required" });
     try {
       indexRuns();
       const { rawQuery } = await import("../store.js");
       const { capabilityStats } = await import("../runner.js");
       const since = url.searchParams.get("since");
       const q = (s) => s.replace(/'/g, "''");
+      if (family) {
+        const { familyMembers } = await import("../lineage.js");
+        const { familyScorecard } = await import("../trends.js");
+        const members = familyMembers(family);
+        const rowsByClient = {};
+        for (const m of members) rowsByClient[m.id] = rawQuery(`select t.run_id as runId, t.task, t.mode, t.client, t.correct from trials t join runs r on r.id = t.run_id where t.client = '${q(m.id)}' and t.error is null and t.base_client is null${since ? ` and r.created_at >= '${q(since)}'` : ""}`).map((r) => ({ ...r, correct: !!r.correct }));
+        return sendJSON(res, 200, { family, ...familyScorecard(rowsByClient, Object.fromEntries(listTasks().map((t) => [t.name, t.capabilities])), members, { mode: url.searchParams.get("mode") ?? "harness" }) });
+      }
       const rows = rawQuery(`select t.task, t.mode, t.client, t.trial_index as "index", t.correct from trials t join runs r on r.id = t.run_id where t.client = '${q(client)}' and t.error is null${since ? ` and r.created_at >= '${q(since)}'` : ""}`).map((r) => ({ ...r, correct: !!r.correct }));
       return sendJSON(res, 200, { client, trials: rows.length, capabilities: capabilityStats(rows, Object.fromEntries(listTasks().map((t) => [t.name, t.capabilities]))) });
+    } catch (err) {
+      return sendJSON(res, 500, { error: err?.message ?? "index unavailable" });
+    }
+  }
+
+  // A client's capabilities per run over time — the series behind the sparklines.
+  if (req.method === "GET" && path === "/api/trend") {
+    const client = url.searchParams.get("client");
+    if (!client) return sendJSON(res, 400, { error: "client is required" });
+    try {
+      indexRuns();
+      const { rawQuery } = await import("../store.js");
+      const { seriesFor } = await import("../trends.js");
+      const q = (s) => s.replace(/'/g, "''");
+      const since = url.searchParams.get("since");
+      const mode = url.searchParams.get("mode");
+      const rows = rawQuery(`select t.run_id as runId, r.created_at as createdAt, t.task, t.mode, t.client, t.correct from trials t join runs r on r.id = t.run_id where t.client = '${q(client)}' and t.error is null${since ? ` and r.created_at >= '${q(since)}'` : ""}`).map((r) => ({ ...r, correct: !!r.correct }));
+      return sendJSON(res, 200, { client, mode: mode ?? null, runs: new Set(rows.map((r) => r.runId)).size, series: seriesFor(rows, Object.fromEntries(listTasks().map((t) => [t.name, t.capabilities])), { mode: mode ?? null, capability: url.searchParams.get("capability") ?? null }) });
+    } catch (err) {
+      return sendJSON(res, 500, { error: err?.message ?? "index unavailable" });
+    }
+  }
+
+  // The lineage registry with what the index holds per checkpoint — the graph's data.
+  if (req.method === "GET" && path === "/api/lineage") {
+    try {
+      const { loadLineage } = await import("../lineage.js");
+      const { file, entries } = loadLineage();
+      let stats = {};
+      if (Object.keys(entries).length) {
+        indexRuns();
+        const { rawQuery } = await import("../store.js");
+        const { lineageStats } = await import("../trends.js");
+        const q = (s) => s.replace(/'/g, "''");
+        const rows = rawQuery(`select t.run_id as runId, r.created_at as createdAt, t.task, t.mode, t.client, t.correct from trials t join runs r on r.id = t.run_id where t.error is null and t.base_client is null and t.client in (${Object.keys(entries).map((id) => `'${q(id)}'`).join(",")})`).map((r) => ({ ...r, correct: !!r.correct }));
+        stats = lineageStats(rows, Object.fromEntries(listTasks().map((t) => [t.name, t.capabilities])), entries);
+      }
+      return sendJSON(res, 200, { file, entries, stats });
     } catch (err) {
       return sendJSON(res, 500, { error: err?.message ?? "index unavailable" });
     }

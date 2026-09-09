@@ -50,6 +50,12 @@ export function parseArgs(argv) {
       case "--time-box": args.timeBox = Number(next()); break;
       case "--strict": args.strict = true; break;
       case "--min-trials": args.minTrials = Number(next()); break;
+      case "--svg": args.svg = next(); break;
+      case "--family": args.family = next(); break;
+      case "--format": args.format = next(); break;
+      case "--webhook": args.webhook = next(); break;
+      case "--fail": args.fail = true; break;
+      case "--graph": args.graph = true; break;
       default: args._.push(a);
     }
   }

@@ -6,7 +6,7 @@ stands, what the field measures that it does not, and what to build next.
 
 ## Start here (handoff, 2026-09-08)
 
-- **Run it.** `npm test` (293 tests; no model or server needed), then `node src/cli.js serve` for
+- **Run it.** `npm test` (302 tests; no model or server needed), then `node src/cli.js serve` for
   the UI on :4000 and `node webserver/server.js` for the system under test on :3000 (`SUT_PORT`).
   Keys and `LOCAL_ENDPOINTS` live in `.env`; runs land in `results/runs/`, the SQLite index beside
   them (`node src/cli.js index --full` rebuilds it).
@@ -21,10 +21,10 @@ stands, what the field measures that it does not, and what to build next.
   lands, its numbers to docs/results.md; every claim is tied to a test or a saved run; zero
   runtime dependencies; the JSON run files are the source of truth and the index is rebuildable;
   a schema for a task that needs thinking has a `work` field before the answer.
-- **Next**: [49] (scorecard and trend views), then the Tier 11 anchors ([40]/[41]) and the open
-  harness work in Tier 12; the rest of [48] (generator and constraint families, sizes past 100 k)
-  as the current tiers saturate. The decisions at the end are the user's; two of them block work
-  ([27]'s sandbox, the hosted-model budget).
+- **Next**: the Tier 11 anchors ([40]/[41]) and the open harness work in Tier 12; the rest of
+  [48] (generator and constraint families, sizes past 100 k) as the current tiers saturate. The
+  decisions at the end are the user's; two of them block work ([27]'s sandbox, the hosted-model
+  budget).
 - **Environment notes.** Ollama on :11434 serves `ornith-1.5:9b` (at ceiling on the easy tool
   tasks, 100 % on restock3); `qwen3.5` is parked on its thinking output. The arms need their own
   logins (`codex login`, Claude Code, Pi); Thoth runs on the arch host (README, "Thoth"). The
@@ -68,7 +68,7 @@ rebuildable. Learned on 2026-09-07: a structured schema for a task that needs th
 | Data | one JSON per run, SQLite index (`index`, `query`, `--sql`, `compact`), CSV, versions and lineage on every run, cross-run cell history, suite presets `smoke|standard|full`; every row keeps the model's turns (or an arm's raw transcript) beside its calls and results; `replay` (a new run parented to its original, paired against it), `rescore` (today's scorers over saved rows, in place), a trial as a timeline or a JSONL event log; gate verdicts on the run and in the index |
 | UI | Ledger design, live grid, dumbbell matrix, capability scorecard with regression lines, difficulty curves, paired comparison block, trial drawer with transcript and children, history filter |
 | SUT | the webserver: hello/health, the `/api/recent` log, inventory scenarios with tickets, confirm rules, stress profiles and op log, text logs with grep and count |
-| Tests | 293, none needing a model; the webserver runs in-process |
+| Tests | 302, none needing a model; the webserver runs in-process |
 
 ## What the field measures that we do not
 
@@ -96,7 +96,7 @@ with a priority for the stated purpose:
 | Instruction following | IFEval (verifiable constraints), LiveBench IF | `@constraints` variants: eleven requirement families checked by code on any task, adherence beside correctness | more families (sentences, language), requirements across turns, a `@format` variant ([48]) | low |
 | Long context | RULER / needle-in-a-haystack (multi-key, multi-value, aggregation) at 4 k–1 M | `needle8k/32k/100k`: single needle with recorded depth, multi-needle, aggregation; `needlehop8k/32k/100k`: two-hop retrieval; grep/count tools as the harness axis; the depth sweep in the report, the UI and `query depth` | larger sizes for models that take them ([48]) | medium |
 | Structured extraction | LiveBench data analysis, enterprise extraction evals | `transform`, schema modes, the `extract` family: generated invoices with varied layouts, a line-item table, a purchase-order join, a statement reconciliation with a running balance, tolerance rules, injection through the document | other document kinds (tickets, contracts), OCR-like noise, multi-page tables ([48]) | low |
-| Statistics & reproducibility | HELM CIs, Inspect logs, lm-eval fixed prompts and versions | Fisher, Wilson, seeds, versions, canonical answers, index, McNemar + bootstrap on paired instances, power guidance, Bonferroni, curves, regression flags, `cli compare`, replay and re-score | lineage-pooled scorecards and trend views ([49]) | low |
+| Statistics & reproducibility | HELM CIs, Inspect logs, lm-eval fixed prompts and versions | Fisher, Wilson, seeds, versions, canonical answers, index, McNemar + bootstrap on paired instances, power guidance, Bonferroni, curves, regression flags delivered to a file or webhook, `cli compare`, replay and re-score, radars, sparklines, the family scorecard and the lineage graph | nothing open here until the house checkpoints arrive | — |
 | Own-model workflow | lm-eval HF/vLLM backends; W&B / MLflow tracking; per-checkpoint scoreboards | named endpoints for any OpenAI-compatible server, `docs/serving.md`, `models/lineage.json` on every run and in the index, `cli models` / `suite` / `compare --parent` / `regressions`, the UI compare block, `replay` / `rescore`, `gate` / `suite nightly` (thresholds judged on the Wilson band, exit codes, time boxes) | contamination policy ([38]) | medium |
 | Coding | HumanEval → LiveCodeBench → SWE-bench | none | sandboxed execution of generated specs with hidden tests ([27]) | medium (needs a sandbox decision) |
 | Calibration & abstention | HELM calibration (ECE); "answer or abstain" splits | hedge detection in one scorer, `norelevant`'s unanswerable half | confidence elicitation, Brier/ECE per cell, unanswerable variants everywhere ([28]) | medium |
@@ -139,11 +139,6 @@ mean something; a structured schema carries `work` before the answer.
 
 ### Tier 9 — Scorecards and the statistics of judgment
 
-- **[49] Scorecard and trend views.** A radar per model; the scorecard pooled by lineage family
-  across checkpoints; a sparkline per capability from the series behind `cli trend`; regression
-  flags delivered somewhere other than the report (a file CI reads, or a webhook); a lineage graph
-  in the UI.
-
 ### Tier 10 — Own-model workflow
 
 - **[38] Contamination policy.** Private seed pools per training generation, a "minted after
@@ -175,8 +170,8 @@ mean something; a structured schema carries `work` before the answer.
 
 ## Decisions needed
 
-1. **Order for the next month.** Recommendation: [48] (harder tiers for the extract and dialogue
-   families, the `@format` variant), then [49], then the Tier 11 anchors.
+1. **Order for the next month.** Recommendation: the Tier 11 anchors ([40]/[41]), then the
+   harness work in Tier 12, with the rest of [48] as tiers saturate.
 2. **Code sandbox.** Worker-thread isolation keeps the zero-dependency rule but is weaker; Docker is
    stronger and a dependency. This gates [27].
 3. **Scope of knowledge and safety.** Exclude closed-book knowledge as an axis? Add over-refusal on

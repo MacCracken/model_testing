@@ -4,6 +4,48 @@ What shipped, by date. Full measurement tables live in [docs/results.md](docs/re
 forward roadmap is [plan.md](plan.md). Dates are the commit dates; item numbers ([1]–[49]) are the
 roadmap's, stable across the plan, this file and the results.
 
+## 2026-09-11 — scorecard and trend views
+
+### Added
+- **`src/charts.js`** ([49]): the pictures behind the views as pure functions to SVG strings —
+  `radarSvg` (one axis per capability, one polygon per series: filled for the run, dashed for the
+  index-pooled outline), `sparklineSvg` and `sparklineText` (▁▂▃▄▅▆▇█, · for a gap), and
+  `lineageLayout` / `lineageSvg` / `lineageText` (a band per family, a child one column right of
+  its parent, roots stacked in step order). Node-free and served to the browser as
+  `/lib/charts.js`, so the CLI writes the same picture the UI draws.
+- **A radar per model** in the UI's scorecard block (this run filled, every saved run of the client
+  dashed behind it) and as a file: `cli scorecard <client> --svg <file>`.
+- **A sparkline per capability**: `cli trend` prints one bar per run under its table
+  (`familyScorecard`'s trend reads across checkpoints the same way); the UI's scorecard cells carry
+  the capability's harness rate over the client's saved runs, from `GET /api/trend?client=`.
+- **The scorecard pooled by lineage family**: `cli scorecard --family <family> [--mode]` and
+  `GET /api/scorecard?family=` line a family's checkpoints up per capability in registry order
+  (`familyScorecard` in trends.js), with the family pooled beside them.
+- **Regression flags delivered elsewhere** ([49]): `regressionsReport` (trends.js) builds one
+  document — per client its own flags and the gaps against its parent, plus one flat list sorted by
+  the drop — and `src/notify.js` formats it as text, JSON or Markdown and delivers it:
+  `cli regressions --json | --format md`, `--out <file>` (Markdown for a `.md` path, JSON
+  otherwise: a step summary or an artifact), `--webhook <url>` (JSON POST; exit 2 when the delivery
+  fails), `--fail` (exit 1 when any flag stands).
+- **A lineage graph** in the UI (a new block, hidden while the registry is empty): every registered
+  checkpoint by family with its pooled harness rate and regression flags from the index
+  (`lineageStats`, `GET /api/lineage`), the run's own models highlighted; `cli models --graph`
+  prints the same tree.
+- `lineageFor` strips a `@format` suffix like the other variants (a formatted run of a checkpoint
+  is still that checkpoint).
+- Tests: 302 (radar geometry, sparklines, the layout with stacked roots, unregistered parents and a
+  cycle; the family scorecard, the report's flags and order, delivery to files and an in-process
+  webhook, lineage stats, the series behind a sparkline).
+
+### Shown (over the index as of 2026-09-11)
+- `cli trend --client openai:gpt-4o-mini` draws 40 runs per capability in one line each —
+  multi-step `···██······▁▃▃▁▁█▆▇▇▇█···▇█▅··▃·▆▅······` reads as the restock family arriving and
+  the harder tiers pulling the pooled rate down, not the model changing.
+- `cli regressions --json --fail`: 0 flags over 13 clients, exit 0; `--out regressions.md`
+  writes the step summary. `cli models --graph`: two singleton families (ornith 89 % harness over
+  16 runs, qwen3.8 100 % over 2), no parent links yet — the graph earns its edges when the
+  house checkpoints are registered.
+
 ## 2026-09-10 (night) — tool breadth: paged results, strict types and near misses
 
 ### Added

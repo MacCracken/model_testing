@@ -4,6 +4,7 @@
 // loaded from history, and the CLI all report the same numbers through the same code.
 
 import { summarize, deltaFor, describeSignificance, isStructuredMode, twoByTwo, DEFAULT_MODES, describeStability, describePaired, describePower, compareRows } from "/lib/runner.js";
+import { radarSvg, sparklineSvg, lineageLayout, lineageSvg } from "/lib/charts.js";
 
 // ---- tiny DOM + format helpers -------------------------------------------------------------
 
@@ -67,6 +68,9 @@ const state = {
   detail: -1,        // index into filteredRows(), -1 = closed
   filterText: "",    // the setup panel's filter box
   openGroups: new Map(), // provider group open/closed states the user has toggled
+  pooled: {},        // client → its index-pooled scorecard (the dashed outline behind a radar)
+  trends: {},        // client → its capabilities per run (the sparklines)
+  lineage: undefined, // the registry with per-checkpoint stats, fetched once
 };
 
 // ---- theme -----------------------------------------------------------------------------------
@@ -647,6 +651,7 @@ function renderReport() {
   renderHeadline(s);
   renderTwoByTwo(s);
   renderScorecard(s);
+  renderLineage();
   renderCurves(s);
   renderCompare(s);
   renderLive();
@@ -851,24 +856,51 @@ function renderLive() {
 }
 
 // The run's capability scorecard: per tag, each client's harness rate with its Wilson band, the raw
-// rate and the delta, pooled over the run's tasks that carry the tag.
+// rate and the delta, pooled over the run's tasks that carry the tag. Above the table, a radar per
+// client (this run filled, every saved run of the client dashed behind it); in each cell, a
+// sparkline of the capability over the client's saved runs.
+const RADAR_COLORS = ["#6d5bd0", "#2f8f5b", "#c0392b", "#6b7280", "#d97706", "#0891b2"];
+function fetchOnce(cache, client, url, fallback) {
+  if (cache[client] !== undefined) return;
+  cache[client] = null;
+  getJSON(url).then((r) => { cache[client] = r; renderReport(); }).catch(() => { cache[client] = fallback; });
+}
 function renderScorecard(s) {
   const block = $("#scorecard-block");
   const box = $("#scorecard");
+  const radars = $("#radars");
   box.replaceChildren();
+  radars.replaceChildren();
   const caps = Object.entries(s.capabilities ?? {}).sort(([a], [b]) => a.localeCompare(b));
   block.hidden = !caps.length;
   if (!caps.length) return;
   const clients = s.clients;
-  $("#scorecard-legend").replaceChildren(el("span", {}, "harness % with its 95% band · raw % · delta — pooled over the run's tasks carrying the tag"));
+  const settled = state.run.status !== "running";
+  $("#scorecard-legend").replaceChildren(el("span", {}, "harness % with its 95% band · raw % · delta — pooled over the run's tasks carrying the tag; the sparkline is the capability over the client's saved runs, oldest first"));
+  if (settled) {
+    for (const client of clients) {
+      fetchOnce(state.regressions ??= {}, client, `/api/regressions?client=${encodeURIComponent(client)}`, { own: { flags: [] }, vsParent: null });
+      fetchOnce(state.pooled, client, `/api/scorecard?client=${encodeURIComponent(client)}`, { capabilities: {} });
+      fetchOnce(state.trends, client, `/api/trend?client=${encodeURIComponent(client)}&mode=harness`, { series: [] });
+    }
+  }
+  // Radars: the axes are the run's capabilities, the same for every client so the shapes compare.
+  const axes = caps.map(([cap]) => cap);
+  clients.forEach((client, ci) => {
+    const color = RADAR_COLORS[ci % RADAR_COLORS.length];
+    const own = axes.map((cap) => { const st = s.capabilities[cap].byClient[client]; const m = st?.byMode.harness ?? st?.byMode.noHarness ?? Object.values(st?.byMode ?? {})[0]; return m ? m.correctPct : null; });
+    const pooled = state.pooled[client]?.capabilities;
+    const series = [];
+    if (pooled && Object.keys(pooled).length) series.push({ name: "every saved run", values: axes.map((cap) => pooled[cap]?.byMode.harness?.correctPct ?? null), color, dashed: true });
+    series.push({ name: "this run", values: own, color, fill: true });
+    const card = el("div", { className: "radar-card" });
+    card.innerHTML = radarSvg(axes, series, { size: 200, title: `${client} — capability radar` });
+    card.append(el("div", { className: "who", title: client }, client), el("div", {}, pooled && Object.keys(pooled).length ? `filled: this run · dashed: ${state.pooled[client].trials} saved trials` : "this run"));
+    radars.append(card);
+  });
   box.style.gridTemplateColumns = `170px repeat(${clients.length}, minmax(150px, 1fr))`;
   box.append(el("div", { className: "mh" }, "capability"), ...clients.map((c) => el("div", { className: "mh ellipsis", title: c }, c)));
-  if (state.run.status !== "running") {
-    for (const client of clients) {
-      if (state.regressions?.[client] !== undefined) continue;
-      (state.regressions ??= {})[client] = null;
-      getJSON(`/api/regressions?client=${encodeURIComponent(client)}`).then((r) => { state.regressions[client] = r; renderReport(); }).catch(() => { state.regressions[client] = { own: { flags: [] }, vsParent: null }; });
-    }
+  if (settled) {
     const lines = clients.flatMap((client) => {
       const r = state.regressions?.[client];
       if (!r) return [];
@@ -888,12 +920,40 @@ function renderScorecard(s) {
       const primary = h ?? r ?? Object.values(st?.byMode ?? {})[0];
       if (!primary) { box.append(el("div", { className: "faint" }, "—")); continue; }
       const band = (m) => `${fmtPct(m.correctPct)} [${(m.wilson.low * 100).toFixed(0)}–${(m.wilson.high * 100).toFixed(0)}]`;
-      box.append(el("div", { className: "sc" },
-        el("div", { className: "bar" }, el("i", { style: { width: `${primary.correctPct}%` } })),
-        el("div", { className: "sub" }, [h ? `harness ${band(h)}` : "", r ? `raw ${band(r)}` : "", st.delta ? signedPp(st.delta.deltaPp, 0) : ""].filter(Boolean).join(" · ")),
-      ));
+      const sub = el("div", { className: "sub" }, [h ? `harness ${band(h)}` : "", r ? `raw ${band(r)}` : "", st.delta ? signedPp(st.delta.deltaPp, 0) : ""].filter(Boolean).join(" · "));
+      const series = (state.trends[client]?.series ?? []).filter((p) => p.byCapability[cap]);
+      if (series.length >= 2) {
+        const values = series.map((p) => p.byCapability[cap].harness?.correctPct ?? null);
+        const holder = el("span");
+        holder.innerHTML = sparklineSvg(values, { width: 64, height: 14, title: `${cap} · harness over ${series.length} saved runs: ${series.map((p) => `${String(p.createdAt).slice(0, 10)} ${p.byCapability[cap].harness ? `${p.byCapability[cap].harness.correct}/${p.byCapability[cap].harness.runs}` : "—"}`).join(", ")}` });
+        sub.append(holder.firstChild);
+      }
+      box.append(el("div", { className: "sc" }, el("div", { className: "bar" }, el("i", { style: { width: `${primary.correctPct}%` } })), sub));
     }
   }
+}
+
+// The lineage graph: every registered checkpoint by family, a child one column right of its
+// parent, the run's own clients highlighted, the index-pooled harness rate and any regression flag
+// on each node. Hidden while the registry is empty.
+function renderLineage() {
+  const block = $("#lineage-block");
+  const box = $("#lineage");
+  if (state.lineage === undefined) {
+    state.lineage = null;
+    getJSON("/api/lineage").then((r) => { state.lineage = r; renderLineage(); }).catch(() => { state.lineage = { entries: {}, stats: {} }; });
+  }
+  const data = state.lineage;
+  const entries = data?.entries ?? {};
+  block.hidden = !Object.keys(entries).length;
+  if (block.hidden) return;
+  const strip = (c) => c.replace(/@(skill|agents|stress|constraints|format)(:[a-z]+)?$/, "");
+  const highlight = [...new Set((state.run?.clients ?? state.run?.config?.clients ?? []).map(strip))];
+  const layout = lineageLayout(entries, { stats: data.stats ?? {} });
+  box.innerHTML = lineageSvg(layout, { highlight, title: "model lineage" });
+  const flagged = Object.entries(data.stats ?? {}).filter(([, st]) => (st.flags?.own ?? 0) + (st.flags?.parent ?? 0)).map(([id, st]) => `${id} ↓${(st.flags.own ?? 0) + (st.flags.parent ?? 0)}`);
+  box.append(el("div", { className: "foot" }, `${plural(layout.nodes.length, "checkpoint")} in ${layout.bands.length === 1 ? "1 family" : `${layout.bands.length} families`} from ${data.file ?? "the registry"} · node: checkpoint and its harness rate over every saved run · ${highlight.length ? "filled: this run's models" : ""}${flagged.length ? ` · regression flags: ${flagged.join(", ")}` : ""}`));
+  $("#lineage-legend").replaceChildren(el("span", {}, "a child sits one column right of its parent; ↓ = a capability whose latest band lies under its earlier runs or its parent"));
 }
 
 // Difficulty curves: per family with a knob, success per level per client, drawn as small SVG

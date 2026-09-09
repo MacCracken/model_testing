@@ -91,9 +91,12 @@ the right; the panel folds to a slim rail (the button in its header) and remembe
   full story as a timeline — system and user prompts, every tool call with the real response,
   the final message, the scorer's verdict — plus the answer and the ground truth side by side, and
   any schema errors. ← / → step between trials, esc closes;
-- a **capability scorecard** per model, **difficulty curves** per family (success against the
-  family's knob per model, the breaking point marked) and, under the scorecard, a line for every
-  capability where a model's latest run fell under its earlier runs or its lineage parent;
+- a **capability scorecard** per model — with a **radar** per model (this run filled, every saved
+  run dashed behind it) and a **sparkline** per capability over the model's saved runs —
+  **difficulty curves** per family (success against the family's knob per model, the breaking
+  point marked), a line under the scorecard for every capability where a model's latest run fell
+  under its earlier runs or its lineage parent, and a **lineage graph** of the registered
+  checkpoints with their pooled rates and flags;
 - reopen any past run from the header dropdown, including runs launched from the CLI;
 - **light / dark / system** theme switch in the header, remembered per browser;
 - optional **temperature**, **seed** and **judge** under Settings, and an **export csv** link on every
@@ -145,11 +148,16 @@ node src/cli.js query worst --limit 10  # lowest pooled correctness (trend: one 
 node src/cli.js query depth [--client c] [--mode m]   # the needle depth sweep: one planted line, success by its depth, pooled over the index
 node src/cli.js compact --older-than 30 # dry run; --yes strips prompts/transcripts from runs older than 30 days
 node src/cli.js scorecard openai:gpt-4o-mini            # capability scorecard pooled over every saved run (Wilson bands, harness delta)
+node src/cli.js scorecard openai:gpt-4o-mini --svg radar.svg   # the same as a radar (harness filled, no harness dashed)
+node src/cli.js scorecard --family ornith                # a lineage family's checkpoints side by side, per capability, with a trend across them
+node src/cli.js models --graph                           # the registry as a tree per family, each checkpoint with its pooled harness rate
 node src/cli.js compare <run> --a <client> --b <client> --mode harness   # paired: McNemar + bootstrap band per task
 node src/cli.js compare <run-A> <run-B> --mode schemaOnly               # two runs on the same instance seed
 node src/cli.js curve restock [--mode harness] [--client <c>]           # success per difficulty level over every saved run, with each model's breaking point
 node src/cli.js trend --client openai:gpt-4o-mini [--capability arithmetic]   # a model's capabilities per run over time
 node src/cli.js regressions [--client <c>] [--since D]                  # latest results against earlier runs, and checkpoint against lineage parent
+node src/cli.js regressions --out regressions.md --fail                 # …delivered as a Markdown step summary (JSON for any other path), exit 1 when a flag stands
+node src/cli.js regressions --webhook https://hooks.example/bench       # …or POSTed as JSON (exit 2 when the delivery fails)
 node src/cli.js show <run-id> --rows                                    # every trial numbered; --trial <n> prints one as a timeline
 node src/cli.js export <run-id> --jsonl --trial 3                       # a trial as an event log (system, user, assistant, tool_call, tool_result)
 node src/cli.js replay <run-id> [--clients …] [--task …] [--count N]    # the same instances again, as a new run parented to this one, with the paired comparison

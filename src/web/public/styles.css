@@ -356,6 +356,27 @@ body.setup-collapsed .setup-rail {
 .scorecard .sc .bar { height: 6px; background: var(--line-soft); border-radius: 3px; overflow: hidden; margin-bottom: 4px; }
 .scorecard .sc .bar i { display: block; height: 100%; background: var(--accent); }
 .scorecard .sc .sub { color: var(--ink-2); }
+.scorecard .sc .spark { vertical-align: middle; margin-left: 6px; color: var(--accent); }
+.radars { display: flex; flex-wrap: wrap; gap: 8px 24px; margin-bottom: 14px; }
+.radars .radar-card { display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 11px; color: var(--ink-3); }
+.radars .radar-card .who { font-weight: 500; color: var(--ink-2); max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.radar { display: block; overflow: visible; }
+.radar .ring { stroke: var(--line-soft); }
+.radar .outer { stroke: var(--line); }
+.radar .spoke { stroke: var(--line-soft); }
+.radar .label { fill: var(--ink-3); font-size: 9px; font-family: inherit; }
+.lineage-box { overflow-x: auto; }
+.lineage { display: block; max-width: 100%; }
+.lineage .edge { stroke: var(--line); }
+.lineage .family { fill: var(--ink-3); font-family: inherit; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; }
+.lineage .node circle { fill: var(--ink-3); }
+.lineage .node.hot circle { fill: var(--accent); }
+.lineage .node.flagged circle { fill: var(--fail); }
+.lineage .node text { font-family: inherit; }
+.lineage .node .name { fill: var(--ink); font-size: 11px; }
+.lineage .node.hot .name { font-weight: 500; }
+.lineage .node .rate { fill: var(--ink-3); font-size: 10px; }
+.lineage-box .foot { color: var(--ink-3); font-size: 10.5px; margin-top: 6px; }
 .matrix { display: grid; grid-template-columns: 84px 200px minmax(0, 1fr) 76px; gap: 0 16px; font-size: 11.5px; }
 .mh { color: var(--ink-3); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
 .mh.scale { display: flex; justify-content: space-between; }

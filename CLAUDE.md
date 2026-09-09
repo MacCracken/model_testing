@@ -168,11 +168,26 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
   per mode), `regressionsFor` (per task, a client's latest run against its earlier runs of the same
   task, the same number of trials per task on each side, pooled per capability; a flag when the
   later Wilson band lies entirely under the earlier one) and `parentGaps` (a checkpoint against
-  its lineage parent the same way). Pure functions over indexed rows; `cli trend` /
-  `cli regressions` and `/api/regressions` fetch the rows from the store.
+  its lineage parent the same way); `familyScorecard` (a lineage family's checkpoints side by side
+  per capability), `regressionsReport` (every client's own flags and parent gaps in one document,
+  plus a flat list sorted by the drop) and `lineageStats` (per registered checkpoint: trials, runs,
+  pooled harness rate, flag counts). Pure functions over indexed rows; `cli trend` /
+  `cli regressions` / `cli scorecard --family` / `cli models --graph` and `/api/trend`,
+  `/api/regressions`, `/api/scorecard?family=`, `/api/lineage` fetch the rows from the store.
+- `src/charts.js` — the pictures as pure functions to SVG strings, Node-free and served as
+  `/lib/charts.js`: `radarSvg` (an axis per capability, a polygon per series — filled for the run,
+  dashed for the pooled outline), `sparklineSvg` / `sparklineText` (▁–█, · for a gap),
+  `lineageLayout` / `lineageSvg` / `lineageText` (a band per family, a child one column right of
+  its parent, roots stacked in step order). The CLI writes the same picture the UI draws
+  (`scorecard --svg`, `trend`, `models --graph`).
+- `src/notify.js` — regression flags delivered elsewhere: `formatRegressions` (text / JSON /
+  Markdown), `writeReport` (a file a CI step reads), `postReport` (a webhook, JSON POST, never
+  throws on a bad status). `cli regressions --out / --webhook / --fail` sit on it.
 - `src/web/` — the control plane: `server.js` (node:http, zero deps) + `public/` (the UI).
   `POST /api/runs { replayOf }` starts a replay (`withParentDefaults` fills the launch from the
-  parent's config); `GET /api/runs?parent=` lists a run's replays.
+  parent's config); `GET /api/runs?parent=` lists a run's replays. The scorecard block draws a
+  radar per client (the run filled, `/api/scorecard?client=` dashed behind it) and a sparkline per
+  cell from `/api/trend`; the lineage block draws `/api/lineage` through `charts.js`.
 - `src/cli.js` — entry point (`list` / `show` / `export` / `index` / `query` / `scorecard` /
   `compare` / `curve` / `trend` / `regressions` / `models` / `suite` / `compact` / `serve` /
   `replay` / `rescore` / `gate` / `bench` / `aggregate`).

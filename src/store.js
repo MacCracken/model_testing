@@ -102,7 +102,7 @@ export function indexRun(run, { mtime = null } = {}) {
         (run_id, idx, task, mode, client, model, harness, trial_index, correct, reason, error, tool_calls, tool_use_ok, tool_use_reason,
          schema_valid, judge_score, judge_reason, latency_ms, ttft_ms, ttfa_ms, prompt_tokens, completion_tokens, total_tokens, rounds, finish_reason, started_at, canon, skill, base_client, agents, delegations, stress, seed, constraints, adherence_pct, family, checkpoint, step, parent, format, depth)
         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-      const lineageOfRow = (r) => run.config?.lineage?.[r.client] ?? run.config?.lineage?.[String(r.client).replace(/@(skill|agents|stress|constraints)(:[a-z]+)?$/, "")] ?? null;
+      const lineageOfRow = (r) => run.config?.lineage?.[r.client] ?? run.config?.lineage?.[String(r.client).replace(/@(skill|agents|stress|constraints|format)(:[a-z]+)?$/, "")] ?? null;
       (run.rows ?? []).forEach((r, i) => ins.run(
         run.id, i, r.task ?? null, r.mode ?? null, r.client ?? null, r.model ?? null, r.harness ?? null,
         num(r.index), flag(!!r.correct), r.reason ?? null, r.error ?? null, (r.toolCalls ?? []).length,
