@@ -1625,3 +1625,39 @@ and each loses one follow3 chain. extract2's answerable half is unchanged. Zero 
 answerable instances; the variant's −13.9 pp against its base (72.2 % → 58.3 %, p = 0.02 over
 144 paired trials) is 17 fabrications and the seven lost chains. The run cost $1.01 (1.08 M
 tokens, two thirds of them Haiku's).
+
+## Typos, the fourth perturbation (2026-09-16, seed 2026, four trials per cell)
+
+Run `20260910T025148-049f`: wordmath4, tally20, datecalc1, logicgrid3, fanout4, follow3, extract1
+and extract2 in noHarness and harness, each model as minted and under `@perturb:typos` on the same
+instances — typing errors in about a quarter of the words of the prose (a letter swapped, dropped,
+doubled or struck beside itself, first and last letters kept), never in a number, an id, a date,
+a code or an entity the answer is scored on; on the extraction documents the noise is OCR-like,
+in the labels, descriptions and boilerplate ("Due dqte", "Termms", "Descriptoin"). The fanout and
+follow free-form rows are guesses (0 right on both sides) and are left out of the free-form line.
+
+| Client | Mode | Applied | Right as minted → with typos | Consistent |
+|---|---|---|---|---|
+| gpt-4o-mini | harness | 32 | 32 → 29 | 29/32 (91 %) |
+| gpt-4o-mini | noHarness (generated and extract) | 24 | 18 → 20 | 18/24 (75 %) |
+| claude-haiku-4-5 | harness | 32 | 32 → 32 | 32/32 (100 %) |
+| claude-haiku-4-5 | noHarness (generated and extract) | 24 | 23 → 24 | 22/24 (92 %) |
+
+Haiku does not move in harness mode: the same answer, right, on all 32 instances, the noisy
+documents included. gpt-4o-mini's three harness changes are two logicgrid3 deductions that come
+out wrong on noised clues ("The person with the parrot deos not drnk coffee", "Bob deinks water":
+coffee for water and water for coffee, the working going astray at the third step) and one
+extract1 header where the customer ("Copperfield Labs", after "Bill to:") is reported as the vendor
+— the same instance, the same swap, in the free-form mode too, on a document whose only noised
+header labels are "Due dqte" and "Termms". The eight noised invoices otherwise read as clean: 30
+of 32 extract answers per model unchanged for gpt-4o-mini, 32 of 32 for Haiku, including the eight
+whose "Bill to" label was itself noised. The asks of the tool families move nothing: fanout4 and
+follow3 8/8 consistent for both models.
+
+The free-form line is not about the typos. gpt-4o-mini's datecalc1 goes from 0/4 as minted to 3/4
+with typos — the base answers are off by a day or a weekday on every instance, the noisy ones land
+on three of them, with the same kind of working in both — and Haiku's from 3/4 to 4/4. Two wordings
+of the same sentence are two samples of the same unstable computation; the noise itself cannot be
+credited (the variance run of 2026-09-12 already showed free-form date arithmetic disagreeing with
+itself across repeats). Pooled over 128 paired instances per model, correctness is unchanged
+(82.0 % → 82.0 %, p = 1) and consistency 113/128 (88 %). The run cost $0.46 (403 k tokens).

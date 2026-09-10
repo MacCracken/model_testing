@@ -23,7 +23,19 @@ roadmap's, stable across the plan, this file and the results.
   dates, entities and truth unchanged, the documents re-minted, the suffix, the listing and the
   runner path).
 
-@@MEASURED3@@
+### Measured (wordmath4, tally20, datecalc1, logicgrid3, fanout4, follow3, extract1, extract2; noHarness and harness; four trials per cell; seed 2026; table in docs/results.md)
+- **Haiku does not move**: 32/32 harness answers the same and right with typos, the OCR-noised
+  invoices included; 22/24 free-form answers the same in the generated and extraction families.
+- **gpt-4o-mini changes 3 harness answers of 32** (91 % consistent): two logicgrid3 deductions
+  that go wrong on noised clues ("The person with the parrot deos not drnk coffee": coffee for
+  water and back), and one extract1 header where the customer after "Bill to:" is reported as the
+  vendor — the same swap on the same instance in both modes. The eight noised invoices otherwise
+  read as clean (30/32 extract answers unchanged; 32/32 for Haiku), and typos in the tool
+  families' asks move nothing (fanout4, follow3: 8/8 for both models).
+- The free-form line is not about the typos: gpt-4o-mini's datecalc1 goes 0/4 → 3/4, Haiku's
+  3/4 → 4/4 — two wordings of the same sentence are two samples of an unstable computation, as the
+  variance run already showed. Pooled correctness is unchanged (82.0 → 82.0 %, p = 1);
+  consistency 113/128 (88 %).
 
 ## 2026-09-15 (later) — the plausible neighbour: unanswerable `follow` and `extract2`
 
