@@ -22,7 +22,13 @@ roadmap's, stable across the plan, this file and the results.
   80 instances; the words per scene and kind; the readers; the hooks; every mode through the
   runner with an enumerating fake, a paraphrase paired, the freed cell abstained on; the listing).
 
-@@MEASURED6@@
+### Measured (lineup4, lineup6; noHarness, schemaOnly, harness; gpt-4o-mini and Haiku 4.5; eight trials per cell; seed 2026; table in docs/results.md)
+- **The family separates the models where logicgrid no longer does**: Haiku 43/48 over the two
+  sizes, gpt-4o-mini 25/48 with six people as its breaking point (9/24). The structured mode's
+  `work` field does nothing for it here (schema-only cells are its lowest): the deductions it
+  writes are wrong ones, not skipped ones. Two instances fail the same way in every mode — a
+  four-person queue whose third place is Carol's gets "Hank" from gpt-4o-mini three times — and
+  the misses grow with the clue count rather than with the scene or the question kind.
 
 ## 2026-09-17 (later) — the cost block's numbers
 

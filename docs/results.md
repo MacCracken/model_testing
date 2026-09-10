@@ -1744,3 +1744,30 @@ km/h, miles divided by km/h, `ceil(71.04)` = 72 for 115; 173 km to metres, 7 m/s
 gallon" — so the rounding gap was noise on top of the finding, not the finding. What a converter
 gives this model is a way to move each quantity into a unit it did not need, and what it then
 lacks is the check that the units it divides are the same.
+
+## Ordering puzzles: `lineup4/6` (2026-09-18, seed 2026, eight trials per cell)
+
+Run `20260910T083130-0282`: lineup4 and lineup6 in noHarness, schemaOnly and harness (the family
+has no tools, so its harness is the structured mode) on gpt-4o-mini and Haiku 4.5 — four or six
+people in a race's finishing order, a queue, or a row of houses, with clues about the hidden order
+(before and after, immediately after, two places apart, first or last, not in a given place, not
+next to each other, between), unique and minimal by construction; the question asks who holds a
+place, which place someone holds, or who comes right after someone.
+
+| Client | Task | noHarness | schemaOnly | harness |
+|---|---|---|---|---|
+| gpt-4o-mini | lineup4 | 6/8 | 5/8 | 5/8 |
+| gpt-4o-mini | lineup6 | 3/8 | 2/8 | 4/8 |
+| claude-haiku-4-5 | lineup4 | 7/8 | 8/8 | 8/8 |
+| claude-haiku-4-5 | lineup6 | 6/8 | 8/8 | 6/8 |
+
+The family separates the two models where logicgrid no longer does: Haiku is 43 of 48 across the
+two sizes, gpt-4o-mini 25 of 48, and six people is its breaking point (9 of 24). The structured
+mode's `work` field, which lifted the word problems, does nothing here — gpt-4o-mini's schema-only
+cells are its lowest — because the deductions it writes are the wrong ones, not skipped ones. Two
+instances fail the same way in every mode: a four-person queue whose third place is Carol's gets
+"Hank" from gpt-4o-mini in all three modes, and a six-runner race whose answer is Dave gets three
+different wrong names from it and one from Haiku. The misses are not confined to a scene or a
+question kind (queue and houses, "who" and "after" and "place"); they grow with the number of
+clues (six-clue puzzles are wrong twice as often as three-clue ones). The run cost $0.26 (88 k
+tokens).
