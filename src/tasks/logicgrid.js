@@ -65,6 +65,24 @@ export function generate(seed, n) {
   return { seed, n, setup, clues: d.shuffle(clues).map((c) => c.text), question, answer, candidates, solution: { names, ...solution } };
 }
 
+// The same clues in another order, in other words, or one per line.
+const REWRITES = [
+  [/^(\w+) has the (\w+)\.$/, (m) => `The ${m[2]} belongs to ${m[1]}.`],
+  [/^(\w+) drinks (\w+)\.$/, (m) => `${m[1]}'s drink is ${m[2]}.`],
+  [/^(\w+) does not have the (\w+)\.$/, (m) => `The ${m[2]} is not ${m[1]}'s.`],
+  [/^(\w+) does not drink (\w+)\.$/, (m) => `${m[2][0].toUpperCase()}${m[2].slice(1)} is not what ${m[1]} drinks.`],
+  [/^The person with the (\w+) drinks (\w+)\.$/, (m) => `Whoever has the ${m[1]} drinks ${m[2]}.`],
+  [/^The person with the (\w+) does not drink (\w+)\.$/, (m) => `Whoever has the ${m[1]} does not drink ${m[2]}.`],
+];
+export function perturb(ctx, kind, seed = 0) {
+  if (!Array.isArray(ctx?.clues)) return null;
+  const d = dice((seed >>> 0) ^ 0x9e37);
+  if (kind === "order") return { ...ctx, clues: d.shuffle(ctx.clues), perturbed: kind };
+  if (kind === "format") return { ...ctx, clueFormat: "lines", perturbed: kind };
+  if (kind === "paraphrase") return { ...ctx, clues: ctx.clues.map((c) => { for (const [re, f] of REWRITES) { const m = c.match(re); if (m) return f(m); } return c; }), perturbed: kind };
+  return null;
+}
+
 const schema = {
   type: "object",
   properties: {
@@ -83,7 +101,9 @@ function judge(said, ground) {
 }
 
 function makeLogicgrid(n) {
-  const problem = (ctx) => `${ctx.setup} Clues: ${ctx.clues.map((c, i) => `(${i + 1}) ${c}`).join(" ")} ${ctx.question}`;
+  const problem = (ctx) => (ctx.clueFormat === "lines"
+    ? `${ctx.setup}\nClues:\n${ctx.clues.map((c) => `- ${c}`).join("\n")}\n${ctx.question}`
+    : `${ctx.setup} Clues: ${ctx.clues.map((c, i) => `(${i + 1}) ${c}`).join(" ")} ${ctx.question}`);
   const spec = { system: "You are a careful logician. Return the requested JSON.", prompt: (ctx) => `${problem(ctx)} Answer with a JSON object { "work": ["<deduction>", …], "answer": "<one word>" } — write the deductions in "work" first, then the answer.`, tools: [], schema, extract: "structured" };
   return {
     name: `logicgrid${n}`,
@@ -96,6 +116,7 @@ function makeLogicgrid(n) {
     model: labelModel,
 
     setup: async ({ seed }) => generate(seed >>> 0, n),
+    perturb,
 
     goal: (ctx) => `${problem(ctx)} Answer with one word.`,
 

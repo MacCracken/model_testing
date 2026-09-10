@@ -262,6 +262,8 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
     confidence: client.confidence ? { how: client.confidence, applied: false, value: null } : null,
     // An abstain variant: whether this trial's instance was made unanswerable, and what the answer did.
     abstain: client.abstain ? { how: client.abstain, applied: false, unanswerable: false, missing: null, abstention: null } : null,
+    // A perturbation variant: the same instance rewritten by the family, when it supports the kind.
+    perturb: client.perturb ? { how: client.perturb, applied: false } : null,
     // The reasoning-effort knob as a variant: the level and the parameters it was sent as.
     effort: client.effort ? { how: client.effort, applied: true, params: client.effortParams ?? {} } : null,
     baseClient: client.baseName ?? null,
@@ -297,6 +299,10 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
         record.abstain.unanswerable = true;
         record.abstain.missing = ctx.missing ?? null;
       }
+    }
+    if (client.perturb && typeof task.perturb === "function" && ctx) {
+      const rewritten = task.perturb(ctx, client.perturb, instance);
+      if (rewritten) { ctx = rewritten; record.perturb.applied = true; }
     }
     record.ctx = recordedCtx(task, ctx);
     const text = (v) => (typeof v === "function" ? v(ctx ?? {}) : v);
@@ -993,16 +999,31 @@ function variantDeltas(rows, kind) {
     const base = rows.filter((r) => r.task === task && r.mode === mode && r.client === treat[0].baseClient);
     if (!base.length) continue;
     const how = treat[0][kind]?.how ?? "default";
-    by[key] = { ...deltaBetween(base, treat), how, baseClient: treat[0].baseClient, ...stats(treat) };
-    const pool = (pools[how] ??= { base: new Set(), treat: [] });
+    // Consistency counts only the trials the treatment actually touched: a row the treatment
+    // could not apply to saw the same prompt as its base and would agree trivially.
+    const consistency = consistencyOf(base, treat.filter((r) => r[kind]?.applied !== false));
+    by[key] = { ...deltaBetween(base, treat), how, baseClient: treat[0].baseClient, ...stats(treat), consistency };
+    const pool = (pools[how] ??= { base: new Set(), treat: [], pairs: 0, same: 0 });
     base.forEach((r) => pool.base.add(r));
     pool.treat.push(...treat);
+    // Consistency pools by summing the cells: pairing across cells would collide on task and index.
+    pool.pairs += consistency.pairs;
+    pool.same += consistency.same;
   }
   // Pooled across models, a treated row pairs with its base's row of the same task and index: the
   // treated rows are keyed by their base client for the pairing, so McNemar applies to the pool too.
   const pooled = {};
-  for (const [how, p] of Object.entries(pools)) pooled[how] = { ...deltaBetween([...p.base], p.treat.map((r) => ({ ...r, client: r.baseClient }))), ...stats(p.treat) };
+  for (const [how, p] of Object.entries(pools)) { const treat = p.treat.map((r) => ({ ...r, client: r.baseClient })); pooled[how] = { ...deltaBetween([...p.base], treat), ...stats(p.treat), consistency: { pairs: p.pairs, same: p.same, pct: p.pairs ? (100 * p.same) / p.pairs : null } }; }
   return { by, pooled: Object.keys(pooled).length ? pooled : null };
+}
+
+// Consistency between a base and a treated variant: over the paired instances whose canonical
+// answers both exist, the share that gave the same answer — right or wrong. The robustness
+// measure beside the correctness delta: a perturbation that flips answers is fragile ground.
+export function consistencyOf(base, treat) {
+  const pairs = pairRows(base, treat).filter(([a, b]) => typeof a.canon === "string" && typeof b.canon === "string");
+  const same = pairs.filter(([a, b]) => a.canon === b.canon).length;
+  return { pairs: pairs.length, same, pct: pairs.length ? (100 * same) / pairs.length : null };
 }
 
 // Per capability: every row whose task is tagged with it, per mode, with a Wilson band and the
@@ -1150,6 +1171,7 @@ export function summarize(rows, { capabilitiesOf = null, levelsOf = null } = {})
   const effortD = variantDeltas(rows, "effort");
   const confidenceD = variantDeltas(rows, "confidence");
   const abstainD = variantDeltas(rows, "abstain");
+  const perturbD = variantDeltas(rows, "perturb");
 
   return {
     runs: rows.length,
@@ -1188,6 +1210,8 @@ export function summarize(rows, { capabilitiesOf = null, levelsOf = null } = {})
       confidence: confidenceD.pooled,
       byAbstain: abstainD.by,
       abstain: abstainD.pooled,
+      byPerturb: perturbD.by,
+      perturb: perturbD.pooled,
     },
   };
 }

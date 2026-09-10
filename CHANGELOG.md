@@ -4,6 +4,40 @@ What shipped, by date. Full measurement tables live in [docs/results.md](docs/re
 forward roadmap is [plan.md](plan.md). Dates are the commit dates; item numbers ([1]–[49]) are the
 roadmap's, stable across the plan, this file and the results.
 
+## 2026-09-14 — robustness perturbations
+
+### Added
+- **The `@perturb:<kind>` treatment** ([29]): `<client>@perturb:paraphrase|order|format` runs a
+  generated family's instance through the family's own `perturb(ctx, kind, seed)` hook — the very
+  problem the base client sees on that trial, rewritten with the truth untouched. `wordmath`
+  re-renders its recorded events in other words or as a dated list (a sequence has no other order,
+  so `order` is refused); `tally` shuffles its rows, renders the table as CSV, or rephrases the
+  question from the query behind it; `datecalc` rewords the sentence or writes the date as ISO or
+  month-day-year without the weekday hint; `logicgrid` shuffles its clues, rewords each clue
+  ("The dog belongs to Alice", "Tea is not what Carol drinks"), or lists them one per line. The
+  base rendering of every family is byte-for-byte what it was, so old seeds still mint old
+  instances. The model is told nothing; a family that cannot do a kind leaves the row unapplied.
+- **Consistency beside the delta** (`consistencyOf` in the runner): over the paired instances of a
+  base and its treated variant whose canonical answers both exist, the share that gave the same
+  answer — right or wrong. Every treatment's paired delta now carries it (`delta.<kind>[how]
+  .consistency`, and per cell); the report's perturbation block and the UI's variant column print
+  it for `@perturb`.
+- Tests: 354 (each family's hooks keep the numbers, the query, the truth and the clue set while
+  changing the surface, deterministically; the base rendering unchanged; unsupported kinds refused;
+  consistency; the treatment through the runner and the summary; the suffix).
+
+### Measured (wordmath4, tally20, datecalc1, logicgrid3; noHarness and harness; four trials per cell; seed 2026; table in docs/results.md)
+- **Haiku 4.5 does not move**: 32/32 right and the same answer on every paired instance under
+  paraphrase and format, 16/16 under order (100 % consistent on all three).
+- **gpt-4o-mini changes its answer on one instance in six to twelve**: consistent 27/32 under
+  paraphrase (84 %), 14/16 under order (88 %), 29/32 under format (91 %); correctness moves by
+  −1, 0 and −2 of 32. The changes are of both signs — a wrong `datecalc1` weekday became right
+  under paraphrase, a right `logicgrid3` "fish" became "cat" under format — and one instance
+  stands out: asked "Who drinks juice?" it answers "Carol" as minted and "juice" under every
+  rewrite, the attribute instead of the person, with the deductions in `work` still right. The
+  pooled deltas are within noise (−1.6, 0, −3.1 pp); consistency is the number that separates the
+  two models.
+
 ## 2026-09-13 (later) — a stated confidence, and what it is worth
 
 ### Added

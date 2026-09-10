@@ -163,6 +163,7 @@ node src/cli.js variance --client openai:gpt-4o-mini [--by temperature] [--over-
 node src/bench.js --task restock6,fanout4 --modes harness --clients claude-code:claude-haiku-4-5,claude-code-mcp:claude-haiku-4-5 --count 2   # an arm with its own tools next to the same arm on the bench's tools over MCP
 node src/bench.js --task wordmath4,nearmiss,reason --clients openai:gpt-4o-mini,openai:gpt-4o-mini@confidence --count 4 --instance-seed 7   # a stated confidence: Brier, ECE and the gap, paired against the plain run
 node src/bench.js --task wordmath4,tally20,datecalc1 --clients openai:gpt-4o-mini,openai:gpt-4o-mini@abstain --count 8 --instance-seed 7   # half the problems unanswerable: abstained, fabricated, refused
+node src/bench.js --task wordmath4,tally20,logicgrid3 --clients openai:gpt-4o-mini,openai:gpt-4o-mini@perturb:paraphrase,openai:gpt-4o-mini@perturb:order --count 4 --instance-seed 7   # the same instances rewritten: delta and consistency
 node src/cli.js compare <run> --a <client> --b <client> --mode harness   # paired: McNemar + bootstrap band per task
 node src/cli.js compare <run-A> <run-B> --mode schemaOnly               # two runs on the same instance seed
 node src/cli.js curve restock [--mode harness] [--client <c>]           # success per difficulty level over every saved run, with each model's breaking point
@@ -200,6 +201,12 @@ run reports, per model and mode, the Brier score, the expected calibration error
 and the gap between mean confidence and accuracy, with the reliability bins in the UI. It is
 paired against the plain run like every treatment, so the run also says whether asking changed
 the answers.
+
+**Perturbations.** `<client>@perturb:paraphrase|order|format` runs the very instance the base
+client sees, rewritten by its family with the truth untouched — other words, another order of the
+independent parts, another surface form (a dated list, a CSV table, an ISO date without the
+weekday) — and the run reports, beside the paired correctness delta, the **consistency**: the
+share of instances whose answer did not change, right or wrong.
 
 **Abstention.** `<client>@abstain` makes a seeded half of a generated family's instances
 unanswerable — a step's quantity gone from a word problem, a question about a column the ticket

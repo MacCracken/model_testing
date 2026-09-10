@@ -17,6 +17,7 @@ import { parseFormatSuffix } from "../format.js";
 import { parseEffortSuffix } from "../effort.js";
 import { parseConfidenceSuffix } from "../confidence.js";
 import { parseAbstainSuffix } from "../abstain.js";
+import { parsePerturbSuffix } from "../perturb.js";
 import { lineageOf, loadLineage } from "../lineage.js";
 import { createServer } from "node:http";
 import { readFile, stat } from "node:fs/promises";
@@ -89,7 +90,9 @@ function startRun({ tasks, modes, clients, count, parallel = 1, instanceSeed = n
     const cf = parseConfidenceSuffix(c);
     if (cf.how) return `${cf.base}@confidence`;
     const ab = parseAbstainSuffix(c);
-    return ab.how ? `${ab.base}@abstain` : c;
+    if (ab.how) return `${ab.base}@abstain`;
+    const pe = parsePerturbSuffix(c);
+    return pe.how ? `${pe.base}@perturb:${pe.how}` : c;
   };
   const missing = clients.filter((c) => !clientObjs.some((r) => r.name === canonical(c)));
   const controller = new AbortController();

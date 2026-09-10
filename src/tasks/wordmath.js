@@ -21,10 +21,13 @@ const NAMES = ["Priya", "Tomasz", "Aiko", "Mateo", "Fatima", "Lars"];
 
 export function generate(seed, steps) {
   const d = dice(seed);
-  const scene = d.pick(SCENES);
+  const sceneIndex = SCENES.indexOf(d.pick(SCENES));
+  const scene = SCENES[sceneIndex];
   let count = d.int(40, 240);
   const lines = [`On ${DAYS[0]} morning ${scene.place} holds ${count} ${scene.thing}.`];
   const ops = [];
+  // The structure behind the lines, so a perturbation can re-render the same problem.
+  const events = [{ kind: "open", day: DAYS[0], n: count }];
   for (let k = 0; k < steps; k++) {
     const day = DAYS[Math.min(k + 1, DAYS.length - 1)];
     const kind = count < 20 ? "in" : d.pick(["in", "out", "in", "out", "vans", "half"]);
@@ -33,28 +36,33 @@ export function generate(seed, steps) {
       count += n;
       lines.push(`On ${day} ${d.pick(scene.in)} ${n} more.`);
       ops.push(`+${n}`);
+      events.push({ kind: "in", day, n });
     } else if (kind === "out") {
       const n = d.int(5, Math.min(60, count - 10));
       count -= n;
       lines.push(`On ${day} ${d.pick(scene.out)} ${n} of them.`);
       ops.push(`-${n}`);
+      events.push({ kind: "out", day, n });
     } else if (kind === "vans") {
       const vans = d.int(2, 4);
       const each = d.int(6, 15);
       count += vans * each;
       lines.push(`On ${day} ${vans} vans arrive, each carrying ${each} ${scene.thing}.`);
       ops.push(`+${vans}×${each}`);
+      events.push({ kind: "vans", day, vans, each });
     } else {
       if (count % 2) {
         count += 1;
         lines.push(`On ${day} one more ${scene.one} turns up behind a door.`);
         ops.push("+1");
+        events.push({ kind: "plusone", day });
       }
       count /= 2;
       lines.push(`On ${day} exactly half of the ${scene.thing} are moved to storage.`);
       ops.push("÷2");
+      events.push({ kind: "half", day });
     }
-    if (k % 2 === 1) lines.push(d.pick(NOISE).replace("{name}", d.pick(NAMES)));
+    if (k % 2 === 1) { const noise = d.pick(NOISE).replace("{name}", d.pick(NAMES)); lines.push(noise); events.push({ kind: "noise", text: noise }); }
   }
   let question = `How many ${scene.thing} are in ${scene.place} at the end?`;
   let answer = count;
@@ -65,7 +73,32 @@ export function generate(seed, steps) {
     question = `Each ${scene.one} accounts for ${per} ${unit}. How many ${unit} are in ${scene.place} at the end?`;
     ops.push(`×${per}`);
   }
-  return { seed, steps, lines, story: lines.join(" "), question, answer, ops };
+  return { seed, steps, lines, story: lines.join(" "), question, answer, ops, scene: sceneIndex, events };
+}
+
+// The same events in other words (paraphrase) or as a dated list (format); order has no meaning
+// for a sequence of stock movements, so it is refused (null).
+const PARAPHRASE = {
+  open: [(e, s) => `${s.place[0].toUpperCase()}${s.place.slice(1)} starts ${e.day} with ${e.n} ${s.thing}.`, (e, s) => `At the start of ${e.day} there are ${e.n} ${s.thing} in ${s.place}.`],
+  in: [(e, s) => `${e.n} more ${s.thing} arrive at ${s.place} on ${e.day}.`, (e, s) => `${e.day} brings another ${e.n} ${s.thing}.`],
+  out: [(e, s) => `${e.n} ${s.thing} leave ${s.place} on ${e.day}.`, (e, s) => `On ${e.day} the stock goes down by ${e.n} ${s.thing}.`],
+  vans: [(e, s) => `${e.vans} vans pull in on ${e.day} with ${e.each} ${s.thing} apiece.`, (e, s) => `On ${e.day} ${e.vans} vans deliver ${e.each} ${s.thing} each.`],
+  plusone: [(e, s) => `A stray ${s.one} is found on ${e.day}.`, (e, s) => `On ${e.day} one ${s.one} that had been miscounted is added.`],
+  half: [(e, s) => `On ${e.day} half of the ${s.thing} go into storage.`, (e, s) => `Storage takes exactly half of the ${s.thing} on ${e.day}.`],
+};
+export function perturb(ctx, kind, seed = 0) {
+  if (!Array.isArray(ctx?.events)) return null;
+  const s = SCENES[ctx.scene ?? 0];
+  const d = dice((seed >>> 0) ^ 0x9e37);
+  if (kind === "paraphrase") {
+    const lines = ctx.events.map((e) => (e.kind === "noise" ? e.text : d.pick(PARAPHRASE[e.kind])(e, s)));
+    return { ...ctx, lines, story: lines.join(" "), perturbed: kind };
+  }
+  if (kind === "format") {
+    const lines = ctx.lines.filter((l) => /^On /.test(l)).map((l) => `- ${l.replace(/^On (\w+) (morning )?/, "$1: ")}`);
+    return { ...ctx, lines, story: `Stock movements:\n${lines.join("\n")}\n`, perturbed: kind };
+  }
+  return null;
 }
 
 // The same problem with one step's quantity gone ("a delivery brings in some more"): the final
@@ -112,6 +145,7 @@ function makeWordmath(steps) {
 
     setup: async ({ seed }) => generate(seed >>> 0, steps),
     unanswerable,
+    perturb,
 
     goal: (ctx) => `${problem(ctx)} Give the final number.`,
 

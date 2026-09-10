@@ -64,6 +64,11 @@ export function printSummary(summary, { log = console.log } = {}) {
     log("\n-- abstain delta (same task, mode and model: all answerable → half unanswerable)");
     for (const [how, d] of Object.entries(summary.delta.abstain)) log(`   ${how.padEnd(13)} ${fmtDelta(d)} · abstained ${d.abstained}/${d.unanswerable} unanswerable, fabricated ${d.fabricated} · refused ${d.refused} answerable`);
   }
+  if (summary.delta?.perturb) {
+    log("\n-- perturbation delta (same instance rewritten: correctness, and consistency = same canonical answer as the base)");
+    for (const [how, d] of Object.entries(summary.delta.perturb)) log(`   ${how.padEnd(13)} ${fmtDelta(d)} · applied in ${d.applied}/${d.treatRuns}${d.consistency?.pairs ? ` · consistent ${d.consistency.same}/${d.consistency.pairs} (${d.consistency.pct.toFixed(0)}%)` : " · no paired canonical answers"}`);
+    for (const [key, d] of Object.entries(summary.delta.byPerturb ?? {})) log(`   ${key.padEnd(52)} ${fmtDelta(d)}${d.consistency?.pairs ? ` · consistent ${d.consistency.same}/${d.consistency.pairs}` : ""}`);
+  }
   if (summary.delta?.effort) {
     log("\n-- effort variants (paired against the base client)");
     for (const [how, d] of Object.entries(summary.delta.effort)) log(`   @effort:${how.padEnd(8)} ${fmtDelta(d)}${d.reasoningCharsMean !== null ? ` · reasoning ${d.reasoningCharsMean} chars` : ""}`);

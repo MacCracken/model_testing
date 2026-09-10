@@ -63,7 +63,26 @@ export function runQuery(rows, { region, status, amount_gt, aggregate }) {
   throw new Error(`unknown aggregate "${aggregate}" — use count, sum_amount or max_days`);
 }
 
-const table = (rows) => ["id | region | status | amount | days_open", ...rows.map((r) => `${r.id} | ${r.region} | ${r.status} | ${r.amount} | ${r.days}`)].join("\n");
+const table = (rows, format = "pipes") => (format === "csv"
+  ? ["id,region,status,amount,days_open", ...rows.map((r) => `${r.id},${r.region},${r.status},${r.amount},${r.days}`)].join("\n")
+  : ["id | region | status | amount | days_open", ...rows.map((r) => `${r.id} | ${r.region} | ${r.status} | ${r.amount} | ${r.days}`)].join("\n"));
+
+// The same table and question, rewritten: rows in another order, a CSV table, or the question in
+// other words (derived from the query behind it).
+const REPHRASE = (q) => {
+  if (q.aggregate === "count" && q.amount_gt !== undefined) return `How many ${q.region}-region tickets have an amount above ${q.amount_gt}?`;
+  if (q.aggregate === "count") return `Count the tickets from the ${q.region} region whose status is ${q.status}.`;
+  if (q.aggregate === "sum_amount") return `Add up the amounts of every ticket with status ${q.status}. What is the total?`;
+  if (q.aggregate === "max_days") return `Among the ${q.region} region's tickets, what is the highest days_open value?`;
+  return null;
+};
+export function perturb(ctx, kind, seed = 0) {
+  if (!Array.isArray(ctx?.rows)) return null;
+  if (kind === "order") return { ...ctx, rows: dice((seed >>> 0) ^ 0x9e37).shuffle(ctx.rows), perturbed: kind };
+  if (kind === "format") return { ...ctx, tableFormat: "csv", perturbed: kind };
+  if (kind === "paraphrase") { const q = ctx.query ? REPHRASE(ctx.query) : null; return q ? { ...ctx, question: q, perturbed: kind } : null; }
+  return null;
+}
 
 // The query tool works on this trial's rows, so it is built per trial.
 export const toolsFor = (ctx) => [{
@@ -93,7 +112,7 @@ const schema = {
 const answerOf = (out) => Number(out && typeof out === "object" ? (out.answer ?? out.result ?? out.value) : out);
 
 function makeTally(n) {
-  const problem = (ctx) => `Here is a table of ${ctx.rows.length} support tickets:\n\n${table(ctx.rows)}\n\n${ctx.question}`;
+  const problem = (ctx) => `Here is a table of ${ctx.rows.length} support tickets${ctx.tableFormat === "csv" ? " (CSV)" : ""}:\n\n${table(ctx.rows, ctx.tableFormat)}\n\n${ctx.question}`;
   return {
     name: `tally${n}`,
     family: "tally",
@@ -107,6 +126,7 @@ function makeTally(n) {
 
     setup: async ({ seed }) => generate(seed >>> 0, n),
     unanswerable,
+    perturb,
 
     goal: (ctx) => `${problem(ctx)} Give the number.`,
 

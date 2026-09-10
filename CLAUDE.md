@@ -197,6 +197,14 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
   `abstentionView` counts the four cases per client and mode (`summary.abstention`). A family
   supports the treatment by exporting `unanswerable(ctx)` and setting it on its tasks; its
   `toolUse` should accept an unused tool when `ctx.unanswerable`. Browser-safe.
+- `src/perturb.js` — robustness as a treatment: `withPerturb(client, kind)` is the
+  `@perturb:paraphrase|order|format` variant; the runner calls the task's `perturb(ctx, kind,
+  seed)` hook after setup (wordmath, tally, datecalc, logicgrid export one; null when the kind
+  has no meaning there, and the row's `perturb.applied` says so). The base rendering must stay
+  byte-for-byte what it was — a hook re-renders from recorded structure (wordmath's `events`,
+  datecalc's `parts`, tally's `query`) rather than changing `generate`. `consistencyOf(base,
+  treat)` in the runner gives, for every treatment's paired delta, the share of paired instances
+  whose canonical answer did not change.
 - `src/constraints.js` — instruction following as a treatment: `withConstraints(client, level)` draws
   one / three / five verifiable requirements from the trial seed (text families for free-form modes,
   JSON-shape families for structured ones), appends them to the prompt (arms: the goal prompt),
@@ -311,12 +319,12 @@ own (a real-harness arm), its delta against the free-form rows of the same model
 client in the run, matched on the model id with any `provider/` prefix stripped.
 
 A client run as `…@skill:<how>`, `…@agents:<how>`, `…@stress:<profile>`, `…@constraints:<level>`,
-`…@format:<how>`, `…@effort:<level>`, `…@confidence` or `…@abstain` is paired by `summarize` with its base
+`…@format:<how>`, `…@effort:<level>`, `…@confidence`, `…@abstain` or `…@perturb:<kind>` is paired by `summarize` with its base
 client on the same task and mode (`variantDeltas`): `delta.bySkill` / `delta.byAgents` /
 `delta.byStress` / `delta.byConstraints` / `delta.byFormat` / `delta.byEffort` /
 `delta.byConfidence` per cell and `delta.skill[how]` / `delta.agents[how]` /
 `delta.stress[profile]` / `delta.constraints[level]` / `delta.format[how]` /
-`delta.effort[level]` / `delta.confidence.asked` / `delta.abstain.half` pooled, the same shape as the harness delta (`deltaBetween` is the shared
+`delta.effort[level]` / `delta.confidence.asked` / `delta.abstain.half` / `delta.perturb[kind]` pooled (each with `consistency`), the same shape as the harness delta (`deltaBetween` is the shared
 baseline-versus-treatment calculation; its `noHarness*`/`harness*` fields mean
 baseline/treatment, with `base*`/`treat*` aliases). `summarize` also returns `cost`, the
 correctness × cost × latency view per client and mode, from the `cost` rows carry.

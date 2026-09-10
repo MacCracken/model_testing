@@ -1468,3 +1468,31 @@ and every `datecalc` instance without a date got a date from both models through
 Nobody abstained on an answerable instance (0 refusals of 60), so the abstain variant's −11.5 pp
 against its base (92.7 % → 81.3 %, p = 0.03 over 96 paired trials) is fabrication alone, and the
 answerable half's correctness is unchanged.
+
+
+## Robustness perturbations (2026-09-14, seed 2026, four trials per cell)
+
+Run `20260910T013305-b26d`: wordmath4, tally20, datecalc1 and logicgrid3 in noHarness and harness
+mode, each model as minted and under `@perturb:paraphrase`, `@perturb:order` and `@perturb:format`
+on the same instances. "Applied" counts the trials whose family supports the kind (wordmath and
+datecalc have no order to change). Consistency is the share of paired instances whose canonical
+answer did not change, right or wrong.
+
+| Client | Kind | Applied | Right as minted → rewritten | Consistent |
+|---|---|---|---|---|
+| gpt-4o-mini | paraphrase | 32 | 27 → 26 | 27/32 (84 %) |
+| gpt-4o-mini | order | 16 | 13 → 13 | 14/16 (88 %) |
+| gpt-4o-mini | format | 32 | 27 → 25 | 29/32 (91 %) |
+| claude-haiku-4-5 | paraphrase | 32 | 32 → 32 | 32/32 (100 %) |
+| claude-haiku-4-5 | order | 16 | 16 → 16 | 16/16 (100 %) |
+| claude-haiku-4-5 | format | 32 | 32 → 32 | 32/32 (100 %) |
+
+Haiku gives the same answer to the same problem however it is put. gpt-4o-mini's ten changed
+answers go both ways: a wrong free-form `datecalc1` weekday (Sunday for Saturday) becomes right
+when the sentence is reworded and a wrong `logicgrid3` "fish" becomes right when the clues are
+reordered; a right "fish" becomes "cat" when the clues are listed one per line, and a `wordmath4`
+answer in harness mode goes from 125 to 145 when the events are reworded. One instance stands out:
+asked "Who drinks juice?" the model answers "Carol" as minted and "juice" under all three
+rewrites — the deductions in `work` reach Carol every time, and the answer field names the
+attribute instead of the person. The pooled correctness deltas (−1.6, 0, −3.1 pp over 64 paired
+trials) are within noise; the consistency column is what tells the two models apart.

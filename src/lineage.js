@@ -42,7 +42,7 @@ export function loadLineage({ force = false } = {}) {
 // The entry for a client id, ignoring any @variant suffix (a skilled or stressed run of a checkpoint
 // is still that checkpoint).
 export function lineageFor(clientName) {
-  const base = String(clientName ?? "").replace(/@(skill|agents|stress|constraints|format|effort|confidence|abstain)(:[a-z]+)?$/, "");
+  const base = String(clientName ?? "").replace(/@(skill|agents|stress|constraints|format|effort|confidence|abstain|perturb)(:[a-z]+)?$/, "");
   return loadLineage().entries[base] ?? null;
 }
 

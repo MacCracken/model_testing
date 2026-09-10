@@ -728,6 +728,7 @@ function renderHeadline(s) {
     ...Object.entries(s.delta?.effort ?? {}).map(([how, d]) => ({ kind: "effort", how, d })),
     ...Object.entries(s.delta?.confidence ?? {}).map(([how, d]) => ({ kind: "confidence", how, d })),
     ...Object.entries(s.delta?.abstain ?? {}).map(([how, d]) => ({ kind: "abstain", how, d })),
+    ...Object.entries(s.delta?.perturb ?? {}).map(([how, d]) => ({ kind: "perturb", how, d })),
   ];
   const stressDetail = (how, d) => ({
     flaky: `${plural(d.failed, "failure")} served`,
@@ -737,7 +738,7 @@ function renderHeadline(s) {
     injected: `hijacked in ${d.hijackedTrials} of ${d.treatRuns} trials`,
   }[how] ?? `${plural(d.requests, "request")}`);
   for (const { kind, how, d } of variantCols) {
-    const label = kind === "skill" ? `Skill delta · ${how === "ondemand" ? "on demand" : how}` : kind === "agents" ? `Sub-agents delta · ${how}` : kind === "stress" ? `Stress delta · ${how}` : kind === "format" ? `Format delta · ${how === "nowork" ? "work field stripped" : "work field added"}` : kind === "effort" ? `Effort delta · ${how}` : kind === "confidence" ? "Confidence delta · asked" : kind === "abstain" ? "Abstain delta · half unanswerable" : `Constraints delta · ${how}`;
+    const label = kind === "skill" ? `Skill delta · ${how === "ondemand" ? "on demand" : how}` : kind === "agents" ? `Sub-agents delta · ${how}` : kind === "stress" ? `Stress delta · ${how}` : kind === "format" ? `Format delta · ${how === "nowork" ? "work field stripped" : "work field added"}` : kind === "effort" ? `Effort delta · ${how}` : kind === "confidence" ? "Confidence delta · asked" : kind === "abstain" ? "Abstain delta · half unanswerable" : kind === "perturb" ? `Perturbation delta · ${how}` : `Constraints delta · ${how}`;
     const detail = kind === "skill"
       ? `without → with playbook${how === "ondemand" ? ` · loaded in ${d.loaded}/${d.treatRuns}` : ""}`
       : kind === "agents"
@@ -752,7 +753,9 @@ function renderHeadline(s) {
                 ? `plain → asked for a confidence · stated in ${d.stated}/${d.treatRuns}${d.calibration ? ` · Brier ${d.calibration.brier.toFixed(3)} · ECE ${d.calibration.ece.toFixed(3)}` : ""}`
                 : kind === "abstain"
                   ? `all answerable → half unanswerable · abstained ${d.abstained}/${d.unanswerable}, fabricated ${d.fabricated} · refused ${d.refused} answerable`
-                  : `plain → with requirements · adherence ${d.total ? fmtPct((100 * d.met) / d.total) : "—"} (${d.met}/${d.total})`;
+                  : kind === "perturb"
+                    ? `as minted → ${how === "paraphrase" ? "in other words" : how === "order" ? "parts reordered" : "another surface form"} · applied in ${d.applied}/${d.treatRuns}${d.consistency?.pairs ? ` · consistent in ${d.consistency.same}/${d.consistency.pairs} (${fmtPct(d.consistency.pct)})` : ""}`
+                    : `plain → with requirements · adherence ${d.total ? fmtPct((100 * d.met) / d.total) : "—"} (${d.met}/${d.total})`;
     box.append(el("div", { className: "hcol" },
       el("div", { className: "eyebrow" }, label),
       el("div", { className: `big ${d.deltaPp > 0 ? "up" : d.deltaPp < 0 ? "down" : "flat"}` },
@@ -1042,7 +1045,7 @@ function renderLineage() {
   const entries = data?.entries ?? {};
   block.hidden = !Object.keys(entries).length;
   if (block.hidden) return;
-  const strip = (c) => c.replace(/@(skill|agents|stress|constraints|format|effort|confidence|abstain)(:[a-z]+)?$/, "");
+  const strip = (c) => c.replace(/@(skill|agents|stress|constraints|format|effort|confidence|abstain|perturb)(:[a-z]+)?$/, "");
   const highlight = [...new Set((state.run?.clients ?? state.run?.config?.clients ?? []).map(strip))];
   const layout = lineageLayout(entries, { stats: data.stats ?? {} });
   box.innerHTML = lineageSvg(layout, { highlight, title: "model lineage" });
@@ -1111,7 +1114,7 @@ function renderCurves(s) {
 // Two clients on the same instances — from this run, or B from another run on the same instance
 // seed (a later checkpoint, another day) — paired per task with McNemar and a bootstrap band.
 function lineageLabel(client) {
-  const e = state.meta?.lineage?.[client.replace(/@(skill|agents|stress|constraints|format|effort|confidence|abstain)(:[a-z]+)?$/, "")];
+  const e = state.meta?.lineage?.[client.replace(/@(skill|agents|stress|constraints|format|effort|confidence|abstain|perturb)(:[a-z]+)?$/, "")];
   return e ? `${client} · ${[e.family, e.checkpoint, e.step !== null && e.step !== undefined ? `step ${e.step}` : null].filter(Boolean).join(" ")}` : client;
 }
 

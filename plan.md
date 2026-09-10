@@ -6,7 +6,7 @@ stands, what the field measures that it does not, and what to build next.
 
 ## Start here (handoff, 2026-09-08)
 
-- **Run it.** `npm test` (347 tests; no model or server needed), then `node src/cli.js serve` for
+- **Run it.** `npm test` (354 tests; no model or server needed), then `node src/cli.js serve` for
   the UI on :4000 and `node webserver/server.js` for the system under test on :3000 (`SUT_PORT`).
   Keys and `LOCAL_ENDPOINTS` live in `.env`; runs land in `results/runs/`, the SQLite index beside
   them (`node src/cli.js index --full` rebuilds it).
@@ -69,7 +69,7 @@ rebuildable. Learned on 2026-09-07: a structured schema for a task that needs th
 | Data | one JSON per run, SQLite index (`index`, `query`, `--sql`, `compact`), CSV, versions and lineage on every run, cross-run cell history, suite presets `smoke|standard|full`; every row keeps the model's turns (or an arm's raw transcript) beside its calls and results; `replay` (a new run parented to its original, paired against it), `rescore` (today's scorers over saved rows, in place), a trial as a timeline or a JSONL event log; gate verdicts on the run and in the index |
 | UI | Ledger design, live grid, dumbbell matrix, capability scorecard with regression lines, difficulty curves, paired comparison block, trial drawer with transcript and children, history filter |
 | SUT | the webserver: hello/health, the `/api/recent` log, inventory scenarios with tickets, confirm rules, stress profiles and op log, text logs with grep and count |
-| Tests | 347, none needing a model; the webserver runs in-process |
+| Tests | 354, none needing a model; the webserver runs in-process |
 
 ## What the field measures that we do not
 
@@ -101,7 +101,7 @@ with a priority for the stated purpose:
 | Own-model workflow | lm-eval HF/vLLM backends; W&B / MLflow tracking; per-checkpoint scoreboards | named endpoints for any OpenAI-compatible server, `docs/serving.md`, `models/lineage.json` on every run and in the index, `cli models` / `suite` / `compare --parent` / `regressions`, the UI compare block, `replay` / `rescore`, `gate` / `suite nightly` (thresholds judged on the Wilson band, exit codes, time boxes) | contamination policy ([38]) | medium |
 | Coding | HumanEval → LiveCodeBench → SWE-bench | none | sandboxed execution of generated specs with hidden tests ([27]) | medium (needs a sandbox decision) |
 | Calibration & abstention | HELM calibration (ECE); "answer or abstain" splits | hedge detection in one scorer, `norelevant`'s unanswerable half | confidence elicitation, Brier/ECE per cell, unanswerable variants everywhere ([28]) | medium |
-| Robustness / consistency | HELM perturbations; paraphrase suites | agreement, flaky cells, stressors | paraphrase and ordering perturbations minted by generators ([29]) | medium |
+| Robustness / consistency | HELM perturbations; paraphrase suites | agreement per instance, flaky cells, stressors, `@perturb:paraphrase|order|format` minted by the generators with consistency beside the delta | perturbations for the tool families (scenario item names, endpoint wording) | low |
 | Multi-turn & user simulation | τ²-bench user simulator, MT-Bench | the `dialogue` family: a scripted user over the restock scenario (a change of mind, a hold, a request the policy caps), each turn answered with tools in one conversation, policy violations scored from the op log | a reactive user (answers the model's questions), longer scripts, arms through their session channels ([48], [42]) | low |
 | Safety for agents | AgentDojo (prompt injection through tool results), over-refusal suites | the `injected` stress profile (two payloads, hijack verdicts), and injection through a document (`extract` under `@stress:injected`) | over-refusal on benign borderline tasks | medium |
 | Preference / open-ended | LMArena, Arena-Hard-Auto (pairwise judge, Bradley-Terry) | absolute judge score on one task | position-swapped pairwise judging, ratings, judge calibration against human labels ([30]) | low–medium |
@@ -125,8 +125,6 @@ mean something; a structured schema carries `work` before the answer.
 
 - **[27] Code execution.** Generated function specs with hidden tests, executed in isolation
   (worker threads with limits, or a container — see decisions); repository-scale tasks later.
-- **[29] Robustness perturbations.** Paraphrase, ordering and format perturbations minted by the
-  generators; consistency across perturbations as a metric beside agreement.
 - **[30] Pairwise mode for open-ended tasks.** Position-swapped pairwise judging with Bradley-Terry
   ratings across models; the judge calibrated against a small human-labelled set before it is trusted.
 - **[48] Follow-ups on the shipped families.** Generators: unit conversions, spatial and ordering

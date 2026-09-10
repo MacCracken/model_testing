@@ -57,7 +57,7 @@ export function generate(seed, level) {
     const days = d.int(9, 400);
     const end = start + days * 86_400_000;
     return {
-      seed, level, wantsTime: false,
+      seed, level, wantsTime: false, parts: { start, days },
       text: `A permit is issued on ${prose(start)} and expires ${days} days later.`,
       question: "On what date does it expire, and what day of the week is that?",
       date: fmtDate(end), time: null, weekday: weekdayOf(end),
@@ -66,11 +66,35 @@ export function generate(seed, level) {
   const a = d.int(1, 6), b = d.int(1, 47), c = d.pick([15, 30, 45, 50, 90, 135]), e = d.int(1, 5);
   const end = start + (a * 1440 + b * 60 + c + e * 1440) * 60_000;
   return {
-    seed, level, wantsTime: true,
+    seed, level, wantsTime: true, parts: { start, a, b, c, e },
     text: `A parcel is posted on ${prose(start)} at ${fmtTime(start)}. Processing takes ${a} day${a > 1 ? "s" : ""} and ${b} hour${b > 1 ? "s" : ""}; transit then takes ${c} minutes; the courier holds it for ${e} more day${e > 1 ? "s" : ""} before delivering it.`,
     question: "On what date and at what time (24-hour clock) is it delivered, and what day of the week is that?",
     date: fmtDate(end), time: fmtTime(end), weekday: weekdayOf(end),
   };
+}
+
+// The same problem in other words, or with the date in another form (ISO, or month-day-year
+// without the weekday — the weekday hint is what the format takes away). Order has no meaning.
+const usDate = (ms) => { const d = new Date(ms); return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`; };
+export function perturb(ctx, kind, seed = 0) {
+  const p = ctx?.parts;
+  if (!p) return null;
+  const d = dice((seed >>> 0) ^ 0x9e37);
+  const plural = (n, w) => `${n} ${w}${n > 1 ? "s" : ""}`;
+  if (kind === "paraphrase") {
+    const text = ctx.level === 1
+      ? d.pick([`A permit dated ${prose(p.start)} runs for ${p.days} days before it expires.`, `Issued on ${prose(p.start)}, a permit is valid for exactly ${p.days} days.`])
+      : d.pick([`A parcel goes in the post on ${prose(p.start)} at ${fmtTime(p.start)}. It spends ${plural(p.a, "day")} and ${plural(p.b, "hour")} in processing, ${p.c} minutes in transit, and the courier keeps it ${plural(p.e, "day")} more before delivering it.`, `Posted ${prose(p.start)} at ${fmtTime(p.start)}: processing ${plural(p.a, "day")} ${plural(p.b, "hour")}, then ${p.c} minutes in transit, then held by the courier for ${plural(p.e, "day")} before delivery.`]);
+    return { ...ctx, text, perturbed: kind };
+  }
+  if (kind === "format") {
+    const date = d.pick([fmtDate(p.start), usDate(p.start)]);
+    const text = ctx.level === 1
+      ? `A permit is issued on ${date} and expires ${p.days} days later.`
+      : `A parcel is posted on ${date} at ${fmtTime(p.start)}. Processing takes ${plural(p.a, "day")} and ${plural(p.b, "hour")}; transit then takes ${p.c} minutes; the courier holds it for ${plural(p.e, "day")} more before delivering it.`;
+    return { ...ctx, text, perturbed: kind };
+  }
+  return null;
 }
 
 // The same question with the date left out: nothing can be placed on the calendar.
@@ -123,6 +147,7 @@ function makeDatecalc(level) {
 
     setup: async ({ seed }) => generate(seed >>> 0, level),
     unanswerable,
+    perturb,
 
     goal: (ctx) => `${problem(ctx)} Answer with ${format(ctx)}.`,
 
