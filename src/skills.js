@@ -72,7 +72,9 @@ export function withSkill(client, how = "preload") {
       if (!skill) return tag(await client.runWithTools(prompt, tools, system, opts), how, null, false);
       // Arms build their own prompt from the goal; the skill rides along in opts for goalPrompt.
       const passed = { ...opts, skill: { ...skill, how } };
-      if (how === "ondemand" && !client.structuredOnly) {
+      // On demand needs a tool loop the playbook can ride in: the synthetic client's, or an arm's
+      // shared tools over the bridge; a bring-your-own arm gets preload.
+      if (how === "ondemand" && (!client.structuredOnly || client.sharedTools)) {
         let loaded = 0;
         const loadSkill = {
           name: "load_skill",

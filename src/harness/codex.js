@@ -16,6 +16,7 @@
 // because Codex was not logged in on this machine when it was written.
 
 import { parseJSONLoose } from "../json.js";
+import { startToolBridge, mcpServerSpec, bridgedToolName, sharedToolsNote, SERVER_NAME } from "./toolbridge.js";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -58,7 +59,7 @@ export function parseCodexEvents(ndjson) {
 }
 
 export class CodexClient {
-  constructor({ name = "codex", model = "gpt-5-mini", command = process.env.CODEX_CMD ?? "codex", cwd = process.env.CODEX_CWD ?? process.cwd(), sandboxArgs = process.env.CODEX_SANDBOX_ARGS ?? "--dangerously-bypass-approvals-and-sandbox", timeoutMs = 300_000 } = {}) {
+  constructor({ name = "codex", model = "gpt-5-mini", command = process.env.CODEX_CMD ?? "codex", cwd = process.env.CODEX_CWD ?? process.cwd(), sandboxArgs = process.env.CODEX_SANDBOX_ARGS ?? "--dangerously-bypass-approvals-and-sandbox", timeoutMs = 300_000, sharedTools = false } = {}) {
     this.name = name;
     this.provider = "codex";
     this.model = model;
@@ -67,21 +68,29 @@ export class CodexClient {
     this.sandboxArgs = sandboxArgs;
     this.timeoutMs = timeoutMs;
     this.structuredOnly = true;
+    // Shared tools: the bench's tools over MCP beside Codex's shell (which cannot be removed);
+    // the goal says to use them, and the verdict says whether it did.
+    this.sharedTools = !!sharedTools;
   }
 
   async chat() {
     throw new Error("the codex arm only runs structured modes; use a synthetic client for the free-form baseline");
   }
 
-  async runWithTools(prompt, _tools, system, { signal, task, mode, ctx = null, skill = null, constraints = null, timeoutMs = this.timeoutMs } = {}) {
+  async runWithTools(prompt, tools, system, { signal, task, mode, ctx = null, skill = null, constraints = null, timeoutMs = this.timeoutMs } = {}) {
     // A native skill is the AGENTS.md of the working directory Codex runs in — its own channel for
     // project instructions — so the run gets a scratch directory holding just that file.
     const native = nativeSkill(skill);
     const cwd = native ? mkdtempSync(join(tmpdir(), "hb-codex-")) : this.cwd;
     if (native) writeFileSync(join(cwd, "AGENTS.md"), skillBlock(native));
+    const bridge = this.sharedTools ? await startToolBridge(tools ?? []) : null;
+    const goal = goalPrompt(task, mode, prompt, ctx, native ? null : skill, constraints);
+    const spec = bridge ? mcpServerSpec(bridge.url) : null;
     const argv = [
       ...splitCommand(this.command), "exec", "--json", "--ephemeral", "--skip-git-repo-check", "-C", cwd,
-      "-m", this.model, ...splitCommand(this.sandboxArgs), goalPrompt(task, mode, prompt, ctx, native ? null : skill, constraints),
+      "-m", this.model, ...splitCommand(this.sandboxArgs),
+      ...(bridge ? ["-c", `mcp_servers.${SERVER_NAME}.command=${JSON.stringify(spec.command)}`, "-c", `mcp_servers.${SERVER_NAME}.args=${JSON.stringify(spec.args)}`] : []),
+      bridge ? `${goal}\n\n${sharedToolsNote(tools)}` : goal,
     ];
     const env = { ...process.env };
     for (const k of Object.keys(env)) if (k === "CLAUDECODE" || k.startsWith("CLAUDE_CODE_")) delete env[k];
@@ -92,6 +101,7 @@ export class CodexClient {
       child = await runChild(argv, { signal, timeoutMs, env, label: "codex" });
     } finally {
       if (native) rmSync(cwd, { recursive: true, force: true });
+      if (bridge) await bridge.close();
     }
     const { stdout, stderr, code, lines } = child;
     const timing = eventTimings(lines,
@@ -101,22 +111,32 @@ export class CodexClient {
     const p = parseCodexEvents(stdout);
     if (p.failed) throw new Error(`codex: ${p.failed}`);
     if (p.text === null) throw new Error(`codex: ${p.errors.at(-1) ?? (code !== 0 ? `exited ${code}: ${stderr.trim().split("\n").filter(Boolean).pop() ?? ""}` : "no agent message")}`);
-    const served = await recentGreetings(BASE, startedAt, endedAt);
-    const toolResults = [...p.toolResults, ...synthesizeToolResults(task, mode, p.toolResults.map((r) => r.content), served)];
+    let toolCalls = p.toolCalls;
+    let toolResults;
+    if (bridge) {
+      // The bridge's records are the bench tool calls; the shell calls stay as the transcript shows them.
+      const transcriptMcp = p.toolCalls.filter((c) => bridgedToolName(c.name));
+      bridge.calls.forEach((c, i) => { const tc = transcriptMcp[i]; if (tc && bridgedToolName(tc.name) === c.name) { const r = bridge.results.find((x) => x.id === c.id); c.id = tc.id; if (r) r.id = tc.id; } });
+      toolCalls = [...bridge.calls, ...p.toolCalls.filter((c) => !bridgedToolName(c.name))];
+      toolResults = [...bridge.results, ...p.toolResults.filter((r) => !bridgedToolName(r.name))];
+    } else {
+      const served = await recentGreetings(BASE, startedAt, endedAt);
+      toolResults = [...p.toolResults, ...synthesizeToolResults(task, mode, p.toolResults.map((r) => r.content), served)];
+    }
     return {
       ttftMs: timing.ttftMs,
       ttfaMs: timing.ttfaMs,
       skillApplied: native ? "native" : null,
       text: p.text,
       structured: parseJSONLoose(p.text),
-      toolCalls: p.toolCalls,
+      toolCalls,
       toolResults,
       rounds: 1,
       finishReason: "stop",
       usage: p.usage,
       elapsedMs: Math.round(performance.now() - t0),
       transcript: { format: "codex/json", text: stdout },
-      harness: { kind: "codex", model: this.model, system, warnings: p.errors },
+      harness: { kind: "codex", model: this.model, system, warnings: p.errors, sharedTools: !!bridge },
     };
   }
 }

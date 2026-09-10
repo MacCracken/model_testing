@@ -14,7 +14,16 @@
 
 import { parseJSONLoose } from "../json.js";
 import { goalPrompt, synthesizeToolResults, recentGreetings, splitCommand, runChild, eventTimings, skillBlock, nativeSkill } from "./util.js";
+import { startToolBridge, mcpServerSpec, bridgedToolName, sharedToolsNote, SERVER_NAME } from "./toolbridge.js";
 import { BASE } from "../tasks/util.js";
+
+// What a sub-agents variant tells Claude Code, in place of the synthetic parent's delegate note:
+// its own Agent tool, and under shared tools a worker agent that carries the bench's tools.
+export const ARM_AGENT_NOTE = {
+  available: "Sub-agents: you may use the Agent tool to offload independent pieces of work (one item or one batch per sub-agent), giving each a self-contained goal with every id and value it needs. You remain responsible for checking the results and giving the final answer.",
+  required: "Sub-agents: do the per-item work through the Agent tool rather than yourself — after reading the state, delegate the updates to sub-agents (a self-contained goal each, with every id and value it needs), then collect what they return, verify, and finish the job yourself. You remain responsible for the final answer.",
+};
+export const WORKER_AGENT = "worker";
 
 export function parseTranscript(raw) {
   // `json` output is one array; `stream-json` is one message per line. Accept both.
@@ -78,7 +87,7 @@ export function parseTranscript(raw) {
 }
 
 export class ClaudeCodeClient {
-  constructor({ name = "claude-code", model = "claude-haiku-4-5", command = process.env.CLAUDE_CODE_CMD ?? "claude", tools = "Bash", apiKey = null, timeoutMs = 300_000 } = {}) {
+  constructor({ name = "claude-code", model = "claude-haiku-4-5", command = process.env.CLAUDE_CODE_CMD ?? "claude", tools = "Bash", apiKey = null, timeoutMs = 300_000, sharedTools = false } = {}) {
     this.name = name;
     this.provider = "claude-code";
     this.model = model;
@@ -87,20 +96,34 @@ export class ClaudeCodeClient {
     this.apiKey = apiKey;
     this.timeoutMs = timeoutMs;
     this.structuredOnly = true;
+    // Shared tools: the bench's own tools over MCP instead of Bash — every call runs in the bench
+    // and is scored by the task's tool-use verdict (see harness/toolbridge.js).
+    this.sharedTools = !!sharedTools;
   }
 
   async chat() {
     throw new Error("the claude-code arm only runs structured modes; use a synthetic client for the free-form baseline");
   }
 
-  async runWithTools(prompt, _tools, system, { signal, task, mode, ctx = null, skill = null, constraints = null, agents = null, timeoutMs = this.timeoutMs } = {}) {
+  async runWithTools(prompt, tools, system, { signal, task, mode, ctx = null, skill = null, constraints = null, agents = null, timeoutMs = this.timeoutMs } = {}) {
     // A native skill goes in through Claude Code's own system-prompt flag instead of the goal text.
     const native = nativeSkill(skill);
+    // Shared tools: no built-in tools (the Agent tool when a sub-agents variant asks), the bench's
+    // tools through the MCP bridge, and the goal names them.
+    const bridge = this.sharedTools ? await startToolBridge(tools ?? []) : null;
+    const agentNote = agents ? ARM_AGENT_NOTE[agents.how] ?? ARM_AGENT_NOTE.available : null;
+    const goal = [goalPrompt(task, mode, prompt, ctx, native ? null : skill, constraints), bridge ? sharedToolsNote(tools) : null, agentNote].filter(Boolean).join("\n\n");
+    // Under shared tools a sub-agents variant also defines a worker agent that carries the bench's
+    // tools, so what a sub-agent can do is the same as what the parent can.
+    const worker = bridge && agents ? JSON.stringify({ [WORKER_AGENT]: { description: "Works one self-contained piece of the job with the bench's tools and reports the concrete results (ids, tickets, numbers).", prompt: "You are a sub-agent working one piece of a larger job. Use the tools to complete exactly the goal you are given, then reply with a concise final answer stating the concrete results. Do not ask questions; if part of the goal is impossible, say so.", tools: (tools ?? []).map((t) => `mcp__${SERVER_NAME}__${t.name}`) } }) : null;
     const argv = [
-      ...splitCommand(this.command), "-p", goalPrompt(task, mode, prompt, ctx, native ? null : skill, constraints),
+      ...splitCommand(this.command), "-p", goal,
       "--bare", "--output-format", "stream-json", "--verbose", "--model", this.model, "--no-session-persistence",
-      // A sub-agents variant lets Claude Code use its own Agent tool (Task in older builds).
-      "--allowedTools", agents ? `${this.tools},Agent,Task` : this.tools, "--permission-mode", "bypassPermissions",
+      ...(bridge
+        ? ["--tools", agents ? "Agent,Task" : "", "--mcp-config", JSON.stringify({ mcpServers: { [SERVER_NAME]: mcpServerSpec(bridge.url) } }), "--strict-mcp-config", ...(worker ? ["--agents", worker] : [])]
+        // A sub-agents variant lets Claude Code use its own Agent tool (Task in older builds).
+        : ["--allowedTools", agents ? `${this.tools},Agent,Task` : this.tools]),
+      "--permission-mode", "bypassPermissions",
       ...(native ? ["--append-system-prompt", skillBlock(native)] : []),
     ];
     const env = { ...process.env };
@@ -108,7 +131,13 @@ export class ClaudeCodeClient {
     if (this.apiKey) env.ANTHROPIC_API_KEY = this.apiKey;
     const t0 = performance.now();
     const startedAt = new Date().toISOString();
-    const { stdout, stderr, code, lines } = await runChild(argv, { signal, timeoutMs, env, label: "claude-code" });
+    let run;
+    try {
+      run = await runChild(argv, { signal, timeoutMs, env, label: "claude-code" });
+    } finally {
+      if (bridge) await bridge.close();
+    }
+    const { stdout, stderr, code, lines } = run;
     const timing = eventTimings(lines,
       (l) => /"type":"assistant"/.test(l),
       (l) => /"type":"result"/.test(l));
@@ -117,9 +146,21 @@ export class ClaudeCodeClient {
     const t = parseTranscript(stdout);
     if (t.isError) throw new Error(`claude-code: ${t.subtype ?? "error"}: ${t.text.slice(0, 200)}`);
     if (t.model) this.model = t.model;
-    // Real tool outputs plus the bench-shaped results recovered from them (for lookup/chain/hello).
-    const served = await recentGreetings(BASE, startedAt, endedAt);
-    const toolResults = [...t.toolResults, ...synthesizeToolResults(task, mode, t.toolResults.map((r) => r.content), served)];
+    let toolCalls = t.toolCalls;
+    let toolResults;
+    if (bridge) {
+      // The bridge executed every bench tool call, so its records are the calls and results —
+      // bench-shaped, under the transcript's ids where the two line up — plus whatever else the
+      // transcript shows (the Agent tool under a sub-agents variant).
+      const transcriptMcp = t.toolCalls.filter((c) => bridgedToolName(c.name));
+      bridge.calls.forEach((c, i) => { const tc = transcriptMcp[i]; if (tc && bridgedToolName(tc.name) === c.name) { c.id = tc.id; const r = bridge.results.find((x) => x.id === `mcp_${i + 1}`); if (r) r.id = tc.id; } });
+      toolCalls = [...bridge.calls, ...t.toolCalls.filter((c) => !bridgedToolName(c.name))];
+      toolResults = [...bridge.results, ...t.toolResults.filter((r) => !bridgedToolName(r.name))];
+    } else {
+      // Real tool outputs plus the bench-shaped results recovered from them (for lookup/chain/hello).
+      const served = await recentGreetings(BASE, startedAt, endedAt);
+      toolResults = [...t.toolResults, ...synthesizeToolResults(task, mode, t.toolResults.map((r) => r.content), served)];
+    }
     return {
       ttftMs: timing.ttftMs,
       ttfaMs: timing.ttfaMs,
@@ -127,7 +168,7 @@ export class ClaudeCodeClient {
       agents: agents ? { how: agents.how, applied: "native", delegations: t.toolCalls.filter((c) => c.name === "Agent" || c.name === "Task").length, childCalls: 0, childTokens: 0, children: [] } : undefined,
       text: t.text,
       structured: parseJSONLoose(t.text),
-      toolCalls: t.toolCalls,
+      toolCalls,
       toolResults,
       turns: t.turns,
       transcript: { format: "claude-code/stream-json", text: stdout },
@@ -135,7 +176,7 @@ export class ClaudeCodeClient {
       finishReason: "stop",
       usage: t.usage,
       elapsedMs: Math.round(performance.now() - t0),
-      harness: { kind: "claude-code", model: t.model, costUsd: t.costUsd, system },
+      harness: { kind: "claude-code", model: t.model, costUsd: t.costUsd, system, sharedTools: !!bridge },
     };
   }
 }

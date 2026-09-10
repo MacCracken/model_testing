@@ -88,6 +88,25 @@ const PROVIDERS = {
     harness: "pi",
     models: ["openai/gpt-4o-mini", "anthropic/claude-haiku-4-5"],
   },
+  // The same arms with the bench's tools shared over MCP (see harness/toolbridge.js): no shell for
+  // Claude Code, the shell beside the shared tools for Codex; every bench tool call runs in the
+  // bench and is scored by the task's tool-use verdict. Labelled apart from bring-your-own.
+  "claude-code-mcp": {
+    baseUrl: envValue("CLAUDE_CODE_CMD", "claude"),
+    auth: () => "",
+    keyEnv: "ANTHROPIC_API_KEY",
+    harness: "claude-code",
+    sharedTools: true,
+    models: ["claude-haiku-4-5", "claude-sonnet-5", "claude-opus-5"],
+  },
+  "codex-mcp": {
+    baseUrl: envValue("CODEX_CMD", "codex"),
+    auth: () => "",
+    needsKey: false,
+    harness: "codex",
+    sharedTools: true,
+    models: ["gpt-5.4-mini"],
+  },
   // Codex CLI as the harness arm (see harness/codex.js). Authenticates through `codex login`.
   codex: {
     baseUrl: envValue("CODEX_CMD", "codex"),
@@ -185,12 +204,12 @@ export function buildClient({ provider, model, modelParams = {} }) {
   if (!cfg) throw new Error(`unknown provider: ${provider}`);
   if (!hasCredentials(provider)) return null;
   if (cfg.harness === "thoth") return new ThothClient({ name: `${provider}:${model}`, model, command: cfg.baseUrl });
-  if (cfg.harness === "claude-code") return new ClaudeCodeClient({ name: `${provider}:${model}`, model, command: cfg.baseUrl, apiKey: apiKeyFor(provider) });
+  if (cfg.harness === "claude-code") return new ClaudeCodeClient({ name: `${provider}:${model}`, model, command: cfg.baseUrl, apiKey: apiKeyFor(provider), sharedTools: !!cfg.sharedTools });
   if (cfg.harness === "pi") {
     const upstream = model.includes("/") ? model.slice(0, model.indexOf("/")) : null;
     return new PiClient({ name: `${provider}:${model}`, model, command: cfg.baseUrl, apiKey: upstream ? envValue(`${upstream.toUpperCase()}_API_KEY`) || null : null });
   }
-  if (cfg.harness === "codex") return new CodexClient({ name: `${provider}:${model}`, model, command: cfg.baseUrl });
+  if (cfg.harness === "codex") return new CodexClient({ name: `${provider}:${model}`, model, command: cfg.baseUrl, sharedTools: !!cfg.sharedTools });
   const key = apiKeyFor(provider) || "local";
   // A run-level effort knob (--effort) is translated per provider here; the knob itself stays in
   // the run's recorded model params, the translated parameters are what is sent.
@@ -305,6 +324,7 @@ export async function describeProviders({ probe = true } = {}) {
     baseUrl: cfg.baseUrl,
     kind: cfg.harness ? "harness" : "model",
     harness: cfg.harness ?? null,
+    sharedTools: !!cfg.sharedTools,
     needsKey: cfg.needsKey !== false,
     hasKey: hasCredentials(name),
     local: !!cfg.local,

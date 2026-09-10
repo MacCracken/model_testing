@@ -137,7 +137,9 @@ export async function scoreRecord(task, record, { judge = null, ctx = record.ctx
   // so a judge written against the bench's tools has nothing to say about it.
   record.toolUseOk = null;
   record.toolUseReason = "";
-  if (hasTools && typeof task.eval.toolUse === "function" && !record.harness) {
+  // An arm that brought its own tools is not judged on the bench's; one that took the bench's
+  // tools over the bridge is.
+  if (hasTools && typeof task.eval.toolUse === "function" && (!record.harness || record.sharedTools)) {
     const use = await task.eval.toolUse({ mode, toolCalls: record.toolCalls ?? [], toolResults: record.toolResults ?? [], ctx, rounds: record.rounds ?? 0 });
     record.toolUseOk = !!use.ok;
     record.toolUseReason = use.reason ?? "";
@@ -251,6 +253,8 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
     // A generated task mints a different instance per trial index: agreement is only measurable
     // between trials of the same instance (the same seed), so the row says whether it is one.
     seeded: task.seeded === true,
+    // An arm that ran the bench's tools over the MCP bridge (its calls are bench-shaped and judged).
+    sharedTools: false,
     // Cost in currency from the usage and the price table of the day (null when unpriced).
     cost: null,
     reasoningChars: null,
@@ -303,6 +307,7 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
       // A real-harness arm reports the model it actually routed to; record that, not the label.
       if (resp.harness?.model) record.model = resp.harness.model;
       if (resp.harness) record.harness = resp.harness.kind ?? "unknown";
+      if (resp.harness?.sharedTools) record.sharedTools = true;
       // The session as it unfolded: the synthetic loop's turns (what the model said each round,
       // which calls it made, when) and an arm's raw transcript, capped like the prompt — so a row
       // can be read back as a timeline, exported as events, or re-parsed without the model.

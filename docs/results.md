@@ -1397,3 +1397,32 @@ Over the whole index, `chain` and `transform` now agree on the answer's shape: g
 the second greeting as `hello, <id>!` in every harness trial (100 %), and in free-form mode its
 answers take three shapes (73 % agreement) — the same fact the 0/22 free-form correctness states,
 now with the form of the miss.
+
+
+## Shared tools for the arms through MCP (2026-09-13, harness mode, two trials per cell)
+
+Runs `20260909T233424-31f1` (Claude Code, Haiku 4.5) and `20260909T233610-3e06` (Codex,
+gpt-5.4-mini): the same arm with its own tools (a shell and curl, scored from the webserver's
+log, no tool-use verdict) and on the bench's tools over the MCP bridge (every call runs in the
+bench, bench-shaped, judged by the task's verdict). Tasks health, chain, regex, restock3, fanout4.
+
+| Arm | Tools | Correct | Tool verdict | Tokens / trial | Time / trial | Cost / trial |
+|---|---|---|---|---|---|---|
+| claude-code:claude-haiku-4-5 | its own (Bash) | 10/10 | — | 10 053 | 9.1 s | $0.0132 |
+| claude-code-mcp:claude-haiku-4-5 | the bench's over MCP | 10/10 | 10/10 | 6 865 | 8.5 s | $0.0099 |
+| codex:gpt-5.4-mini | its own (shell) | 9/10 | — | 46 480 | 4.2 s | unpriced |
+| codex-mcp:gpt-5.4-mini | the bench's over MCP | 10/10 | 10/10 | 83 769 | 6.4 s | unpriced |
+
+Claude Code spends a third fewer tokens on the shared tools (one typed call instead of a curl
+command and its output) and every trial now carries a verdict: the right tool with the right
+arguments on health, chain and regex, the three updates and the confirm on restock3, and on
+fanout4 the four reads one at a time (five rounds). Codex's own-shell miss was a `chain` where it
+greeted the wrong id; on the shared tools it was 10/10 and issued fanout4's four reads in one
+round, but its per-trial context grew from 46 k to 84 k tokens — the tool schemas ride on top of
+its system prompt on every turn.
+
+The treatments over the bridge, one trial each: `claude-code-mcp:claude-haiku-4-5@skill:ondemand`
+on restock3 called `load_skill` first and then the restock tools (3/3, `skill.loaded` 1);
+`@agents:required` on restock6 restocked 6/6 in the parent with no delegation despite the
+instruction and a `worker` agent carrying the bench's tools — `agents.delegations` 0, which is the
+finding, not a failure of the record.

@@ -160,6 +160,7 @@ node src/cli.js models --graph                           # the registry as a tre
 node src/cli.js anchors list | anchors openai:gpt-4o-mini   # the public sets in the cache with their provenance; a client's anchor rates next to its own tasks
 node src/cli.js cost <run-id> [--reprice]                # correctness × cost × latency per model and mode (models/prices.json; --reprice prices old rows for the view)
 node src/cli.js variance --client openai:gpt-4o-mini [--by temperature] [--over-time]   # agreement and flakiness per instance under each setting, or per run
+node src/bench.js --task restock6,fanout4 --modes harness --clients claude-code:claude-haiku-4-5,claude-code-mcp:claude-haiku-4-5 --count 2   # an arm with its own tools next to the same arm on the bench's tools over MCP
 node src/cli.js compare <run> --a <client> --b <client> --mode harness   # paired: McNemar + bootstrap band per task
 node src/cli.js compare <run-A> <run-B> --mode schemaOnly               # two runs on the same instance seed
 node src/cli.js curve restock [--mode harness] [--client <c>]           # success per difficulty level over every saved run, with each model's breaking point
@@ -190,6 +191,16 @@ capability and mode, a model's latest run of each task with its earlier runs of 
 the same number of trials per task on both sides, so a change of task mix never reads as a change
 in the model — and a checkpoint with its lineage parent; a flag needs the later band to lie
 entirely under the earlier one, and names the per-task split behind it.
+
+**Shared tools for the arms.** `claude-code-mcp:<model>` and `codex-mcp:<model>` run the real
+harnesses on the bench's own tools through MCP: the bench starts a loopback bridge holding the
+trial's tools and the arm spawns a thin stdio MCP server that forwards to it, so every tool call
+runs in the bench, comes out bench-shaped, and is judged by the task's tool-use verdict like any
+client's. Claude Code gets no built-in tools that way; Codex keeps its shell beside them and the
+verdict says which it used. `@skill:ondemand` reaches these arms as the `load_skill` tool, and
+`@agents:available|required` gives Claude Code its Agent tool with a worker agent carrying the
+bench's tools. The bring-your-own arms (`claude-code`, `codex`, `pi`, `thoth`) stay as they were,
+scored from the webserver's log.
 
 **Variance.** Agreement (the share of trials giving the modal canonical answer) and flakiness
 (both outcomes for one problem) are measured per instance: every trial of a fixed-truth task is

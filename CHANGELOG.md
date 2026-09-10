@@ -4,6 +4,47 @@ What shipped, by date. Full measurement tables live in [docs/results.md](docs/re
 forward roadmap is [plan.md](plan.md). Dates are the commit dates; item numbers ([1]–[49]) are the
 roadmap's, stable across the plan, this file and the results.
 
+## 2026-09-13 — shared tools for the arms through MCP
+
+### Added
+- **The tool bridge** ([43]): `src/harness/toolbridge.js` starts a loopback HTTP server per
+  trial holding the trial's tools — the same objects the synthetic harness gets, `impl` and all —
+  and `src/mcp/bridge.js` is the stdio MCP server an arm spawns, forwarding `initialize`,
+  `tools/list`, `tools/call` and `ping` to it (newline-delimited JSON-RPC, no dependencies). Every
+  bench tool call therefore runs in the bench's process and comes out bench-shaped, under the
+  transcript's tool ids, so the task's tool-use verdict judges the arm like any client
+  (`row.sharedTools`; the runner's verdict gate reads it).
+- **Two providers, labelled apart from bring-your-own**: `claude-code-mcp:<model>` runs Claude
+  Code with no built-in tools (`--tools ""`) and the bench's tools over `--mcp-config` /
+  `--strict-mcp-config`; `codex-mcp:<model>` runs Codex with the bench's tools configured through
+  `-c mcp_servers.bench.*` beside its shell (which cannot be removed — the verdict says which it
+  used). The goal prompt names the tools and says to use them.
+- **On-demand skills for arms** ([42]): an arm with shared tools takes `@skill:ondemand` the way
+  the synthetic client does — the `load_skill` tool rides over the bridge, and the row records
+  whether it was read (`skill.loaded`). Bring-your-own arms still get preload.
+- **Sub-agents for Claude Code under shared tools** ([42]): `@agents:available|required` adds
+  Claude Code's Agent tool, a note in the goal (the synthetic parent's, in the arm's terms), and a
+  `worker` agent defined through `--agents` that carries the bench's tools, so a sub-agent can do
+  what the parent can. `required` forces by instruction, as it does for the synthetic parent; the
+  row records the delegations that actually happened.
+- Tests: 332 (the bridge and the MCP child over the protocol, a throwing tool, the name mapping,
+  the providers, the runner judging a shared-tools arm and leaving a bring-your-own arm unjudged,
+  the on-demand skill over the bridge).
+
+### Measured (health, chain, regex, restock3, fanout4 in harness mode, two trials each; tables in docs/results.md)
+- **Claude Code on the bench's tools costs a third less than on its own**: 10/10 either way, but
+  6.9 k tokens and $0.0099 a trial over MCP against 10.1 k and $0.0132 with Bash and curl — and
+  now with a tool-use verdict on every trial (10/10: the right tool, the right arguments, the reads
+  one at a time on `fanout4`).
+- **Codex on the bench's tools is right more often and spends more**: 10/10 over MCP against 9/10
+  with its shell (it greeted the wrong id once on `chain`), with all four `fanout4` reads issued in
+  one round; but 84 k tokens a trial against 46 k — the shared tool schemas ride on top of Codex's
+  already large context — and 6.4 s against 4.2 s.
+- With `@skill:ondemand` Claude Code read the playbook first (`load_skill`, then the restock
+  tools) and restocked 3/3; with `@agents:required` on `restock6` it restocked 6/6 itself and
+  delegated nothing — told to, with a worker agent defined, it still did the work in the parent,
+  and the row says so.
+
 ## 2026-09-12 (later) — variance across settings
 
 ### Changed

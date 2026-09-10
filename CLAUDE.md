@@ -143,14 +143,23 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
   `runTrial` passes `task` and `mode` to `runWithTools` so an arm can build its own prompt. Every
   arm returns `transcript: { format, text }` (its raw output, kept capped on the row so a parser fix
   can re-read it); Claude Code's parser also yields `turns`.
+- `src/harness/toolbridge.js` + `src/mcp/bridge.js` — the bench's tools shared with an arm over
+  MCP: `startToolBridge(tools)` is a loopback HTTP server per trial holding the trial's tool
+  objects (`GET /tools`, `POST /call`, every call recorded bench-shaped); `mcp/bridge.js` is the
+  stdio MCP server the arm spawns (`mcpServerSpec(url)`), forwarding the protocol to it.
+  `claude-code-mcp` / `codex-mcp` providers set `sharedTools` on the arm: Claude Code runs with
+  `--tools ""` and `--mcp-config`, Codex with `-c mcp_servers.bench.*`; the arm's calls and
+  results come from the bridge (under the transcript's ids), `row.sharedTools` is set, and the
+  tool-use verdict applies. `bridgedToolName` maps `mcp__bench__x` / `bench.x` back to `x`.
 - `src/skills.js` — skills as a treatment. A playbook lives in `skills/<name>.md` (a task names a
   shared one with `task.skill`; every tool task has one, `reason` and `explain` do not); `withSkill(client, how)` wraps any client — synthetic or arm — as
   `<client>@skill:<how>` with `baseName` pointing back. `preload` puts the playbook in the system
   prompt (arms: the goal prompt); `ondemand` adds a `load_skill` tool and the row's `skill.loaded`
   says whether it was read; `native` lets an arm use its own channel (`nativeSkill` in
   `harness/util.js`: Claude Code and Pi append a system prompt, Codex gets an `AGENTS.md` in a
-  scratch cwd) and `skill.applied` records the path taken. `resolveClients` understands the
-  `@skill[:how]` suffix.
+  scratch cwd) and `skill.applied` records the path taken; `ondemand` reaches an arm with shared
+  tools as the `load_skill` tool over the bridge. `resolveClients` understands the `@skill[:how]`
+  suffix.
 - `src/agents.js` — sub-agents as a treatment. `withDelegation(client, how)` wraps a client as
   `<client>@agents:<how>`; the synthetic parent gets a `delegate(goal)` tool whose children run the
   task's tools (never `delegate`), in parallel within a turn, and fold back into the parent's row
