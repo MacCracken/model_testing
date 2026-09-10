@@ -35,7 +35,7 @@ test("calc evaluates exactly and rejects what it should", async () => {
   assert.equal(calc("2 * 3 + 4 * 5"), 26);
   assert.throws(() => calc("2 ** 3"), /expected a number|unexpected/);
   assert.throws(() => calc("5 / 0"), /division by zero/);
-  assert.throws(() => calc("process.exit(1)"), /expected a number/);
+  assert.throws(() => calc("process.exit(1)"), /unknown function|expected a number/, "code is not an expression");
   assert.throws(() => calc("(1 + 2"), /missing \)/);
   assert.deepEqual(await calcTool.impl({ expression: "6*7" }), { expression: "6*7", result: 42 });
 });

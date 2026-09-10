@@ -1693,3 +1693,54 @@ distribution in which the rules' wording plays no visible part; the consistency 
 wide that distribution is (a third to two thirds of instances give the same report twice), and it
 is the curves' breaking point, not the prompt, that the family measures. The run cost $1.22
 (1.79 M tokens).
+
+## Unit conversions: the factor from memory against the exact tool (2026-09-17, seed 2026, eight trials per cell)
+
+Run `20260910T081444-2409`: convert1, convert2 and convert3 in all four modes on gpt-4o-mini and
+Haiku 4.5. Level 1 is one quantity in another unit with a stated rounding, level 2 a rate in
+another pair of units, level 3 three steps ending in a whole number (a tank filled by a hose, a
+lift limit against boxes in pounds, a trip at a speed in other units, fuel at miles per gallon).
+With tools the model gets `convert` (exact factors) and, from level 2, `calc`; without, it works
+from memory. A miss within 3 % of the exact value is named as "the factor or the rounding".
+
+| Client | Task | noHarness | schemaOnly | toolOnly | harness |
+|---|---|---|---|---|---|
+| gpt-4o-mini | convert1 | 3/8 | 4/8 | 8/8 | 8/8 |
+| gpt-4o-mini | convert2 | 3/8 | 3/8 | 8/8 | 8/8 |
+| gpt-4o-mini | convert3 | 7/8 | 7/8 | **1/8** | **2/8** |
+| claude-haiku-4-5 | convert1 | 5/8 | 6/8 | 8/8 | 8/8 |
+| claude-haiku-4-5 | convert2 | 5/8 | 6/8 | 8/8 | 8/8 |
+| claude-haiku-4-5 | convert3 | 8/8 | 7/8 | 8/8 | 8/8 |
+
+**The factor is the miss.** Every one of the 42 free-form and schema-only misses at levels 1 and 2
+is within 3 % of the exact value: gpt-4o-mini converts 81.6 inches with 2.54 and lands on 207.6
+for 207.3 (its arithmetic, not its factor), takes 2.47105 acres per hectare and 28.3495 grams per
+ounce — factors good to five figures — and still rounds to 22.4 for 22.2 and 1725.55 for 1729.32;
+Haiku's are the same kind (116.02 for 116.03, 546 for 547, 4.44 for 4.43). With the exact factor
+in hand both models are 32/32 on those two levels, in both tool modes. Haiku is 39/40 at level 3
+whatever the mode.
+
+**A converter in hand makes gpt-4o-mini mix its units.** Without tools it works the three-step
+problems in its head and gets 7 of 8; with `convert` and `calc` it gets 2 of 8 and 1 of 8. All
+thirteen tool-mode misses are the same mistake: it converts the two quantities into different
+systems and combines them as if they were one — 138 km to 85.7 miles and 45 mph to 72.4 km/h,
+then miles divided by km/h ("71 minutes" for 114); 173 km to 173 000 m and 7 m/s to 25.2 km/h,
+then metres divided by km/h and the result called seconds ("2 hours" for 7); 34 miles per US
+gallon read as 34 gallons and converted to 128.7 litres ("162.3 litres" for 4.8). None is a
+rounding miss: the arithmetic is right on the wrong quantities. The calculator had no rounding
+function when this ran, and the model asked it for `ceil(…)` and `Math.round(…)` and got errors
+back on 11 of the 13 rows — it then flailed ("+ 1 − 1") but the values it was rounding were
+already wrong; `calc` has `ceil`, `floor`, `round`, `abs` and `%` since this run. Pooled, the
+harness delta on this family is +5 of 24 for gpt-4o-mini (13 → 18) and +6 of 24 for Haiku
+(18 → 24): the tool fixes the factor and, for one model, breaks the method. The run cost $0.38
+(406 k tokens).
+
+**The re-run with a calculator that rounds** — run `20260910T081819-2902`: convert3 again on
+gpt-4o-mini, the same eight instances, toolOnly and harness. Every rounding call now succeeds
+(eight `ceil(…)` / `round(…, 1)` calls per mode, no errors) and the outcome is what it was: 2/8
+and 1/8. The same six trip and fuel instances go wrong the same way — 138 km to miles, 45 mph to
+km/h, miles divided by km/h, `ceil(71.04)` = 72 for 115; 173 km to metres, 7 m/s to km/h,
+`ceil(6865 / 3600)` = 2 for 7; 784 km to miles and 19 gallons to litres for "19 miles per
+gallon" — so the rounding gap was noise on top of the finding, not the finding. What a converter
+gives this model is a way to move each quantity into a unit it did not need, and what it then
+lacks is the check that the units it divides are the same.

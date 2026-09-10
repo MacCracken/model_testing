@@ -37,6 +37,7 @@ output.
 | `regex` | tool-reasoning | Which of six strings match an anchored regex, with a correct `regex_match` tool and a `word_count` decoy. Tests tool *selection* and typed arguments, not just firing. |
 | `chain` | multi-step | Greet alice, then greet the id that came back, and report the second greeting. The second call depends on the first; the id is random, so nothing but the chain produces the answer. |
 | `wordmath2` / `wordmath4` / `wordmath6` | reasoning · generated | A multi-step stock word problem minted per trial from the run's instance seed; one integer answer. With tools, a calculator — does a tool fix the arithmetic? |
+| `convert1` / `convert2` / `convert3` | reasoning · generated | Unit conversions with exact factors and a stated rounding: one quantity in another unit; a rate in another pair of units; three steps ending in a whole number (a tank filled by a hose, a lift limit against boxes in pounds, a trip at a speed in other units, fuel at miles per gallon). With tools, an exact `convert` and a calculator — is the miss in the factor or in the arithmetic? |
 | `datecalc1` / `datecalc3` | reasoning · generated | Calendar arithmetic minted per trial: a date and weekday after N days, or a posting time plus three durations. With tools, a date calculator. |
 | `logicgrid3` / `logicgrid4` | reasoning · generated | A pet-and-drink deduction puzzle, unique and minimal by construction, minted per trial. No tools: the harness is the structured mode. |
 | `tally20` / `tally60` | reasoning · generated | One count, sum or maximum over an inline ticket table minted per trial. With tools, a query over the same rows. |
@@ -121,6 +122,7 @@ node src/bench.js --task restock3,restock6 --modes harness --clients openai:gpt-
 node src/bench.js --task restock12 --modes harness --clients anthropic:claude-haiku-4-5,anthropic:claude-haiku-4-5@agents:available --count 4      # sub-agents A/B
 node src/bench.js --task restock6 --modes harness --clients openai:gpt-5.4-mini,openai:gpt-5.4-mini@stress:budget,openai:gpt-5.4-mini@stress:distractors --count 4   # stress A/B
 node src/bench.js --task wordmath4,datecalc3,logicgrid4,tally60 --clients openai:gpt-4o-mini,anthropic:claude-haiku-4-5 --count 4 --instance-seed 7   # generated reasoning, paired
+node src/bench.js --task convert1,convert2,convert3 --clients openai:gpt-4o-mini --count 8 --instance-seed 7   # unit conversions: the factor from memory against the exact tool
 node src/bench.js --task hello,regex,tally20 --clients openai:gpt-4o-mini,openai:gpt-4o-mini@constraints:heavy --count 4 --instance-seed 7   # instruction following
 node src/bench.js --task fanout8,follow6,norelevant --modes harness --clients openai:gpt-4o-mini,openai:gpt-4o-mini@stress:injected --count 4 --instance-seed 7   # tool-use breadth + injection
 node src/bench.js --task paged6,typed,nearmiss --modes toolOnly,harness --clients openai:gpt-4o-mini,anthropic:claude-haiku-4-5 --count 4 --instance-seed 7   # paged results, strict types, near misses

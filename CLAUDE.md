@@ -25,9 +25,14 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
   records `ttftMs` / `ttfaMs`; `stream: false` keeps the plain path.
 - `src/tasks/` — task specs: prompt/tools/schema per mode + `eval` block (ground + scorers).
   `tasks/util.js` holds what they share: the webserver `BASE` URL and `unwrapList`. Generated
-  families (`wordmath`, `datecalc`, `logicgrid`, `tally`) mint an instance per trial from the trial's
-  seed in `setup` (`seeded: true`); `tasks/gen.js` holds the seeded RNG, `seedFor` and lenient answer
-  readers, `src/calc.js` the exact calculator that is the harness axis for arithmetic. The
+  families (`wordmath`, `datecalc`, `logicgrid`, `tally`, `convert`) mint an instance per trial from
+  the trial's seed in `setup` (`seeded: true`); `tasks/gen.js` holds the seeded RNG, `seedFor` and
+  lenient answer readers, `src/calc.js` the exact calculator that is the harness axis for
+  arithmetic (`+ - * / %`, parentheses, and `ceil` / `floor` / `round(x, places)` / `abs`, with
+  or without a `Math.` prefix, so a stated rounding rule can be applied by the tool). `convert` (`tasks/convert.js`) carries its own exact factor table and the `convert`
+  tool (linear through a base unit per dimension, affine for temperatures; names, plurals and
+  symbols understood), a stated rounding rule per instance (`applyRule`) and a judge that accepts
+  the exact value to more places than asked but not another rounding. The
   long-context family (`needle8k/32k/100k`) mints a server log per trial, inlines it in the free-form
   modes and posts it to the webserver for the tool modes' grep and count (`tasks/needle.js`); the
   record keeps a capped prompt (`capText` in the runner) and a ctx without the log (`recordCtx`;
@@ -369,7 +374,7 @@ discordant pairs (`mcnemarExact`), a seeded bootstrap band (`bootstrapDelta`), p
 `multipleComparisons` the Bonferroni count over a run's cells, `compareRows` the two-client or
 two-run comparison behind `cli compare`, and `capabilityStats` the scorecard behind `summarize`'s
 `capabilities`, `cli scorecard` and `/api/scorecard`. Families with a knob tag their tasks with
-`family` and `level` (restock items, wordmath steps, datecalc level, logicgrid size, tally length,
+`family` and `level` (restock items, wordmath steps, convert level, datecalc level, logicgrid size, tally length,
 fanout width, follow hops, needle tokens); `curves` (`summarize`'s `curves`, from `levelsOf`) gives
 success per level per client and mode with the **breaking point** — the first level whose Wilson
 band tops out under 50 % — behind the UI panel, the report and `cli curve` over the index.

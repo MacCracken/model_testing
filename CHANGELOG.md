@@ -4,6 +4,49 @@ What shipped, by date. Full measurement tables live in [docs/results.md](docs/re
 forward roadmap is [plan.md](plan.md). Dates are the commit dates; item numbers ([1]–[49]) are the
 roadmap's, stable across the plan, this file and the results.
 
+## 2026-09-17 — a unit-conversion family
+
+### Added
+- **`convert1/2/3`** (`src/tasks/convert.js`; the fifth [48] follow-up, the generator the plan
+  listed first): unit conversions minted per trial from an exact factor table (length, mass,
+  volume, time, speed, area, temperature) with a stated rounding rule. Level 1 is one quantity in
+  another unit (a crate in pounds asked in kilograms, an oven in Fahrenheit in Celsius); level 2 a
+  rate in another pair of units (US gallons per minute in litres per hour, pounds per foot in
+  kilograms per metre, a speed over a time as a distance); level 3 three steps ending in a whole
+  number (a tank filled by a hose in other units, a lift limit against boxes in pounds, a trip in
+  miles at a speed in km/h, fuel over kilometres at miles per gallon). Two things can go wrong —
+  the factor and the arithmetic — and the harness axis separates them: with tools the model gets
+  `convert` (exact factors, affine for temperatures, the unit names and symbols understood) and
+  `calc`; without, it works from memory. The stated rounding is the answer: a value rounded the
+  wrong way is wrong, the exact value to more places than asked is accepted, and a miss within
+  3 % is named as such (the factor or the rounding, not the method). The family carries
+  `unanswerable` (the quantity gone) and the four perturbations, and the `unit-conversion`
+  capability for the scorecard.
+- **`calc` rounds now**: `ceil(x)`, `floor(x)`, `round(x[, places])`, `abs(x)` — with or without
+  the `Math.` prefix models write — and `%`. The first convert3 run showed gpt-4o-mini asking the
+  calculator for `ceil(…)` and `Math.round(…)` on 11 of its 13 wrong tool-mode rows and getting
+  "expected a number" back; a stated rounding rule needs a calculator that can apply it. Unknown
+  names are refused by name.
+- Tests: 389 (+8: the factor table against hand-worked values, the tool's names and refusals, the
+  judge's rules, the generator's spread and determinism, the renderings, the hooks, every mode
+  through the runner, the listing; the calculator's arithmetic and its rounding functions).
+
+### Measured (convert1/2/3; all four modes; gpt-4o-mini and Haiku 4.5; eight trials per cell; seed 2026; table in docs/results.md)
+- **The factor is the miss.** All 42 free-form and schema-only misses at levels 1 and 2 are
+  within 3 % of the exact value — factors good to five figures and a rounding or a multiplication
+  off (207.6 for 207.3, 22.4 for 22.2, 546 for 547); with `convert` in hand both models are 32/32
+  on those levels in both tool modes.
+- **A converter in hand makes gpt-4o-mini mix its units.** Level 3 without tools: 7/8; with
+  `convert` and `calc`: 2/8 in harness mode and 1/8 in toolOnly. All 13 misses are the same
+  mistake — the two quantities converted into different systems and combined as one (miles
+  divided by km/h, metres divided by km/h and the result called seconds, "34 miles per gallon"
+  read as 34 gallons). Haiku is 39/40 at level 3 in every mode. The pooled harness delta on the
+  family is +5 of 24 for gpt-4o-mini and +6 of 24 for Haiku: the tool fixes the factor and, for
+  one model, breaks the method.
+- **The rounding gap was noise on the finding**: re-run with the calculator that rounds
+  (`20260910T081819-2902`), every `ceil` / `round` call succeeds and gpt-4o-mini's level 3 is
+  2/8 and 1/8 again, the same instances wrong the same way.
+
 ## 2026-09-16 (later) — the rules in other words: perturbations for `restock` and `dialogue`
 
 ### Added
