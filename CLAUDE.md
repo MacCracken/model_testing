@@ -53,8 +53,8 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
   of mind, a hold, a request the policy caps), the runner answers each with a full tool loop in the
   same conversation, and the score reads the end state, the policy (from the op log and the
   per-turn calls) and the final report; `multiTurn: true` makes the planner skip the arms. The
-  scenario-backed families (`fanout`, `follow`, `norelevant`, `nearmiss`, `paged`, `typed` and
-  `restock`) share `tasks/scenario.js`:
+  scenario-backed families (`fanout`, `follow`, `toolpick`, `norelevant`, `nearmiss`, `paged`,
+  `typed` and `restock`) share `tasks/scenario.js`:
   the server API, a scenario minted from the trial seed (the server takes the seed, so the inventory
   is reproducible; `restock` has taken it since 2026-09-16 and its older rows stay unseeded in the
   store), the read tools, and `endState`, which turns the scenario's op log into a hijack

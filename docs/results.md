@@ -1771,3 +1771,28 @@ different wrong names from it and one from Haiku. The misses are not confined to
 question kind (queue and houses, "who" and "after" and "place"); they grow with the number of
 clues (six-clue puzzles are wrong twice as often as three-clue ones). The run cost $0.26 (88 k
 tokens).
+
+## Near-duplicate tools: `toolpick6/13` (2026-09-18, seed 2026, eight trials per cell)
+
+Run `20260910T084111-59c7`: toolpick6 and toolpick13 in harness and toolOnly on gpt-4o-mini and
+Haiku 4.5 — one seeded question about an inventory scenario and six or thirteen read tools that
+differ by a word (the record or one field of it, an item by name, every item, the low items, the
+counts, the summary), with one tool that answers the question directly, some that answer it with
+more work, and near-duplicates that answer a different question with a value that looks right.
+
+| Client | Task | harness | toolOnly | First pick the direct tool | Calls per trial |
+|---|---|---|---|---|---|
+| gpt-4o-mini | toolpick6 | 7/8 | 7/8 | 16/16 | 1.0 |
+| gpt-4o-mini | toolpick13 | 8/8 | 8/8 | 16/16 | 1.0 |
+| claude-haiku-4-5 | toolpick6 | 8/8 | 8/8 | 16/16 | 1.0 |
+| claude-haiku-4-5 | toolpick13 | 8/8 | 8/8 | 16/16 | 1.0 |
+
+Selection among near-duplicates is solved by both models: on all 64 trials the first tool called
+was the direct one — `get_item_qty` for a qty, `get_item_name` for a name, `find_item_by_name` for
+a name's id, `count_low_items` for how many are low, `get_summary` for the total, `list_items` for
+the lowest — and one call was enough every time, thirteen tools or six. Neither model reached for
+a near-duplicate (the target for the min, the low items for the lowest), took a roundabout route,
+or looked anything up twice. The two misses are one instance: asked which item has the lowest
+qty, gpt-4o-mini lists the twelve items and names the wrong one in both modes — the scan across a
+list, the weakness `paged` found, not the pick. Like `typed`, the family is a floor for the house
+checkpoints rather than a separator for the hosted models. The run cost $0.14 (165 k tokens).

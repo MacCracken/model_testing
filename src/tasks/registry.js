@@ -24,6 +24,7 @@ import { restockTasks } from "./restock.js";
 import { wordmathTasks } from "./wordmath.js";
 import { convertTasks } from "./convert.js";
 import { lineupTasks } from "./lineup.js";
+import { toolpickTasks } from "./toolpick.js";
 import { datecalcTasks } from "./datecalc.js";
 import { logicgridTasks } from "./logicgrid.js";
 import { tallyTasks } from "./tally.js";
@@ -41,7 +42,7 @@ import { publicTasks } from "./public.js";
 export const tasks = [
   healthTask, helloTask, reasonTask, lookupTask, regexTask, chainTask, transformTask, explainTask,
   ...restockTasks, ...wordmathTasks, ...convertTasks, ...datecalcTasks, ...logicgridTasks, ...lineupTasks, ...tallyTasks,
-  ...fanoutTasks, ...followTasks, norelevantTask, ...needleTasks, ...needlehopTasks, ...extractTasks, ...dialogueTasks,
+  ...fanoutTasks, ...followTasks, ...toolpickTasks, norelevantTask, ...needleTasks, ...needlehopTasks, ...extractTasks, ...dialogueTasks,
   nearmissTask, ...pagedTasks, typedTask,
   ...publicTasks,
 ];

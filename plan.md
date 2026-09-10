@@ -7,7 +7,7 @@ the last built item of the original roadmap landed, and refreshed on 2026-09-15.
 
 ## Start here (handoff, 2026-09-15)
 
-- **Run it.** `npm test` (394 tests; no model or server needed), then `node src/cli.js serve` for
+- **Run it.** `npm test` (401 tests; no model or server needed), then `node src/cli.js serve` for
   the UI on :4000 and `node webserver/server.js` for the system under test on :3000 (`SUT_PORT`).
   Keys and `LOCAL_ENDPOINTS` live in `.env`; runs land in `results/runs/`, the SQLite index beside
   them (`node src/cli.js index --full` rebuilds it); `node src/cli.js anchors fetch all` pulls the
@@ -30,11 +30,11 @@ the last built item of the original roadmap landed, and refreshed on 2026-09-15.
   recorded structure).
 - **Next.** Nothing on the original roadmap is left to build without a decision or an external
   channel; the review below says what each remaining item needs. The price-table upkeep in [51]
-  is the user's; six of [48]'s follow-ups landed on 2026-09-15/18 (abstention and perturbation
+  is the user's; seven of [48]'s follow-ups landed on 2026-09-15/18 (abstention and perturbation
   for the tool and extraction families; the plausible-neighbour variants for `follow` and
   `extract2`; typos as the fourth perturbation; the rules and the user's turns rewritten for
-  `restock` and `dialogue`; the `convert` and `lineup` families), the rest wait for a tier to
-  saturate; [27] the day the sandbox decision is taken.
+  `restock` and `dialogue`; the `convert`, `lineup` and `toolpick` families), the rest wait for a
+  tier to saturate; [27] the day the sandbox decision is taken.
 - **Environment notes.** Ollama 0.33 on :11434 serves `ornith-1.5:9b` (a 9 B thinking model, at
   ceiling on the easy tool tasks, 4/4 on paged3 where gpt-4o-mini is 1/4; its reasoning switches
   off only through `reasoning: { effort: "none" }` on the OpenAI route — `think: false`,
@@ -79,7 +79,7 @@ gpt-4o-mini is 1.0 whatever the outcome; agreement is only meaningful per instan
 
 | Dimension | What exists today |
 |---|---|
-| Tasks | 52: `health`, `hello`, `reason`, `lookup`, `regex`, `chain`, `transform`, `explain` (judged), `restock3/6/12/30` (stateful, end-state scored), the generated `wordmath2/4/6`, `convert1/2/3`, `datecalc1/3`, `logicgrid3/4`, `lineup4/6`, `tally20/60`, the scenario-backed `fanout4/8`, `follow3/6`, `norelevant`, `nearmiss`, `paged3/6`, `typed`, the long-context `needle8k/32k/100k` and `needlehop8k/32k/100k`, the extraction `extract1/2/3/4`, the multi-turn `dialogue2/3/4`, and the public anchors `gsm8k`, `ifeval`, `bfclsimple`, `bfclmultiple` (`source: public`, never pooled with the rest) — everything but the anchors minted per trial from the run's instance seed; every family with a knob carries `family` and `level`; wordmath, tally, datecalc, fanout and follow (tool modes), extract1 and extract2 mint unanswerable variants, and those plus logicgrid, extract3/4, restock and dialogue mint perturbations; every scenario-backed family, restock included, is minted from the trial seed |
+| Tasks | 54: `health`, `hello`, `reason`, `lookup`, `regex`, `chain`, `transform`, `explain` (judged), `restock3/6/12/30` (stateful, end-state scored), the generated `wordmath2/4/6`, `convert1/2/3`, `datecalc1/3`, `logicgrid3/4`, `lineup4/6`, `tally20/60`, the scenario-backed `fanout4/8`, `follow3/6`, `toolpick6/13`, `norelevant`, `nearmiss`, `paged3/6`, `typed`, the long-context `needle8k/32k/100k` and `needlehop8k/32k/100k`, the extraction `extract1/2/3/4`, the multi-turn `dialogue2/3/4`, and the public anchors `gsm8k`, `ifeval`, `bfclsimple`, `bfclmultiple` (`source: public`, never pooled with the rest) — everything but the anchors minted per trial from the run's instance seed; every family with a knob carries `family` and `level`; wordmath, tally, datecalc, fanout and follow (tool modes), extract1 and extract2 mint unanswerable variants, and those plus logicgrid, extract3/4, restock and dialogue mint perturbations; every scenario-backed family, restock included, is minted from the trial seed |
 | Modes | `noHarness`, `harness`, `schemaOnly`, `toolOnly` — the tools × schema 2×2 |
 | Models | OpenAI, Anthropic, Groq, DeepSeek, Gemini, Mistral, xAI (the last three probed from their routes when keyed; untested here), Ollama (live-probed), any named OpenAI-compatible endpoint (`LOCAL_ENDPOINTS`); real-harness arms Thoth, Claude Code, Pi, Codex bring-your-own, and `claude-code-mcp` / `codex-mcp` on the bench's tools over the MCP bridge (judged like any client); lineage per client from `models/lineage.json`; prices from `models/prices.json` |
 | Treatments | client variants paired against their base: `@skill:preload/ondemand/native` (on demand reaches the MCP arms), `@agents:available/required` (Claude Code's Agent tool with a worker carrying the bench's tools), `@stress:flaky/budget/haystack/distractors/injected`, `@constraints:light/medium/heavy`, `@format:nowork/work`, `@effort:none…high` (translated per provider; reasoning characters recorded), `@confidence` (Brier, ECE, the gap), `@abstain` (half the instances unanswerable: abstained / fabricated / refused), `@perturb:paraphrase/order/format/typos` (consistency beside the delta); `--effort` as a run-level knob |
@@ -90,7 +90,7 @@ gpt-4o-mini is 1.0 whatever the outcome; agreement is only meaningful per instan
 | Data | one JSON per run, SQLite index (`index`, `query`, `--sql`, `compact`; `source`, `cost_usd`, `effort`, `depth`, lineage per trial), CSV and JSONL export, versions and lineage on every run, cross-run cell history, suite presets `smoke|standard|full|nightly`; every row keeps the model's turns (or an arm's raw transcript) beside its calls and results; `replay` and `rescore`; the anchor cache with provenance |
 | UI | Ledger design, a setup panel with every treatment and the A/B convention, live grid, headline with a column per treatment, tools × schema 2×2, cost, calibration and abstention blocks, capability scorecard with radars, sparklines and regression lines, lineage graph, difficulty curves with the depth sweep, paired comparison block, dumbbell matrix, trial drawer with transcript, dialogue turns and children, replay button, history filter |
 | SUT | the webserver: hello/health, the `/api/recent` log, inventory scenarios with tickets, confirm rules, stress profiles, pagination, strict types and an op log, text logs with grep and count, documents |
-| Tests | 394, none needing a model; the webserver runs in-process |
+| Tests | 401, none needing a model; the webserver runs in-process |
 
 ## What the field measures that we do not
 
@@ -113,7 +113,7 @@ priority for the stated purpose:
 
 | Capability area | What the field runs | What we have | Gap | Priority |
 |---|---|---|---|---|
-| Tool use / function calling | BFCL v4 (AST + executable checks, parallel calls, irrelevance detection, multi-turn), τ²-bench, MCP-Bench | six tool tasks, decoys, restock, stress profiles, `fanout`, `follow`, `norelevant` and `nearmiss`, `paged`, `typed`, the `injected` profile, `dialogue`, the BFCL anchors, arms on shared tools with verdicts | tool selection among many near-duplicate tools; a harder `typed` once a model trips the current one ([48]) | low |
+| Tool use / function calling | BFCL v4 (AST + executable checks, parallel calls, irrelevance detection, multi-turn), τ²-bench, MCP-Bench | six tool tasks, decoys, restock, stress profiles, `fanout`, `follow`, `toolpick` (near-duplicate tools), `norelevant` and `nearmiss`, `paged`, `typed`, the `injected` profile, `dialogue`, the BFCL anchors, arms on shared tools with verdicts | a harder `typed` once a model trips the current one ([48]) | low |
 | Agentic multi-step | SWE-bench Verified, Terminal-Bench, GAIA, BrowseComp, OSWorld | restock family (3–30 steps), four real arms, two of them on the bench's tools | other domains (files, terminal, scheduling), longer horizons; the sandboxed code family ([27]) | **high**, gated by decision 2 |
 | Reasoning / math | GPQA Diamond, HLE, ARC-AGI-2, FrontierMath, LiveBench math | `reason`, the generated `wordmath`, `convert`, `datecalc`, `logicgrid`, `lineup`, `tally` families with a tool or the structured mode as the harness axis, GSM8K as the anchor | harder tiers as models saturate ([48]) | medium |
 | Instruction following | IFEval, LiveBench IF | `@constraints` (eleven families), `@format`, IFEval itself as the anchor | more families (sentences, language), requirements across turns ([48]) | low |
@@ -189,8 +189,8 @@ use stops separating on the tier it extends:
 - constraints: length-in-sentences and language families (small); requirements composed across
   dialogue turns (small);
 - long context: 200 k and 500 k needles for models that take them (small; model-dependent);
-- tool breadth: selection among many near-duplicate tools (small); a harder `typed` with nested
-  arguments and enums once a model trips the current one (small);
+- tool breadth: a harder `typed` with nested arguments and enums once a model trips the current
+  one (small); a `toolpick` tier with tools whose descriptions, not names, differ (small);
 - abstention beyond what landed on 2026-09-15/16: unanswerable variants for the join and the
   statement (`extract3/4`) and for `restock` (small each); every family with a rewrite now has
   its perturbations;

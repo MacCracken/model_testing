@@ -4,6 +4,36 @@ What shipped, by date. Full measurement tables live in [docs/results.md](docs/re
 forward roadmap is [plan.md](plan.md). Dates are the commit dates; item numbers ([1]–[49]) are the
 roadmap's, stable across the plan, this file and the results.
 
+## 2026-09-18 (later) — near-duplicate tools
+
+### Added
+- **`toolpick6/13`** (`src/tasks/toolpick.js`; the seventh [48] follow-up, "selection among many
+  near-duplicate tools"): one seeded question about an inventory scenario — the qty of an id, its
+  min, the id of a name, how many items are low, the total qty, which item has the lowest qty —
+  and thirteen read tools that differ by a word: the whole record or one field of it (qty, min,
+  target, status, name, next), an item by name, every item, the low items, a count of items, a
+  count of low items, the summary. Each question has a tool that answers it directly, some that
+  answer it with more work, and near-duplicates that answer a different question with a value that
+  looks right (the target for the min, the low items for the lowest). toolpick6 exposes six of the
+  tools and toolpick13 all thirteen, so the knob is how many near-duplicates stand beside the right
+  one; with fewer tools the best roundabout one is the direct one. Scored on the answer; the
+  tool-use verdict names the first pick and whether the direct tool was reached at all, a
+  roundabout answer or a near-duplicate-only run. The abstain variant asks about a ghost id or a
+  name nobody has (tool modes); the `order` perturbation lists the tools in another order —
+  whether the pick follows the list — beside paraphrase and typos. Capabilities `tool-use` and
+  `tool-selection`.
+- Tests: 401 (+7: each tool over a stubbed scenario, every question kind at both sizes with the
+  direct tool exposed and the misleading ones never it, the readers and the judge, the five
+  verdict cases, the hooks and the abstention reader, every mode through the runner, the listing).
+
+### Measured (toolpick6, toolpick13; harness and toolOnly; gpt-4o-mini and Haiku 4.5; eight trials per cell; seed 2026; table in docs/results.md)
+- **Selection among near-duplicates is solved**: on all 64 trials the first tool called was the
+  direct one and one call was enough, thirteen tools or six; neither model reached for a
+  near-duplicate or took a roundabout route. gpt-4o-mini's two misses are one instance — asked
+  for the item with the lowest qty, it lists the twelve and names the wrong one in both modes —
+  the scan across a list, not the pick. Like `typed`, the family is a floor for the house
+  checkpoints rather than a separator for the hosted models.
+
 ## 2026-09-18 — an ordering-puzzle family
 
 ### Added
