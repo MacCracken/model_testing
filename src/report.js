@@ -44,9 +44,9 @@ export function printSummary(summary, { log = console.log } = {}) {
 
   if (summary.cost?.some((c) => c.priced)) {
     const usd = fmtUsd;
-    const showReasoning = summary.cost.some((c) => c.reasoningCharsMean > 0);
+    const showReasoning = summary.cost.some((c) => c.reasoningCharsMean > 0 || c.reasoningTokensMean > 0);
     log("\n-- correctness × cost × latency (per model and mode; prices from models/prices.json on the run's day)");
-    for (const c of summary.cost) log(`   ${c.client.padEnd(30)} ${c.mode.padEnd(10)} ${`${c.correct}/${c.runs} (${c.correctPct.toFixed(0)}%)`.padEnd(14)} ${`${usd(c.costUsd)} total`.padEnd(15)} ${`${usd(c.costPerTrialUsd)}/trial`.padEnd(15)} ${`${usd(c.costPerCorrectUsd)}/correct`.padEnd(17)} p50 ${c.latencyP50Ms}ms${c.unpriced ? `  (${c.unpriced} unpriced)` : ""}${showReasoning && c.reasoningCharsMean !== null ? `  reasoning ${c.reasoningCharsMean} chars` : ""}`);
+    for (const c of summary.cost) log(`   ${c.client.padEnd(30)} ${c.mode.padEnd(10)} ${`${c.correct}/${c.runs} (${c.correctPct.toFixed(0)}%)`.padEnd(14)} ${`${usd(c.costUsd)} total`.padEnd(15)} ${`${usd(c.costPerTrialUsd)}/trial`.padEnd(15)} ${`${usd(c.costPerCorrectUsd)}/correct`.padEnd(17)} p50 ${c.latencyP50Ms}ms${c.unpriced ? `  (${c.unpriced} unpriced)` : ""}${showReasoning && c.reasoningCharsMean !== null ? `  reasoning ${c.reasoningCharsMean} chars` : ""}${showReasoning && c.reasoningTokensMean !== null && c.reasoningTokensMean !== undefined ? `  ${c.reasoningTokensMean} reasoning tokens` : ""}`);
   }
   if (summary.calibration?.length) {
     log("\n-- calibration (rows that stated a confidence; Brier 0 = perfect, ECE over ten bins, gap = confidence − accuracy)");
@@ -71,7 +71,7 @@ export function printSummary(summary, { log = console.log } = {}) {
   }
   if (summary.delta?.effort) {
     log("\n-- effort variants (paired against the base client)");
-    for (const [how, d] of Object.entries(summary.delta.effort)) log(`   @effort:${how.padEnd(8)} ${fmtDelta(d)}${d.reasoningCharsMean !== null ? ` · reasoning ${d.reasoningCharsMean} chars` : ""}`);
+    for (const [how, d] of Object.entries(summary.delta.effort)) log(`   @effort:${how.padEnd(8)} ${fmtDelta(d)}${d.reasoningCharsMean !== null ? ` · reasoning ${d.reasoningCharsMean} chars` : ""}${d.reasoningTokensMean !== null && d.reasoningTokensMean !== undefined ? ` · ${d.reasoningTokensMean} reasoning tokens` : ""}`);
   }
 
   log("\n-- harness delta (correctness)");

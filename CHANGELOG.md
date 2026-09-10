@@ -4,6 +4,33 @@ What shipped, by date. Full measurement tables live in [docs/results.md](docs/re
 forward roadmap is [plan.md](plan.md). Dates are the commit dates; item numbers ([1]–[49]) are the
 roadmap's, stable across the plan, this file and the results.
 
+## 2026-09-14 (later) — every treatment in the UI
+
+### Changed
+- **The setup panel offers all nine treatments** ([50]): format (the work field stripped or
+  added), effort (none to high), confidence, abstain and perturb (paraphrase, order, format) join
+  skill, sub-agents, stress and constraints, each with the A/B convention that keeps the plain
+  client as the baseline; the plan says which selected tasks a treatment cannot touch (no
+  unanswerable variant for a fixed-truth task, no order for a sequence). The launch sends the same
+  `<client>@<kind>[:<how>]` names the CLI takes, so a UI run and a CLI run of a treatment are the
+  same run.
+- The roadmap (plan.md) was rewritten to open work only, each remaining item with what it needs,
+  its size and a recommendation; the "where we stand" and gaps tables now match the inventory.
+- Rows record `reasoningTokens` from OpenAI's usage (`completion_tokens_details.reasoning_tokens`)
+  beside the streamed reasoning characters, since that route does not stream its reasoning; the
+  cost view and the effort delta show whichever exists. `bench` prints a note when an effort
+  request rides with a temperature on an OpenAI client.
+
+### Measured (health and wordmath4, one trial per cell, launched through the UI's endpoint)
+- The five newer treatment names resolve through `POST /api/runs` like the CLI's: the confidence
+  and abstain rows carry their records, the perturbation applies on wordmath4 and stays unapplied
+  on health, as the plan hint says.
+- **OpenAI's chat route sets the limits of the effort knob**: gpt-4o-mini refuses
+  `reasoning_effort` outright (400, no such argument); gpt-5.4-mini refuses a temperature other
+  than the default with it, and refuses function tools with any effort but `none` ("use
+  /v1/responses"). Free-form at `low` without a temperature works, and the route reports the
+  reasoning as tokens in the usage, not as streamed text. The rows carry the refusals verbatim.
+
 ## 2026-09-14 — robustness perturbations
 
 ### Added

@@ -85,12 +85,13 @@ test("cost stats and the cost view: totals, per trial, per correct, unpriced row
   assert.match(block, /x:unpriced\s+noHarness\s+1\/1 \(100%\)\s+— total/);
 });
 
-test("the runner prices a row from the pricing it is given, and records the reasoning characters the client reports", async () => {
-  const client = { name: "openai:gpt-4o-mini", model: "gpt-4o-mini", async chat() { return { text: "status: ok\nuptime: 1", usage: { prompt_tokens: 1000, completion_tokens: 100 }, reasoningChars: 42 }; } };
+test("the runner prices a row from the pricing it is given, and records the reasoning characters and tokens the client reports", async () => {
+  const client = { name: "openai:gpt-4o-mini", model: "gpt-4o-mini", async chat() { return { text: "status: ok\nuptime: 1", usage: { prompt_tokens: 1000, completion_tokens: 100, completion_tokens_details: { reasoning_tokens: 64 } }, reasoningChars: 42 }; } };
   const r = await runTrial({ task: health, mode: "noHarness", client, index: 1, pricing: pricingFor() });
   assert.ok(r.cost && Math.abs(r.cost.usd - (1000 * 0.15 + 100 * 0.6) / 1e6) < 1e-12);
   assert.equal(r.cost.price, "gpt-4o-mini");
   assert.equal(r.reasoningChars, 42);
+  assert.equal(r.reasoningTokens, 64, "OpenAI's reasoning tokens ride in the usage");
   const unpriced = await runTrial({ task: health, mode: "noHarness", client: { ...client, name: "openai:gpt-9", model: "gpt-9" }, index: 1, pricing: pricingFor() });
   assert.equal(unpriced.cost, null);
   const none = await runTrial({ task: health, mode: "noHarness", client, index: 1 });

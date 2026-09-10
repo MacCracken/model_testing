@@ -137,6 +137,7 @@ function wire() {
   $("#agents").addEventListener("change", updatePlan);
   $("#stress").addEventListener("change", updatePlan);
   $("#constraints").addEventListener("change", updatePlan);
+  for (const id of ["#format", "#effort", "#confidence", "#abstain", "#perturb"]) $(id).addEventListener("change", updatePlan);
   for (const id of ["compare-a", "compare-b", "compare-mode"]) $(`#${id}`).addEventListener("change", (e) => { state.compare[{ "compare-a": "a", "compare-b": "b", "compare-mode": "mode" }[id]] = e.target.value; renderReport(); });
   $("#curves-mode").addEventListener("change", () => renderReport());
   $("#compare-run").addEventListener("change", async (e) => {
@@ -428,12 +429,24 @@ function clientVariants(c) {
   const agents = pick($("#agents").value, "available");
   const stress = pick($("#stress").value, "flaky");
   const constraints = pick($("#constraints").value, "light");
+  const format = pick($("#format").value, "nowork");
+  const effort = pick($("#effort").value, "none");
+  const confidence = pick($("#confidence").value, "asked");
+  const abstain = pick($("#abstain").value, "half");
+  const perturb = pick($("#perturb").value, "paraphrase");
+  const all = [skill, agents, stress, constraints, format, effort, confidence, abstain, perturb];
   const out = [];
-  if ((!skill.how && !agents.how && !stress.how && !constraints.how) || skill.ab || agents.ab || stress.ab || constraints.ab) out.push(c);
+  // No treatment, or any A/B choice, keeps the plain client; a bare treatment replaces it.
+  if (all.every((t) => !t.how) || all.some((t) => t.ab)) out.push(c);
   if (skill.how) out.push(`${c}@skill:${skill.how}`);
   if (agents.how) out.push(`${c}@agents:${agents.how}`);
   if (stress.how) out.push(`${c}@stress:${stress.how}`);
   if (constraints.how) out.push(`${c}@constraints:${constraints.how}`);
+  if (format.how) out.push(`${c}@format:${format.how}`);
+  if (effort.how) out.push(`${c}@effort:${effort.how}`);
+  if (confidence.how) out.push(`${c}@confidence`);
+  if (abstain.how) out.push(`${c}@abstain`);
+  if (perturb.how) out.push(`${c}@perturb:${perturb.how}`);
   return out;
 }
 
@@ -489,6 +502,23 @@ function updatePlan() {
     if (stressMode) {
       const noAxis = [...state.tasks].filter((n) => !/^(restock|fanout|follow|norelevant)/.test(n));
       node.append(el("div", { className: "hint" }, `${stressMode.startsWith("ab") ? "each model also runs under stress" : "models run under stress"}${noAxis.length ? ` · no stress axis on ${noAxis.join(", ")} (unchanged)` : ""}`));
+    }
+    const formatMode = $("#format").value;
+    if (formatMode) node.append(el("div", { className: "hint" }, `${formatMode.startsWith("ab") ? "each model also runs with the schema's work field stripped or added" : "models run with the schema's work field stripped or added"} · structured modes with an object schema only`));
+    const effortMode = $("#effort").value;
+    if (effortMode) node.append(el("div", { className: "hint" }, `${effortMode.startsWith("ab") ? "each model also runs at another reasoning effort" : "models run at another reasoning effort"} · translated per provider; the rows record the reasoning that came back · a model that takes no such parameter (OpenAI's non-reasoning models) refuses the request and its rows say so`));
+    const confidenceMode = $("#confidence").value;
+    if (confidenceMode) node.append(el("div", { className: "hint" }, `${confidenceMode.startsWith("ab") ? "each model also runs asked for a confidence" : "models run asked for a confidence"} · Brier, ECE and the gap are reported`));
+    const abstainMode = $("#abstain").value;
+    if (abstainMode) {
+      const noAxis = [...state.tasks].filter((n) => !/^(wordmath|tally|datecalc)/.test(n));
+      node.append(el("div", { className: "hint" }, `${abstainMode.startsWith("ab") ? "each model also runs with half the instances unanswerable" : "models run with half the instances unanswerable"}${noAxis.length ? ` · no unanswerable variant for ${noAxis.join(", ")} (unchanged)` : ""}`));
+    }
+    const perturbMode = $("#perturb").value;
+    if (perturbMode) {
+      const kind = perturbMode === "ab" ? "paraphrase" : perturbMode.replace(/^ab-/, "");
+      const noAxis = [...state.tasks].filter((n) => !/^(wordmath|tally|datecalc|logicgrid)/.test(n) || (kind === "order" && /^(wordmath|datecalc)/.test(n)));
+      node.append(el("div", { className: "hint" }, `${perturbMode.startsWith("ab") ? `each model also runs the instances rewritten (${kind})` : `models run the instances rewritten (${kind})`}${noAxis.length ? ` · no ${kind} variant for ${noAxis.join(", ")} (unchanged)` : ""}`));
     }
   }
   const judged = [...state.tasks].filter((name) => taskMeta(name)?.needsJudge);
@@ -748,7 +778,7 @@ function renderHeadline(s) {
           : kind === "format"
             ? `as written → ${how === "nowork" ? "without" : "with"} the work field · applied in ${d.applied}/${d.treatRuns} · complied ${d.complied}/${d.applied}`
             : kind === "effort"
-              ? `as is → effort ${how}${d.reasoningCharsMean !== null && d.reasoningCharsMean !== undefined ? ` · reasoning ${fmtInt(d.reasoningCharsMean)} chars` : ""}`
+              ? `as is → effort ${how}${d.reasoningCharsMean !== null && d.reasoningCharsMean !== undefined ? ` · reasoning ${fmtInt(d.reasoningCharsMean)} chars` : ""}${d.reasoningTokensMean > 0 ? ` · ${fmtInt(d.reasoningTokensMean)} reasoning tokens` : ""}`
               : kind === "confidence"
                 ? `plain → asked for a confidence · stated in ${d.stated}/${d.treatRuns}${d.calibration ? ` · Brier ${d.calibration.brier.toFixed(3)} · ECE ${d.calibration.ece.toFixed(3)}` : ""}`
                 : kind === "abstain"
@@ -930,10 +960,10 @@ function renderCost(s) {
   const block = $("#cost-block");
   const box = $("#cost");
   box.replaceChildren();
-  const rows = (s.cost ?? []).filter((c) => c.priced || c.reasoningCharsMean > 0);
+  const rows = (s.cost ?? []).filter((c) => c.priced || c.reasoningCharsMean > 0 || c.reasoningTokensMean > 0);
   block.hidden = !rows.length;
   if (!rows.length) return;
-  const withReasoning = rows.some((c) => c.reasoningCharsMean > 0);
+  const withReasoning = rows.some((c) => c.reasoningCharsMean > 0 || c.reasoningTokensMean > 0);
   $("#cost-legend").replaceChildren(el("span", {}, `prices from the table on the run's day · $/correct = the run's spend divided by its right answers${withReasoning ? " · reasoning = characters of thinking returned per trial" : ""}`));
   const cols = ["model", "mode", "correct", "total", "per trial", "per correct", "p50 latency", "tokens", ...(withReasoning ? ["reasoning"] : [])];
   box.style.gridTemplateColumns = `minmax(160px, 1.4fr) repeat(${cols.length - 1}, minmax(70px, 1fr))`;
@@ -948,7 +978,7 @@ function renderCost(s) {
       el("div", { className: "num" }, c.priced ? fmtUsd(c.costPerCorrectUsd) : "—"),
       el("div", { className: "num" }, fmtMs(c.latencyP50Ms)),
       el("div", { className: "num" }, fmtInt(c.totalTokens)),
-      ...(withReasoning ? [el("div", { className: "num" }, c.reasoningCharsMean !== null ? fmtInt(c.reasoningCharsMean) : "—")] : []),
+      ...(withReasoning ? [el("div", { className: "num" }, c.reasoningTokensMean > 0 ? `${fmtInt(c.reasoningTokensMean)} tok` : c.reasoningCharsMean !== null ? `${fmtInt(c.reasoningCharsMean)} chars` : "—")] : []),
     );
   }
 }

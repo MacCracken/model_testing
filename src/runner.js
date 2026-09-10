@@ -278,6 +278,7 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
     // Cost in currency from the usage and the price table of the day (null when unpriced).
     cost: null,
     reasoningChars: null,
+    reasoningTokens: null,
     error: null,
   };
 
@@ -387,6 +388,8 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
     record.ttftMs = resp.ttftMs ?? null;
     record.ttfaMs = resp.ttfaMs ?? null;
     record.reasoningChars = typeof resp.reasoningChars === "number" ? resp.reasoningChars : null;
+    // OpenAI's route does not stream its reasoning but counts it in the usage.
+    record.reasoningTokens = typeof resp.usage?.completion_tokens_details?.reasoning_tokens === "number" ? resp.usage.completion_tokens_details.reasoning_tokens : null;
     record.cost = typeof pricing === "function" ? pricing(client, record.usage, { model: record.model }) ?? null : null;
 
     // Truth: fetched after the model's reply, so the answer and the ground are taken at the same
@@ -678,7 +681,8 @@ export function costView(rows) {
       if (!sub.length) continue;
       const correct = sub.filter((r) => r.correct).length;
       const reasoning = sub.map((r) => r.reasoningChars).filter((v) => typeof v === "number");
-      out.push({ client, mode, runs: sub.length, correct, correctPct: (100 * correct) / sub.length, latencyP50Ms: Math.round(percentile(sub.map((r) => r.latencyMs ?? 0), 50)), totalTokens: sub.reduce((a, r) => a + (r.usage?.total_tokens ?? 0), 0), reasoningCharsMean: reasoning.length ? Math.round(mean(reasoning)) : null, ...costStats(sub) });
+      const reasoningTokens = sub.map((r) => r.reasoningTokens).filter((v) => typeof v === "number");
+      out.push({ client, mode, runs: sub.length, correct, correctPct: (100 * correct) / sub.length, latencyP50Ms: Math.round(percentile(sub.map((r) => r.latencyMs ?? 0), 50)), totalTokens: sub.reduce((a, r) => a + (r.usage?.total_tokens ?? 0), 0), reasoningCharsMean: reasoning.length ? Math.round(mean(reasoning)) : null, reasoningTokensMean: reasoningTokens.length ? Math.round(mean(reasoningTokens)) : null, ...costStats(sub) });
     }
   }
   return out;
@@ -991,6 +995,7 @@ function variantDeltas(rows, kind) {
     refused: treat.filter((r) => r[kind]?.abstention === "refused").length,
     calibration: kind === "confidence" ? calibration(treat) : undefined,
     reasoningCharsMean: (() => { const v = treat.map((r) => r.reasoningChars).filter((x) => typeof x === "number"); return v.length ? Math.round(mean(v)) : null; })(), // effort: how much reasoning came back
+    reasoningTokensMean: (() => { const v = treat.map((r) => r.reasoningTokens).filter((x) => typeof x === "number"); return v.length ? Math.round(mean(v)) : null; })(), // …as OpenAI counts it
     costUsd: treat.reduce((a, r) => a + (r.cost?.usd ?? 0), 0),
   });
   for (const key of new Set(treated.map((r) => `${r.task}|${r.mode}|${r.client}`))) {

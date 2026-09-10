@@ -177,6 +177,11 @@ async function main() {
     if (!plan.total) fail("nothing to run — no selected task declares any of the selected modes");
   }
 
+  // OpenAI's chat route refuses a temperature other than the default on its reasoning models, and
+  // function tools with any reasoning_effort but "none"; say so before the rows do.
+  if (clients.some((c) => (c.provider === "openai" || String(c.name).startsWith("openai:")) && (c.effort || modelParams.effort)) && modelParams.temperature !== undefined) {
+    console.error("note: OpenAI's reasoning models refuse a temperature with reasoning_effort (and function tools with any effort but none); those rows will carry the refusal");
+  }
   const { rows, summary, skipped, instanceSeed } = await runMatrix({
     pricing: pricingFor(),
     tasks: taskList,

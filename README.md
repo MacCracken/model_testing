@@ -202,6 +202,9 @@ and the gap between mean confidence and accuracy, with the reliability bins in t
 paired against the plain run like every treatment, so the run also says whether asking changed
 the answers.
 
+Every treatment is also a select in the UI's setup panel, with an A/B option that keeps the plain
+client as the baseline; a UI run and a CLI run of the same treatment send the same client names.
+
 **Perturbations.** `<client>@perturb:paraphrase|order|format` runs the very instance the base
 client sees, rewritten by its family with the truth untouched — other words, another order of the
 independent parts, another surface form (a dated list, a CSV table, an ISO date without the
@@ -241,7 +244,11 @@ model and mode: what a right answer costs and how long it takes. `--effort <leve
 reasoning effort for a run and `<client>@effort:<level>` runs it as a paired variant; each is
 translated to what the provider's route takes (`reasoning_effort`, or `reasoning: { effort }` on
 Ollama), and every row records the characters of reasoning that came back, so whether the knob
-took effect is visible. Gemini, Mistral and xAI are providers (`GEMINI_API_KEY`, `MISTRAL_API_KEY`,
+took effect is visible. A model that takes no such parameter refuses the request — OpenAI's
+non-reasoning models return 400 for `reasoning_effort`, and its reasoning models refuse a
+temperature other than the default and function tools with any effort but `none` on the chat
+route — and the rows carry that error rather than a silent no-op. OpenAI reports its reasoning
+as tokens in the usage rather than streamed text; the rows record both. Gemini, Mistral and xAI are providers (`GEMINI_API_KEY`, `MISTRAL_API_KEY`,
 `XAI_API_KEY`); with a key their model lists are probed from the route.
 
 **Public anchors.** `gsm8k`, `ifeval`, `bfclsimple` and `bfclmultiple` run public sets through

@@ -29,10 +29,9 @@ the last built item of the original roadmap landed.
   base rendering never changes once its seeds are in saved runs (perturbations re-render from
   recorded structure).
 - **Next.** Nothing on the original roadmap is left to build without a decision or an external
-  channel; the review below says what each remaining item needs. The two cheap things worth doing
-  first are [50] (the newer treatments in the UI's setup panel) and the price-table upkeep in
-  [51]; after that, [48]'s follow-ups as the current tiers saturate, and [27] the day the sandbox
-  decision is taken.
+  channel; the review below says what each remaining item needs. The price-table upkeep in [51]
+  is the user's; after that, [48]'s follow-ups as the current tiers saturate, and [27] the day
+  the sandbox decision is taken.
 - **Environment notes.** Ollama 0.33 on :11434 serves `ornith-1.5:9b` (a 9 B thinking model, at
   ceiling on the easy tool tasks, 4/4 on paged3 where gpt-4o-mini is 1/4; its reasoning switches
   off only through `reasoning: { effort: "none" }` on the OpenAI route — `think: false`,
@@ -86,7 +85,7 @@ gpt-4o-mini is 1.0 whatever the outcome; agreement is only meaningful per instan
 | Cost | tokens, latency, TTFT/TTFA, dollars per trial and per correct answer from the price table, the correctness × cost × latency view |
 | Throughput | parallel trials (arms run alone), 48 trials in 8 s on a hosted model; a 90-minute time box on the nightly suite |
 | Data | one JSON per run, SQLite index (`index`, `query`, `--sql`, `compact`; `source`, `cost_usd`, `effort`, `depth`, lineage per trial), CSV and JSONL export, versions and lineage on every run, cross-run cell history, suite presets `smoke|standard|full|nightly`; every row keeps the model's turns (or an arm's raw transcript) beside its calls and results; `replay` and `rescore`; the anchor cache with provenance |
-| UI | Ledger design, live grid, headline with a column per treatment, tools × schema 2×2, cost, calibration and abstention blocks, capability scorecard with radars, sparklines and regression lines, lineage graph, difficulty curves with the depth sweep, paired comparison block, dumbbell matrix, trial drawer with transcript, dialogue turns and children, replay button, history filter |
+| UI | Ledger design, a setup panel with every treatment and the A/B convention, live grid, headline with a column per treatment, tools × schema 2×2, cost, calibration and abstention blocks, capability scorecard with radars, sparklines and regression lines, lineage graph, difficulty curves with the depth sweep, paired comparison block, dumbbell matrix, trial drawer with transcript, dialogue turns and children, replay button, history filter |
 | SUT | the webserver: hello/health, the `/api/recent` log, inventory scenarios with tickets, confirm rules, stress profiles, pagination, strict types and an op log, text logs with grep and count, documents |
 | Tests | 354, none needing a model; the webserver runs in-process |
 
@@ -132,7 +131,8 @@ priority for the stated purpose:
 ## Open work, reviewed (2026-09-14)
 
 Numbers are stable across this file, the changelog and the results: [1]–[26], [28], [29],
-[31]–[37], [39], [41], [43], [45]–[47] and [49] have shipped and are described in the changelog.
+[31]–[37], [39], [41], [43], [45]–[47], [49] and [50] have shipped and are described in the
+changelog.
 What follows is everything left, each with what it needs and a recommendation.
 
 ### Gated by a decision
@@ -196,10 +196,6 @@ use stops separating on the tier it extends:
 
 ### Upkeep
 
-- **[50] The newer treatments in the UI.** The setup panel offers skill, agents, stress and
-  constraints; `@format`, `@effort`, `@confidence`, `@abstain` and `@perturb` (and `--effort`) are
-  reachable from the CLI only, although the report and the headline already show them. *Size:*
-  small — five selects, the A/B convention, `clientSpecs` in app.js. *Recommendation:* next.
 - **[51] Price table upkeep.** `models/prices.json` seeds four prices as of 2026-09-11 that the
   bench cannot verify, and has none for gpt-5.4-mini, gpt-6-astra, Claude Sonnet 5 or Opus 5, so
   their trials run unpriced. *Needs:* the user to check the provider lists and add the rows.
@@ -208,9 +204,9 @@ use stops separating on the tier it extends:
 
 ## Decisions needed
 
-1. **Order.** Recommendation: [50] and [51] first (cheap, and they close the gap between the CLI
-   and the UI); then [48]'s follow-ups as tiers saturate; [27] the day decision 2 is taken; [38]
-   the week the first checkpoint is served; [40] when a MATH or GPQA anchor is wanted.
+1. **Order.** Recommendation: [51] first (minutes, and the cost view starts telling the truth
+   for every model in use); then [48]'s follow-ups as tiers saturate; [27] the day decision 2 is
+   taken; [38] the week the first checkpoint is served; [40] when a MATH or GPQA anchor is wanted.
 2. **Code sandbox.** Worker-thread isolation keeps the zero-dependency rule but is weaker; Docker is
    stronger and a dependency. This gates [27]; the recommendation above is worker threads for
    pure-function specs.
