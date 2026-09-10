@@ -4,6 +4,38 @@ What shipped, by date. Full measurement tables live in [docs/results.md](docs/re
 forward roadmap is [plan.md](plan.md). Dates are the commit dates; item numbers ([1]–[49]) are the
 roadmap's, stable across the plan, this file and the results.
 
+## 2026-09-18 — an ordering-puzzle family
+
+### Added
+- **`lineup4/6`** (`src/tasks/lineup.js`; the sixth [48] follow-up, the "spatial and ordering
+  puzzles" the plan listed): n people in one line — a race's finishing order, a queue, or a row of
+  houses, the scene drawn per instance and changing only the words — with clues about the hidden
+  order (before and after, immediately after, two places apart, first or last, not in a given
+  place, not next to each other, between), added until exactly one order satisfies them and pruned
+  so none is redundant, like `logicgrid`. The question asks who holds a place, which place someone
+  holds, or who is right after someone; a place is read as a number or an ordinal word. No tools:
+  the harness is the structured mode. The four perturbations re-render from the clue structure
+  (a paraphrase is the same clue in the scene's other words), and the unanswerable variant drops
+  clues until the asked cell is no longer determined — an abstention that is a deduction, not a
+  missing number. Capabilities `deduction` and `ordering`.
+- Tests: 394 (+5: every clue true of the solution, exactly one order and no redundant clue over
+  80 instances; the words per scene and kind; the readers; the hooks; every mode through the
+  runner with an enumerating fake, a paraphrase paired, the freed cell abstained on; the listing).
+
+@@MEASURED6@@
+
+## 2026-09-17 (later) — the cost block's numbers
+
+### Fixed
+- **The cost, calibration and abstention tables rendered their numbers at the headline's size.**
+  Their cells carried the `.num` class the headline uses for its 40 px serif numerals, so a cost
+  row read "13/24 $0.00$0040$00…" with the cells drawn over each other. The view's cells are now
+  table numbers (the mono face at the table's 11.5 px, tabular figures, no wrapping); nothing
+  else changed. The figures themselves were checked against the price table: a run's recorded
+  cost is its prompt and completion tokens at the table's per-million rates (gpt-4o-mini
+  $0.15 / $0.60, Haiku 4.5 $1 / $5, all four seeded prices as the providers list them), so the
+  convert run's $0.38 and the restock run's $1.22 are what those tokens cost.
+
 ## 2026-09-17 — a unit-conversion family
 
 ### Added

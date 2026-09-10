@@ -23,6 +23,7 @@ import { task as explainTask } from "./explain.js";
 import { restockTasks } from "./restock.js";
 import { wordmathTasks } from "./wordmath.js";
 import { convertTasks } from "./convert.js";
+import { lineupTasks } from "./lineup.js";
 import { datecalcTasks } from "./datecalc.js";
 import { logicgridTasks } from "./logicgrid.js";
 import { tallyTasks } from "./tally.js";
@@ -39,7 +40,7 @@ import { publicTasks } from "./public.js";
 
 export const tasks = [
   healthTask, helloTask, reasonTask, lookupTask, regexTask, chainTask, transformTask, explainTask,
-  ...restockTasks, ...wordmathTasks, ...convertTasks, ...datecalcTasks, ...logicgridTasks, ...tallyTasks,
+  ...restockTasks, ...wordmathTasks, ...convertTasks, ...datecalcTasks, ...logicgridTasks, ...lineupTasks, ...tallyTasks,
   ...fanoutTasks, ...followTasks, norelevantTask, ...needleTasks, ...needlehopTasks, ...extractTasks, ...dialogueTasks,
   nearmissTask, ...pagedTasks, typedTask,
   ...publicTasks,
