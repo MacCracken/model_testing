@@ -53,6 +53,26 @@ roadmap's, stable across the plan, this file and the results.
   misses — five free-form near misses on the conversions, the affine temperature trap with the
   converter in hand (the same 115.2 as gpt-4o-mini and Haiku), three structured answers that
   never came. Thinking buys this model little the tools and the schema do not give it.
+- **qwen3.8:27b-mlx, thinking on** (`20260910T181339-b638`): 40 of 40 on convert1–4 and lineup4
+  in both modes, the only local model to get every convert4 instance right with the converter in
+  hand, at 12 to 65 seconds a trial. The daemon dropped away partway (24 error rows on lineup6
+  and toolpick); those cells were replayed once it was back (`20260910T205117-ca2d`): lineup6 4/4 and 4/4,
+  toolpick 8/8 with the direct tool every time — 56 of 56 scored trials over the eight tasks, the
+  first model here, hosted ones included, to clear every convert tier and both lineup sizes.
+- **qwen3.5:9b-mlx, thinking on** (`20260910T214604-49ad`): 40 of 64 requests out at five
+  minutes on 9 600 to 24 800 characters of reasoning per free-form trial, the box reached before
+  lineup and toolpick, 21 of 24 right when it finishes — the model the plan called parked on its
+  thinking output; the thinking-off run follows.
+- **gemma4:31b-mlx, thinking on** (`20260910T224637-b040`): 47 of 47 scored trials right,
+  convert4 8/8 with the difference worked as a difference, at 23 to 244 seconds a trial; eight
+  five-minute timeouts and the box reached before toolpick13's harness cell. The five-model table
+  is in docs/results.md: the 27 B and 31 B clear everything they finish, the 9 B and 12 B thinkers
+  are accurate but spend their time budget.
+- **qwen3.5:9b-mlx with the knob off** (`20260910T230759-0bdf`): 63 of 64 requests finish, 45 of
+  55 scored trials right, the direct tool on all eight toolpick trials — and the same misses as
+  the knob-off 12 B: the affine temperature trap, two wrong-unit conversions with the tool, four
+  structured ordering answers that never came. Every local row in this entry cost nothing but
+  time.
 
 ## 2026-09-19 (later) — what the converter cannot do alone
 

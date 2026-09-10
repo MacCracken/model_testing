@@ -1928,6 +1928,55 @@ Thinking buys this model little that the tools and the schema do not give it, an
 run: with the knob off it is a 12 B model that finishes, gets the puzzles right, and falls into
 the same traps as the hosted models.
 
+**qwen3.8:27b-mlx, thinking on** (`20260910T181339-b638`, the same eight tasks): 40 of 40 on
+convert1–4 and lineup4 in both modes — the only model in this section to get every convert4
+instance right with the converter in hand (the temperature difference worked as a difference,
+771 characters of reasoning) — at 12 to 65 seconds a trial with 160 to 1 850 characters of
+reasoning. The daemon dropped away partway through the run (24 error rows, "fetch failed" and
+"terminated", on lineup6 and toolpick); those cells were replayed once it was back (`20260910T205117-ca2d`): lineup6 4/4 in both modes
+at 68 to 106 seconds and 3 700 to 5 300 characters of reasoning, toolpick 8/8 in harness mode
+with the direct tool picked every time. Over the eight tasks the 27 B model is 56 of 56 on the
+scored cells — the first model in this bench, hosted ones included, to clear all four convert
+tiers and both lineup sizes without a miss.
+
+**qwen3.5:9b-mlx, thinking on** (`20260910T214604-49ad`): 40 of 64 requests out at five minutes
+— the free-form conversions run to 9 600 to 24 800 characters of reasoning (150 to 220 seconds
+a trial) — and the hour's box ended the run before the lineup and toolpick cells. What finishes
+is mostly right (21 of 24: two structured answers that never came, one cube's capacity off by
+one litre), so this is the model the plan called "parked on its thinking output": usable only
+with the reasoning knob off, which is the run that follows gemma4:31b's.
+
+**gemma4:31b-mlx, thinking on** (`20260910T224637-b040`): every trial that finished is right —
+47 of 47 scored, convert4 8/8 in both modes with the temperature difference worked as a
+difference, toolpick6 4/4 with the direct tool — but at 23 to 244 seconds a trial and 500 to
+12 000 characters of reasoning, eight requests hit the five-minute timeout (four of them lineup6
+free-form) and the hour's box ended the run before toolpick13's harness cell.
+
+**The five local models on the eight tasks**, scored cells only (the toolpick control cells,
+which every model rightly declines, are left out):
+
+| Model | Thinking | Right | Timeouts | Seconds per trial | Every convert4 right with the tool |
+|---|---|---|---|---|---|
+| ornith-1.5:9b | on | 48/60 (+5/7 on the lineup6 replay) | 4 of 64 (1 of 8 replayed) | 7–88 | no (2/4: answers that never came) |
+| gemma4:12b-mlx | on | 33/36 | 14 of 50, box hit | 27–252 | 2/3 |
+| gemma4:12b-mlx | off | 46/56 | 0 of 64 | 4–49 | no (2/4: the affine trap) |
+| qwen3.8:27b-mlx | on | 56/56 | 0 (after the daemon's drop was replayed) | 12–106 | yes |
+| qwen3.5:9b-mlx | on | 21/24 | 40 of 64, box hit | 36–300 | 3/4 |
+| qwen3.5:9b-mlx | off | 45/55 | 1 of 64 | 1–250 | no (3/4: the affine trap) |
+| gemma4:31b-mlx | on | 47/47 | 8 of 64, box hit | 23–244 | yes |
+
+**qwen3.5:9b-mlx with the reasoning knob off** (`20260910T230759-0bdf`): every request but one
+finishes (a lineup6 free-form answer still ran to five minutes), 45 of 55 scored trials are right,
+the direct tool is picked on all eight toolpick trials, and the misses are the ones the knob-off
+12 B made — two free-form near misses, the affine temperature trap with the converter in hand
+(115.2 again), two wrong-unit conversions with the tool (6.8 for 97.1, 216 for 395), and four
+structured answers that never came, all on the ordering puzzles.
+
+Read across: the two largest local models (27 B and 31 B) clear everything they finish,
+including the trap that catches gpt-4o-mini, Haiku and the 12 B; the small thinking models are
+accurate but spend their time budget, and the knob that makes them usable costs the 12 B its
+convert4 and lineup6 answers. Every row here cost nothing but time.
+
 ## Local endpoints probed (2026-09-20, Ollama 0.33 on this machine)
 
 `node src/cli.js probe local:<model>` on each model the daemon serves, one at a time:
