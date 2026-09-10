@@ -28,6 +28,22 @@ async function main() {
   const [cmd, ...rest] = process.argv.slice(2);
 
   switch (cmd) {
+    // Is an endpoint ready for the bench? Six checks through the bench's own client, a verdict, exit 1 when not.
+    case "probe": {
+      const args = parseArgs(rest);
+      const spec = args._[0];
+      if (!spec) { console.error("usage: node src/cli.js probe <provider:model> [--effort none|low|…] [--json]"); process.exit(1); }
+      const { resolveClients, probeLocalModels } = await import("./providers/index.js");
+      const { probeClient, describeProbe } = await import("./probe.js");
+      const clients = resolveClients(spec);
+      if (!clients.length) { console.error(`no client for "${spec}" — unknown provider, or its key is not in .env`); process.exit(1); }
+      const results = [];
+      for (const c of clients) results.push(await probeClient(c, { listModels: (provider) => probeLocalModels({ provider, timeoutMs: 3000 }), effort: args.effort ?? "none" }));
+      if (args.json) console.log(JSON.stringify(results.length === 1 ? results[0] : results, null, 2));
+      else for (const r of results) console.log(describeProbe(r) + (results.length > 1 ? "\n" : ""));
+      process.exit(results.every((r) => r.ready) ? 0 : 1);
+    }
+
     case "list": {
       console.log("Tasks:");
       for (const t of listTasks()) {

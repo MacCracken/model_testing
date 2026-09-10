@@ -268,7 +268,12 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
   parent's config); `GET /api/runs?parent=` lists a run's replays. The scorecard block draws a
   radar per client (the run filled, `/api/scorecard?client=` dashed behind it) and a sparkline per
   cell from `/api/trend`; the lineage block draws `/api/lineage` through `charts.js`.
-- `src/cli.js` — entry point (`list` / `show` / `export` / `index` / `query` / `scorecard` /
+- `src/probe.js` — `probeClient(client, { listModels, effort })`: an endpoint's readiness for the
+  bench through the bench's own client — listed, answers (with streamed usage), calls a tool and
+  takes its result, returns JSON, accepts the reasoning parameter — with `ready` the verdict a
+  harness run depends on; `describeProbe` prints it. Behind `cli probe <provider:model>` (exit 1
+  when not ready).
+- `src/cli.js` — entry point (`probe` / `list` / `show` / `export` / `index` / `query` / `scorecard` /
   `compare` / `curve` / `trend` / `regressions` / `models` / `suite` / `compact` / `serve` /
   `replay` / `rescore` / `gate` / `bench` / `aggregate`).
 - `test/` — `npm test` (node:test, no deps). Scorers are tested with synthetic ground values, the
@@ -396,7 +401,8 @@ probed live from `/v1/models` and the UI marks the provider offline when the dae
 hosted provider with `probeModels: true` (Gemini, Mistral, xAI) is probed the same way when it has
 a key, so its list is the route's. `--effort <level>` rides in `modelParams.effort` and is
 translated per provider when the client is built (`effortParams`).
-`OLLAMA_BASE_URL`, `LOCAL_ENDPOINTS` (named OpenAI-compatible servers for your own checkpoints),
+`BENCH_TIMEOUT_MS` (per-request timeout; five minutes for a local endpoint and two for a hosted
+route when unset), `OLLAMA_BASE_URL`, `LOCAL_ENDPOINTS` (named OpenAI-compatible servers for your own checkpoints),
 `LINEAGE_FILE`, `SUT_PORT` (the webserver's port; `PORT` is a legacy fallback) and `RESULTS_DIR` are
 honored from `.env` too.
 
@@ -406,6 +412,7 @@ honored from `.env` too.
 npm test                                    # unit tests, no model needed
 node src/cli.js serve                       # web UI on http://127.0.0.1:4000
 node src/cli.js list                        # tasks/providers, with key status
+node src/cli.js probe local:ornith-1.5:9b   # is the endpoint ready: listed, answers, tools, JSON, reasoning knob; exit 1 when not
 node src/cli.js show <run-id> --table       # review a saved run without the UI
 node src/cli.js export <run-id> --cells     # CSV of the cells (or of every trial without --cells)
 node src/cli.js query cell --task chain --client openai:gpt-4o-mini   # one cell across every run (index, query, compact: see README)

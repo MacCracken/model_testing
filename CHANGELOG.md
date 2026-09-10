@@ -4,6 +4,78 @@ What shipped, by date. Full measurement tables live in [docs/results.md](docs/re
 forward roadmap is [plan.md](plan.md). Dates are the commit dates; item numbers ([1]–[49]) are the
 roadmap's, stable across the plan, this file and the results.
 
+## 2026-09-20 — is the endpoint ready? (`cli probe`)
+
+### Added
+- **`node src/cli.js probe <provider:model>`** (`src/probe.js`): the readiness check the serving
+  guide used to describe by hand, as one command through the bench's own client. Six checks —
+  the model is listed at `/v1/models` (not judged when the route lists nothing), a plain
+  completion answers and streams its usage, the model calls a tool and repeats the one-time token
+  the result carried (a route that drops `tools` fails here, not silently in a run), the answer
+  parses when JSON is asked for, and the provider's reasoning parameter (`reasoning.effort` for
+  Ollama, `reasoning_effort` elsewhere, `--effort` to pick the level) is accepted — each with the
+  note that explains a failure and its time. `ready` is the verdict a harness-mode run depends
+  on (listed, answers, tools, JSON); the exit code is 1 when the endpoint is not ready, so the
+  probe sits in a serving script. `--json` for the record.
+- **A five-minute request timeout for local endpoints** (two minutes stays the hosted default;
+  `BENCH_TIMEOUT_MS` overrides either): four lineup6 trials of the local thinking model hit the
+  old two-minute default and became error rows; a checkpoint served locally is allowed its
+  minutes.
+- Tests: 408 (+4: every probe verdict through a fake client — ready, a route that drops tools, an
+  answer that is not JSON, a refused reasoning parameter, a model the route does not list, a
+  request that throws — the printed report; the timeout defaults and their override).
+
+### Measured (the local `ornith-1.5:9b` on Ollama 0.33, probed while a benchmark run shared the model)
+- All six checks pass: listed among the daemon's five models; "OK" with 129 characters of
+  reasoning first (first token after 7.7 s under load); usage streamed; the echo tool called and
+  its token repeated in two rounds; the JSON object parsed back; `reasoning.effort=none`
+  accepted. Exit 0 — the endpoint is ready, which the 2026-09-09 local runs had shown the long
+  way round.
+- **Every model the daemon serves is ready**: gemma4:12b-mlx, qwen3.5:9b-mlx, qwen3.8:27b-mlx and
+  gemma4:31b-mlx pass all six checks like ornith (first token 3.4 to 5.0 s, the tool called and
+  its token repeated in two rounds, JSON back, the reasoning parameter accepted) — the four
+  models the bench had never run (table in docs/results.md).
+- **The local model on everything built since the abstention work** (`20260910T163712-bc3d`:
+  convert1–4, lineup4/6, toolpick6/13; noHarness and harness; four trials per cell; table in
+  docs/results.md): `ornith-1.5:9b` is never wrong on a value — 48 of 60 scored trials right, the
+  misses all answers that never came after the reasoning ran long (three no-answer rows, four
+  120-second timeouts on lineup6). It gets all four convert4 instances right from memory where
+  gpt-4o-mini got half, and picks the direct tool on every toolpick trial. The price is 1 500 to
+  7 600 characters of reasoning and up to 88 seconds per trial. Replayed with five minutes per
+  request, lineup6 is 5/7 with one request still out and one name the clues rule out — the model
+  does miss an ordering once in seven when given the time.
+- **gemma4:12b-mlx, thinking on, on the same eight tasks** (`20260910T174951-e188`): right when
+  it finishes — 33 of 36 scored trials outside the control cells — and it often does not: 14 of
+  50 requests out at four minutes, 3 000 to 27 000 characters of reasoning per trial, the
+  60-minute box reached before toolpick. **With the reasoning knob off** (`20260910T175823-e5d3`)
+  every request finishes at 14 seconds a trial on average, 46 of 56 scored trials are right, the
+  direct tool is picked on all eight toolpick trials, and the misses are the hosted models'
+  misses — five free-form near misses on the conversions, the affine temperature trap with the
+  converter in hand (the same 115.2 as gpt-4o-mini and Haiku), three structured answers that
+  never came. Thinking buys this model little the tools and the schema do not give it.
+
+## 2026-09-19 (later) — what the converter cannot do alone
+
+### Added
+- **`convert4`** (the ninth [48] follow-up; Haiku was at ceiling on `convert3`, which is the rule
+  for a new tier): conversions the factor tool gets wrong on its own. A temperature *difference*
+  ("the kiln warms by 45 °F": 25.0 °C, where the tool's affine conversion says 7.2); a fuel figure
+  that is a reciprocal (litres per 100 km against miles per US gallon); a density whose cubic foot
+  the table does not carry, so the length factor has to be cubed; a cube's capacity from its side.
+  Same scoring and hooks as the family; `unanswerable` reads the main quantity from one place now.
+- Tests: 404 (+1: the four kinds against hand-worked values and the tool's wrong answer for a
+  difference, the spread and determinism over the run's seeds, every mode through the runner).
+
+### Measured (convert4; all four modes; gpt-4o-mini and Haiku 4.5; eight trials per cell; seed 2026; table in docs/results.md)
+- **The tool is trusted over the model's own knowledge.** A kiln that warms by 46.2 °C warms by
+  83.2 °F: gpt-4o-mini says so from memory in both free-form trials and says 115.2 — the
+  converter's affine answer for a temperature, not a difference — in all four tool-mode trials;
+  Haiku falls for it on both free-form tool trials and works the difference itself in harness
+  mode. gpt-4o-mini 4/8, 1/8, 3/8, 3/8 across noHarness, schemaOnly, toolOnly, harness; Haiku
+  7/8, 5/8, 6/8, 8/8. Without tools the misses are near misses (a cubed or reciprocal factor a
+  little off); with tools they are unit blunders (a cubic-centimetre volume converted as a
+  length). The converter knows a cubic centimetre since this run.
+
 ## 2026-09-19 — instructions that must survive a conversation
 
 ### Added

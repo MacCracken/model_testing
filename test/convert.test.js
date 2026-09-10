@@ -3,7 +3,7 @@
 // determinism, the renderings, the hooks, every mode through the runner, and the listing.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { generate, convert, unitOf, convertTool, applyRule, judge, render, perturb, unanswerable, convertTasks, UNITS } from "../src/tasks/convert.js";
+import { generate, convert, unitOf, convertTool, applyRule, judge, render, perturb, unanswerable, convertTasks, UNITS, exactOf } from "../src/tasks/convert.js";
 import { seedFor } from "../src/tasks/gen.js";
 import { runTrial, summarize } from "../src/runner.js";
 import { withPerturb } from "../src/perturb.js";
@@ -80,7 +80,7 @@ test("the generator: deterministic, every kind at every level over the run's see
   assert.deepEqual([...kinds[1]].sort(), ["area", "length", "mass", "temperature", "volume"]);
   assert.deepEqual([...kinds[2]].sort(), ["distance", "flow", "linear"]);
   assert.deepEqual([...kinds[3]].sort(), ["fill", "fuel", "lift", "trip"]);
-  assert.throws(() => generate(1, 4), /./);
+  assert.throws(() => generate(1, 5), /unknown level/);
 });
 
 test("renderings and hooks: the base is what it was, paraphrase rewords, format writes symbols, typos leave the numbers and unit words alone, the quantity can go missing", () => {
@@ -114,7 +114,7 @@ test("renderings and hooks: the base is what it was, paraphrase rewords, format 
   assert.equal(typeof t.unanswerable, "function");
   assert.equal(t.seeded, true);
   assert.deepEqual(t.capabilities, ["arithmetic", "unit-conversion"]);
-  assert.deepEqual(convertTasks.map((x) => x.name), ["convert1", "convert2", "convert3"]);
+  assert.deepEqual(convertTasks.map((x) => x.name), ["convert1", "convert2", "convert3", "convert4"]);
 });
 
 // A fake engineer: converts through the real tool, computes from the parts, answers with the rule
@@ -173,9 +173,53 @@ test("every mode through the runner: the exact answer is right, a 2 % factor is 
   assert.equal(u.correct, true, u.reason);
 });
 
-test("the listing: three levels of one family with the knob, the hooks and the capability", () => {
+test("level 4: what the converter cannot do alone — a temperature difference, a reciprocal, a cubed length factor, a cube's capacity — against hand-worked values, with the tool's own answer wrong for the difference", async () => {
+  assert.ok(near(exactOf({ kind: "tempdiff", a: 45, from: "F" }), 25));
+  assert.ok(near(exactOf({ kind: "tempdiff", a: 20, from: "C" }), 36));
+  assert.ok(near(convert(45, "F", "C"), 7.2222222), "the tool converts the temperature, not the difference");
+  assert.ok(near(exactOf({ kind: "economy", a: 6.8, from: "l100" }), 34.5904, 0.001));
+  assert.ok(near(exactOf({ kind: "economy", a: 34.5904, from: "mpg" }), 6.8, 0.001), "the reciprocal both ways");
+  assert.ok(near(exactOf({ kind: "density", a: 480, from: "lbft3" }), 7688.86, 0.01));
+  assert.ok(near(exactOf({ kind: "density", a: 7688.86, from: "kgm3" }), 480, 0.01));
+  assert.ok(near(exactOf({ kind: "cube", a: 1.4, side: "m", to: "gal" }), 724.89, 0.01));
+  assert.ok(near(exactOf({ kind: "cube", a: 2, side: "ft", to: "L" }), 226.535, 0.001));
+  assert.ok(near(exactOf({ kind: "cube", a: 10, side: "cm", to: "ml" }), 1000));
+  assert.equal(unitOf("cubic feet"), null, "the table carries no cubic foot: the length factor has to be cubed");
+  assert.equal(unitOf("cm3"), "ml", "a cubic centimetre is a millilitre, and the table says so");
+  assert.ok(near(convert(14526.784, "cm³", "ml"), 14526.784));
+  const kinds = new Set();
+  for (let i = 1; i <= 60; i++) {
+    const seed = seedFor(2026, "convert4", i);
+    const g = generate(seed, 4);
+    assert.deepEqual(generate(seed, 4), g);
+    kinds.add(g.parts.kind);
+    assert.equal(g.answer, applyRule(g.exact, g.rule));
+    assert.ok(g.exact > 0);
+    const base = `${g.text} ${g.question}`;
+    assert.match(base, /rises by|warms by|litres per 100|L\/100|miles per US gallon|per cubic (foot|metre)|cube/);
+    const p = perturb(g, "paraphrase", i), f = perturb(g, "format", i), u = unanswerable(g);
+    assert.notEqual(`${p.text} ${p.question}`, base);
+    assert.notEqual(`${f.text} ${f.question}`, base);
+    assert.deepEqual(base.match(/\d+(?:\.\d+)?/g), `${p.text} ${p.question}`.match(/\d+(?:\.\d+)?/g));
+    assert.match(u.text, /\bsome\b/);
+    assert.equal(u.answer, null);
+  }
+  assert.deepEqual([...kinds].sort(), ["cube", "density", "economy", "tempdiff"]);
+  const t = convertTasks[3];
+  assert.equal(t.name, "convert4");
+  for (const mode of ["noHarness", "schemaOnly", "toolOnly", "harness"]) {
+    const r = await runTrial({ task: t, mode, client: engineer(), index: 1, seed: 11 });
+    assert.equal(r.error, null, r.error);
+    assert.equal(r.correct, true, `${mode}: ${r.reason}`);
+    if (mode === "harness" || mode === "toolOnly") assert.equal(r.toolUseOk, true, r.toolUseReason);
+  }
+  assert.equal(t.eval.toolUse({ toolCalls: [{ name: "convert", arguments: {} }], toolResults: [{ name: "convert", ok: true }], ctx: {} }).ok, false, "level 4 wants calc too");
+});
+
+test("the listing: four levels of one family with the knob, the hooks and the capability", () => {
   const by = Object.fromEntries(listTasks().map((t) => [t.name, t]));
-  assert.deepEqual([by.convert1.family, by.convert1.level, by.convert3.level], ["convert", 1, 3]);
+  assert.deepEqual([by.convert1.family, by.convert1.level, by.convert3.level, by.convert4.level], ["convert", 1, 3, 4]);
+  assert.deepEqual(by.convert4.tools, ["convert", "calc"]);
   assert.deepEqual(by.convert2.modes, ["noHarness", "harness", "schemaOnly", "toolOnly"]);
   assert.deepEqual(by.convert2.tools, ["convert", "calc"]);
   assert.deepEqual(by.convert1.tools, ["convert"]);

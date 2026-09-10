@@ -226,8 +226,10 @@ export function buildClient({ provider, model, modelParams = {} }) {
     url: cfg.baseUrl,
     headers: { Authorization: cfg.auth(key) },
     modelParams: sent,
-    // Per-request timeout. Thinking-heavy local models can take minutes on a free-form answer.
-    timeoutMs: Number(envValue("BENCH_TIMEOUT_MS", "120000")) || 120_000,
+    // Per-request timeout: two minutes for a hosted route, five for a local one — a thinking model
+    // served locally can spend minutes on a free-form answer (four lineup6 trials of ornith hit the
+    // old two-minute default). BENCH_TIMEOUT_MS overrides either.
+    timeoutMs: Number(envValue("BENCH_TIMEOUT_MS", cfg.local ? "300000" : "120000")) || (cfg.local ? 300_000 : 120_000),
   });
 }
 

@@ -22,13 +22,17 @@ Notes that matter for this bench:
 - **Tool calling must be on.** Harness mode sends `tools`; a server that ignores them scores the
   model as if it never called a tool. vLLM needs `--enable-auto-tool-choice` and a
   `--tool-call-parser` matching the model's chat template; llama.cpp needs `--jinja`; MLX and
-  Ollama follow the model's template. `node src/bench.js --task health --modes harness --clients
-  <endpoint>:<model> --count 1` is the one-trial check: `toolCalls` in the saved row should be non-empty.
+  Ollama follow the model's template. `node src/cli.js probe <endpoint>:<model>` is the check:
+  it lists the model, gets an answer, has the model call a tool and repeat the token the result
+  carried, asks for JSON, and sends the reasoning parameter — with a verdict and an exit code of
+  1 when the endpoint is not ready for a harness-mode run.
 - **The model id** the bench sends is what the server lists at `/v1/models` (vLLM:
   `--served-model-name`; llama.cpp: the file name unless `--alias`; MLX: the path; Ollama: the
   created name). `node src/cli.js list` shows what each endpoint reports.
-- **Thinking models** may spend the whole token budget reasoning on a free-form answer; raise
-  `BENCH_TIMEOUT_MS` and prefer the runtime's own reasoning-effort knob over `--model-param`.
+- **Thinking models** may spend the whole token budget reasoning on a free-form answer; a local
+  endpoint gets five minutes per request by default (a hosted route two), `BENCH_TIMEOUT_MS`
+  sets either, and the runtime's own reasoning-effort knob (`--effort none`) is the better lever
+  than `--model-param`.
 - Requests under `--parallel` queue at the server; latency columns then include queueing. Compare
   latencies serial-to-serial.
 

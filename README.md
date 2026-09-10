@@ -37,7 +37,7 @@ output.
 | `regex` | tool-reasoning | Which of six strings match an anchored regex, with a correct `regex_match` tool and a `word_count` decoy. Tests tool *selection* and typed arguments, not just firing. |
 | `chain` | multi-step | Greet alice, then greet the id that came back, and report the second greeting. The second call depends on the first; the id is random, so nothing but the chain produces the answer. |
 | `wordmath2` / `wordmath4` / `wordmath6` | reasoning · generated | A multi-step stock word problem minted per trial from the run's instance seed; one integer answer. With tools, a calculator — does a tool fix the arithmetic? |
-| `convert1` / `convert2` / `convert3` | reasoning · generated | Unit conversions with exact factors and a stated rounding: one quantity in another unit; a rate in another pair of units; three steps ending in a whole number (a tank filled by a hose, a lift limit against boxes in pounds, a trip at a speed in other units, fuel at miles per gallon). With tools, an exact `convert` and a calculator — is the miss in the factor or in the arithmetic? |
+| `convert1` / `convert2` / `convert3` / `convert4` | reasoning · generated | Unit conversions with exact factors and a stated rounding: one quantity in another unit; a rate in another pair of units; three steps ending in a whole number (a tank filled by a hose, a lift limit against boxes in pounds, a trip at a speed in other units, fuel at miles per gallon); and what the converter cannot do alone (a temperature difference, litres per 100 km against miles per gallon, a density through a cubed length factor, a cube's capacity). With tools, an exact `convert` and a calculator — is the miss in the factor, the arithmetic, or the understanding of when not to trust the tool? |
 | `datecalc1` / `datecalc3` | reasoning · generated | Calendar arithmetic minted per trial: a date and weekday after N days, or a posting time plus three durations. With tools, a date calculator. |
 | `logicgrid3` / `logicgrid4` | reasoning · generated | A pet-and-drink deduction puzzle, unique and minimal by construction, minted per trial. No tools: the harness is the structured mode. |
 | `lineup4` / `lineup6` | reasoning · generated | An ordering puzzle — a race's finishing order, a queue, or a row of houses — unique and minimal by construction, minted per trial: before and after, next to, two places apart, first or last, between; who holds a place, which place someone holds, who is right after someone. No tools: the harness is the structured mode. |
@@ -148,6 +148,7 @@ can be compacted (prompts and transcripts stripped, every scalar kept) without l
 
 ```bash
 node src/cli.js list                    # tasks (with the modes each declares) and providers, with key status
+node src/cli.js probe local:ornith-1.5:9b   # is the endpoint ready for the bench: listed, answers, calls a tool and takes its result, JSON, the reasoning knob
 node src/cli.js show                    # recent saved runs
 node src/cli.js show <run-id> --table   # one saved run: per-mode stats, deltas with significance, a task × mode table
 node src/cli.js export <run-id>         # every trial as CSV (--cells for the task × model × mode cells, --out file.csv)

@@ -1839,3 +1839,109 @@ restated the block on every turn (the old behaviour, fixed the same day), and bo
 10 of 12; re-run with the requirements stated once (`20260910T155851-68b1`), both keep 2 of 12 —
 a word limit and a forbidden word, the ones that need no remembering — with the opening phrase,
 the closing phrase, the bullets and "no commas" all gone by the third turn. The run cost $0.71 (753 k tokens).
+
+## What the converter cannot do alone: `convert4` (2026-09-19, seed 2026, eight trials per cell)
+
+Run `20260910T160522-be8f`: convert4 in all four modes on gpt-4o-mini and Haiku 4.5 — a
+temperature *difference* in the other scale, litres per 100 km against miles per US gallon, a
+density in pounds per cubic foot against kilograms per cubic metre (the table has no cubic foot),
+and a cube's capacity from its side. With tools the model has the exact converter and the
+calculator; the converter's answer is wrong for a difference and unavailable for a cubic foot.
+
+| Client | noHarness | schemaOnly | toolOnly | harness |
+|---|---|---|---|---|
+| gpt-4o-mini | 4/8 | 1/8 | 3/8 | 3/8 |
+| claude-haiku-4-5 | 7/8 | 5/8 | 6/8 | 8/8 |
+
+**The tool is trusted over the model's own knowledge.** Asked by how many degrees Fahrenheit a
+kiln warms when it warms by 46.2 °C, gpt-4o-mini answers 83.2 from memory in both trials without
+tools — 46.2 × 9⁄5, the right rule — and with the converter in hand answers 115.2 in all four
+tool-mode trials: `convert(46.2, "C", "F")`, the affine conversion of a temperature, rounded and
+reported. Haiku does the same on both of its free-form tool trials (0 of 2, against 2 of 2 without
+tools and 2 of 2 in harness mode, where it works the difference itself). The economy and density
+questions go the other way for gpt-4o-mini — right with the tool through several conversions,
+wrong from memory — and the cube is its weakest kind everywhere (a cube of 24.4 cm reported as
+145 267 840 ml after a cubic-centimetre volume was converted as a length). Without tools the misses
+are near misses, the cubed or reciprocal factor a little off; with tools they are unit blunders.
+The converter knows a cubic centimetre since this run. The run cost $0.19 (207 k tokens).
+
+## The local model on the new families: `ornith-1.5:9b` (2026-09-20, seed 2026, four trials per cell)
+
+Run `20260910T163712-bc3d`: convert1–4, lineup4/6 and toolpick6/13 on `local:ornith-1.5:9b`
+(Ollama 0.33, thinking on, two requests in flight, a 90-minute box) in noHarness and harness — the
+first local numbers for everything built since the abstention work. Four lineup6 requests hit the
+120-second per-request timeout (three free-form, one harness) and are error rows; the cells below
+count the rest.
+
+| Task | noHarness | harness | Seconds per trial | Reasoning per trial |
+|---|---|---|---|---|
+| convert1 | 4/4 | 4/4 | 10 / 24 | 270 / 211 chars |
+| convert2 | 4/4 | 4/4 | 43 / 40 | 1 505 / 505 |
+| convert3 | 4/4 | 4/4 | 35 / 71 | 1 538 / 1 545 |
+| convert4 | 4/4 | 2/4 | 27 / 94 | 1 280 / 2 671 |
+| lineup4 | 4/4 | 3/4 | 23 / 30 | 1 718 / 1 817 |
+| lineup6 | 1/1 | 3/3 | 88 / 85 | 7 642 / 4 698 |
+| toolpick6 | 0/4 (control) | 4/4 | 21 / 13 | 1 064 / 252 |
+| toolpick13 | 0/4 (control) | 3/4 | 7 / 19 | 546 / 459 |
+
+The 9 B thinking model is never wrong on a value here: its twelve misses outside the control cells
+are three answers that never came (convert4 and toolpick13 with no structured output, lineup4 with
+no answer) after the reasoning ran long, and the four timeouts. It gets the temperature difference,
+the reciprocal and the cubed factor right from memory on all four convert4 instances — where
+gpt-4o-mini got 4 of 8 — and picks the direct tool on all 8 toolpick trials in harness mode. The
+cost of that is time: 1 500 to 7 600 characters of reasoning per trial on the puzzles, 85 seconds
+a lineup6 trial, and the per-request timeout that ended four of them. The control cells say what
+they should: without tools it reports that it cannot reach the scenario rather than guessing.
+
+**lineup6 replayed with five minutes per request** (`20260910T164951-8f86`, the same instances,
+parented to the run above): 5 of 7 right, one request still out at 300 seconds. With the time to
+finish, the model reasons for 3 000 to 10 000 characters and 109 to 280 seconds per trial, and
+its two misses are one puzzle answered with a name that the clues rule out ("Hank" for "Bob",
+free-form) and one answer that never came (harness) — so the 9 B model does get an ordering wrong
+once in seven when it is given the time, not only when it runs out of it. Five minutes per request
+is the local default since this replay.
+
+**gemma4:12b-mlx on the same eight tasks** (`20260910T174951-e188`, thinking on, four minutes per
+request, a 60-minute box): the box ended the run after 50 of 64 trials, before toolpick, and 14
+of the 50 requests timed out at four minutes — the model reasons for 3 000 to 27 000 characters
+per trial (26 690 on a six-person lineup, 15 652 on a convert4 problem), three to ten times
+ornith's. What finishes is right: 33 of 36 scored trials outside the control cells (convert1–2
+8/8 and 6/6, lineup4 8/8, convert4 5/6 with one density off by a factor, lineup6 3/4, convert3
+3/4), at 27 to 252 seconds a trial.
+
+**gemma4:12b-mlx with the reasoning knob off** (`20260910T175823-e5d3`, `--effort none`, the
+same eight tasks and instances): every request finishes — 64 rows, no timeouts, 14 seconds a
+trial on average against 27 to 252 — and 46 of 56 scored trials outside the control cells are
+right. The misses are the hosted models' misses: five free-form near misses on the conversions
+(the factor or the rounding a little off), the affine temperature trap with the converter in hand
+(115.2 °F for a rise of 46.2 °C, the same 115.2 as gpt-4o-mini and Haiku), one unit blunder on a
+fill problem, and three structured answers that never came (two on lineup6). It picks the direct
+tool on all eight toolpick trials.
+
+| gemma4:12b-mlx | convert1 | convert2 | convert3 | convert4 | lineup4 | lineup6 | toolpick6 | toolpick13 | timeouts | s/trial |
+|---|---|---|---|---|---|---|---|---|---|---|
+| thinking on, harness | 4/4 | 4/4 | 3/4 | 2/3 | 4/4 | 1/2 | — | — | 14 of 50 | 27–252 |
+| thinking off, harness | 4/4 | 4/4 | 3/4 | 2/4 | 4/4 | 2/4 | 4/4 | 4/4 | 0 of 64 | 4–49 |
+| thinking off, noHarness | 4/4 | 2/4 | 3/4 | 2/4 | 4/4 | 4/4 | control | control | | |
+
+Thinking buys this model little that the tools and the schema do not give it, and costs it the
+run: with the knob off it is a 12 B model that finishes, gets the puzzles right, and falls into
+the same traps as the hosted models.
+
+## Local endpoints probed (2026-09-20, Ollama 0.33 on this machine)
+
+`node src/cli.js probe local:<model>` on each model the daemon serves, one at a time:
+
+| Model | Listed | Answers (first token) | Usage | Tools | JSON | `reasoning.effort=none` | Ready |
+|---|---|---|---|---|---|---|---|
+| ornith-1.5:9b | yes | 7.7 s under load, 129 chars of reasoning | yes | yes, 2 rounds | yes | accepted | yes |
+| gemma4:12b-mlx | yes | 4.4 s, 46 chars | yes | yes, 2 rounds | yes | accepted | yes |
+| qwen3.5:9b-mlx | yes | 4.6 s, 358 chars | yes | yes, 2 rounds | yes | accepted | yes |
+| qwen3.8:27b-mlx | yes | 5.0 s, 117 chars | yes | yes, 2 rounds | yes | accepted | yes |
+| gemma4:31b-mlx | yes | 3.4 s, 93 chars | yes | yes, 2 rounds | yes | accepted | yes |
+
+Every local model is ready for a harness-mode run: each calls the echo tool and repeats the token
+its result carried, returns the JSON asked for, streams its usage and takes the reasoning
+parameter. The first-token times are the model load plus a short think; the two Gemma sizes and
+the 27 B Qwen answer as fast as the 9 B. No vLLM, llama.cpp or MLX server binary is installed here
+and `LOCAL_ENDPOINTS` is unset, so the local provider is Ollama alone.
