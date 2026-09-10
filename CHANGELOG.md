@@ -4,6 +4,38 @@ What shipped, by date. Full measurement tables live in [docs/results.md](docs/re
 forward roadmap is [plan.md](plan.md). Dates are the commit dates; item numbers ([1]–[49]) are the
 roadmap's, stable across the plan, this file and the results.
 
+## 2026-09-16 (later) — the rules in other words: perturbations for `restock` and `dialogue`
+
+### Added
+- **`@perturb` for the multi-step and multi-turn families** (the fourth [48] follow-up): `restock`
+  renders its rules in other words (paraphrase), as numbered steps (format) or with typing errors
+  (typos; the status literal and the endpoint words are never touched), and the goal an arm gets
+  the same way; `dialogue` does the same to the opening request and the user's scripted turns —
+  the change of mind, the hold and the capped request in other words, as bullet lists, or with
+  typos (ids, numbers and the status literals intact). A procedure and a conversation have one
+  order, so `order` stays unapplied. Both families gain a canonical report (the ids changed,
+  sorted, and the total), so consistency is measured for them and agreement across repeats becomes
+  readable.
+- **`restock` is minted from the trial seed now** (`seeded: true`): its scenario took a random
+  seed before, so no two clients restocked the same inventory and a replay never re-minted one.
+  The store's stamping of `seeded` on rows that predate the flag checks the row's own scenario
+  seed against its trial seed, so the old random-inventory rows stay unseeded and their cells are
+  not read as repeats of one instance.
+- Tests: 381 (+5: the three forms of the rules, the goal and the turns with the ids, numbers and
+  literals intact; order refused; the canonical report; the seeded setup through the runner; the
+  stamping guard, in the store test too).
+
+### Measured (restock3, restock6, dialogue3; harness; four trials per cell; seed 2026; table in docs/results.md)
+- **Haiku does not move**: 36/36 right and 36/36 the same report under the rules in other words,
+  as numbered steps, or with typos.
+- **gpt-4o-mini's breaking point is not the wording's**: as minted 2/4, 1/4 and 1/4 on the three
+  tasks; the rewrites move the count by one either way (paraphrase 4 → 3, format 4 → 5, typos
+  4 → 4; −4.2, +4.2, 0 pp pooled, p = 1) while changing which instance fails — only 4 of its 12
+  reports under paraphrase are the ones it gave as minted (consistency 33 %, 50 %, 67 % for the
+  three kinds). The failures are the same three kinds in every form: collateral restocks of items
+  that were not low, a low item left short, the change of mind or the hold not reaching the
+  server. The family measures the model's draw, not the prompt.
+
 ## 2026-09-16 — typos, the fourth perturbation
 
 ### Added

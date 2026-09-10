@@ -51,7 +51,8 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
   scenario-backed families (`fanout`, `follow`, `norelevant`, `nearmiss`, `paged`, `typed` and
   `restock`) share `tasks/scenario.js`:
   the server API, a scenario minted from the trial seed (the server takes the seed, so the inventory
-  is reproducible), the read tools, and `endState`, which turns the scenario's op log into a hijack
+  is reproducible; `restock` has taken it since 2026-09-16 and its older rows stay unseeded in the
+  store), the read tools, and `endState`, which turns the scenario's op log into a hijack
   verdict every scorer honours. Every task carries `capabilities` (what it measures) for the scorecard.
 - `src/anchors.js`, `src/ifeval.js`, `src/bfcl.js`, `src/tasks/public.js` — public benchmark sets
   run here as anchors. `anchors.js` fetches GSM8K, IFEval and BFCL v4 (simple, multiple) from their
@@ -206,14 +207,15 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
   argument (`callOpts.abstain` / `callOpts.schema` from the runner). Browser-safe.
 - `src/perturb.js` — robustness as a treatment: `withPerturb(client, kind)` is the
   `@perturb:paraphrase|order|format|typos` variant; the runner calls the task's `perturb(ctx, kind,
-  seed)` hook after setup (wordmath, tally, datecalc, logicgrid, fanout, follow and extract export
-  one; null when the kind has no meaning there, and the row's `perturb.applied` says so; a task's
+  seed)` hook after setup (wordmath, tally, datecalc, logicgrid, fanout, follow, extract, restock
+  and dialogue export one; null when the kind has no meaning there, and the row's `perturb.applied` says so; a task's
   `perturbs` lists the kinds its hook can do, and the hook may be async — extract posts the
   rewritten documents again and `remint` honours the ctx's `perturbed` / `unanswerable`). The base
   rendering must stay byte-for-byte what it was — a hook re-renders from recorded structure
   (wordmath's `events`, datecalc's `parts`, tally's `query`, extract's generator with another
   `layout` or a permuted header / row order, fanout's `ids` and the `wording` / `listing` flags its
-  ask reads) rather than changing `generate`. `typos(text, seed, { protect })` is the shared
+  ask reads, restock's rules and dialogue's turns from the same flags) rather than changing
+  `generate`. `typos(text, seed, { protect })` is the shared
   noise for the fourth kind — inner letters swapped, dropped, doubled or struck beside themselves
   in about a quarter of the words of four letters or more, never in a number, an id, a code in
   capitals, a date word or a protected word — and each hook says what it protects (the entities

@@ -166,6 +166,7 @@ node src/bench.js --task wordmath4,tally20,datecalc1 --clients openai:gpt-4o-min
 node src/bench.js --task wordmath4,tally20,logicgrid3 --clients openai:gpt-4o-mini,openai:gpt-4o-mini@perturb:paraphrase,openai:gpt-4o-mini@perturb:order --count 4 --instance-seed 7   # the same instances rewritten: delta and consistency
 node src/bench.js --task fanout4,extract1 --modes harness,toolOnly --clients openai:gpt-4o-mini,openai:gpt-4o-mini@abstain,openai:gpt-4o-mini@perturb:format --count 8 --instance-seed 7   # the tool and extraction families: an item the scenario lacks, an invoice without its number; the ids as a list, the invoice in another layout
 node src/bench.js --task wordmath4,logicgrid3,extract1 --clients openai:gpt-4o-mini,openai:gpt-4o-mini@perturb:typos --count 4 --instance-seed 7   # typing errors in the prose and OCR-like noise on the documents: delta and consistency
+node src/bench.js --task restock6,dialogue3 --modes harness --clients openai:gpt-4o-mini,openai:gpt-4o-mini@perturb:paraphrase,openai:gpt-4o-mini@perturb:format --count 4 --instance-seed 7   # the rules and the user's turns in other words or as steps: does the breaking point move?
 node src/cli.js compare <run> --a <client> --b <client> --mode harness   # paired: McNemar + bootstrap band per task
 node src/cli.js compare <run-A> <run-B> --mode schemaOnly               # two runs on the same instance seed
 node src/cli.js curve restock [--mode harness] [--client <c>]           # success per difficulty level over every saved run, with each model's breaking point
@@ -212,11 +213,12 @@ base client sees, rewritten by its family with the truth untouched — other wor
 of the independent parts, another surface form (a dated list, a CSV table, an ISO date without
 the weekday; for the tool and extraction families the ask in other words, the asked-for ids or
 the document's header lines and line items in another order, the ids as a list or the invoice in
-another layout with other labels and date style), or typing errors in about a quarter of the
-words (never in a number, an id, a date, a code or an entity the answer is scored on; on the
-extraction documents this is OCR-like noise) — and the run reports, beside the paired
-correctness delta, the **consistency**: the share of instances whose answer did not change, right
-or wrong.
+another layout with other labels and date style; for `restock` and `dialogue` the rules, the
+opening request and the user's turns in other words or as numbered steps and bullet lists), or
+typing errors in about a quarter of the words (never in a number, an id, a date, a code or an
+entity the answer is scored on; on the extraction documents this is OCR-like noise) — and the run
+reports, beside the paired correctness delta, the **consistency**: the share of instances whose
+answer did not change, right or wrong.
 
 **Abstention.** `<client>@abstain` makes a seeded half of a generated family's instances
 unanswerable — a step's quantity gone from a word problem, a question about a column the ticket

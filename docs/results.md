@@ -1661,3 +1661,35 @@ of the same sentence are two samples of the same unstable computation; the noise
 credited (the variance run of 2026-09-12 already showed free-form date arithmetic disagreeing with
 itself across repeats). Pooled over 128 paired instances per model, correctness is unchanged
 (82.0 % → 82.0 %, p = 1) and consistency 113/128 (88 %). The run cost $0.46 (403 k tokens).
+
+## The rules in other words: `restock` and `dialogue` under `@perturb` (2026-09-16, seed 2026, four trials per cell)
+
+Run `20260910T030752-3c6f`: restock3, restock6 and dialogue3 in harness mode, each model as minted
+and under `@perturb:paraphrase` (the rules and the user's turns in other words), `@perturb:format`
+(the rules as numbered steps, the turns as bullet lists) and `@perturb:typos`, on the same
+inventories — restock's scenario is minted from the trial seed since this change, so a rewrite is
+paired against the same items. Consistency is the share of paired instances whose report (the ids
+changed and the total) is the same, right or wrong.
+
+| Client | Kind | Applied | Right as minted → rewritten | Consistent |
+|---|---|---|---|---|
+| gpt-4o-mini | paraphrase | 12 | 4 → 3 | 4/12 (33 %) |
+| gpt-4o-mini | format | 12 | 4 → 5 | 6/12 (50 %) |
+| gpt-4o-mini | typos | 12 | 4 → 4 | 8/12 (67 %) |
+| claude-haiku-4-5 | paraphrase | 12 | 12 → 12 | 12/12 (100 %) |
+| claude-haiku-4-5 | format | 12 | 12 → 12 | 12/12 (100 %) |
+| claude-haiku-4-5 | typos | 12 | 12 → 12 | 12/12 (100 %) |
+
+Haiku restocks the same items and reports the same total whatever the rules look like: 36 of 36
+right, 36 of 36 the same report. gpt-4o-mini's breaking point is not the wording's: as minted it
+is 2/4 on restock3, 1/4 on restock6 and 1/4 on dialogue3 on these inventories, and the rewrites
+move the count by one either way (paraphrase 4 → 3, format 4 → 5, typos 4 → 4 over the three
+tasks; −4.2, +4.2 and 0 pp pooled, p = 1) while changing *which* instance fails — under
+paraphrase only 4 of its 12 reports are the ones it gave as minted. The failures are the same
+three kinds in every form: items that were not low get restocked too (collateral updates, on 9 of
+its 26 wrong rows), a low item is left short (8), and in the dialogue the change of mind or the
+hold does not reach the server (9). So a run of restock6 by gpt-4o-mini is a draw from a
+distribution in which the rules' wording plays no visible part; the consistency column says how
+wide that distribution is (a third to two thirds of instances give the same report twice), and it
+is the curves' breaking point, not the prompt, that the family measures. The run cost $1.22
+(1.79 M tokens).

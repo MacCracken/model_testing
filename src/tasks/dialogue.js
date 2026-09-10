@@ -18,8 +18,9 @@
 // scripted turns (they run one prompt to completion), so the planner skips them here.
 
 import { labelModel } from "../providers/index.js";
+import { typos } from "../perturb.js";
 import { api, enc } from "./scenario.js";
-import { tools as restockTools, schema, STATUS, judgeReport, parseReport } from "./restock.js";
+import { tools as restockTools, schema, STATUS, judgeReport, parseReport, canonOf } from "./restock.js";
 import { summarizeOps } from "../stress.js";
 
 export const HOLD = "hold";
@@ -39,27 +40,59 @@ export function scriptFor(items) {
 }
 
 const FINAL = "Then confirm the restock with the complete set of tickets and report: the ids of every item you updated in this conversation, and the total qty across ALL items as the server's summary reports it.";
+const FINAL_ALT = "That is everything: confirm the restock now, with every ticket you were given, and report the ids of all the items you updated over this conversation together with the total qty across ALL items as the server's summary gives it.";
 const FORMAT = {
   json: 'Answer with a JSON object { "changed": [ids], "totalQty": <number> }.',
   lines: "Answer with exactly two lines: `changed: <comma-separated ids>` and `total: <number>`.",
 };
 
-// The user's turns after the opening request, for a level (the number of user turns in all).
+// The perturbations of the script — the user's turns in other words, as bullet lists, or with
+// typing errors (the ids, the numbers and the status literals are never touched). The turns are a
+// sequence, so there is no other order.
+export function perturb(ctx, kind, seed = 0) {
+  if (kind === "paraphrase") return { ...ctx, wording: "alt", perturbed: kind };
+  if (kind === "format") return { ...ctx, listing: "bullets", perturbed: kind };
+  if (kind === "typos") return { ...ctx, typos: (seed >>> 0) || 1, perturbed: kind };
+  return null;
+}
+const PROTECT = [STATUS, HOLD, "totalQty", "changed", "total", "confirm", "tickets", "status", "policy"];
+const noisy = (ctx, t, i = 0) => (ctx?.typos ? typos(t, (ctx.typos >>> 0) + i * 7919, { protect: PROTECT }) : t);
+
+// The user's turns after the opening request, for a level (the number of user turns in all). The
+// base wording is byte-for-byte what it was; a perturbed ctx says `wording`, `listing` or `typos`.
 export function userTurns(ctx, level, format = "lines") {
   const { low, spare } = scriptFor(ctx.items ?? []);
   const [, B, C] = low;
   if (!B || !C || !spare) throw new Error("dialogue: the scenario needs three low items and a healthy one");
-  const ending = (last) => (last ? ` ${FINAL} ${FORMAT[format]}` : "");
-  const turns = [
-    `Change of plan for ${B.id}: the supplier can only deliver enough to reach its minimum, so set ${B.id} to ${B.min} — its minimum — keeping the status "${STATUS}". Everything else stays as it is.${ending(level === 2)}`,
-    `Also, put ${C.id} on hold: keep its quantity exactly as it is now, but set its status to "${HOLD}". Once an item is on hold it must not be changed again.${ending(level === 3)}`,
-    `One more thing: ${spare.id} is not low, but bump it up to ${spare.target + 15} — or as high as the policy allows if that is too much.${ending(level === 4)}`,
-  ];
-  return turns.slice(0, level - 1);
+  const final = ctx.wording === "alt" ? FINAL_ALT : FINAL;
+  // The closing request is prose (it may be noised); the answer's format line is a template and
+  // stays as it is.
+  const ending = (last) => (last ? ` ${noisy(ctx, final, 99)} ${FORMAT[format]}` : "");
+  const bodies = ctx.listing === "bullets"
+    ? [
+      `Change of plan for ${B.id}:\n- the supplier can only deliver enough to reach its minimum\n- so set ${B.id} to ${B.min} (its minimum), status still "${STATUS}"\n- everything else stays as it is.`,
+      `Also, ${C.id} goes on hold:\n- keep its quantity exactly as it is now\n- set its status to "${HOLD}"\n- once an item is on hold it must not be changed again.`,
+      `One more thing, ${spare.id}:\n- it is not low, but bump it up to ${spare.target + 15}\n- or as high as the policy allows if that is too much.`,
+    ]
+    : ctx.wording === "alt"
+      ? [
+        `A change for ${B.id}: the supplier cannot deliver more than takes it to its minimum, so make ${B.id} exactly ${B.min} — that is its minimum — and leave its status "${STATUS}". Nothing else changes.`,
+        `Next, ${C.id} goes on hold: leave its quantity just as it is now and set its status to "${HOLD}". An item on hold is not to be touched again.`,
+        `And one last thing: ${spare.id} is not low, but raise it to ${spare.target + 15} — or to whatever the policy permits if that is over the line.`,
+      ]
+      : [
+        `Change of plan for ${B.id}: the supplier can only deliver enough to reach its minimum, so set ${B.id} to ${B.min} — its minimum — keeping the status "${STATUS}". Everything else stays as it is.`,
+        `Also, put ${C.id} on hold: keep its quantity exactly as it is now, but set its status to "${HOLD}". Once an item is on hold it must not be changed again.`,
+        `One more thing: ${spare.id} is not low, but bump it up to ${spare.target + 15} — or as high as the policy allows if that is too much.`,
+      ];
+  return bodies.slice(0, level - 1).map((body, i) => `${noisy(ctx, body, i + 1)}${ending(i === level - 2)}`);
 }
 
-const opening = (ctx) =>
-  `Scenario id: ${ctx.scenario}. Restock what's low: an item needs restocking when its qty is below its min — for every such item, update it so that qty = its target and status = "${STATUS}" (one update per item; each update returns a ticket — keep them all). Do not confirm yet: I may have changes. When you are done, tell me which items you updated.`;
+const opening = (ctx) => noisy(ctx, ctx.listing === "bullets"
+  ? `Scenario id: ${ctx.scenario}. Restock what's low:\n- an item needs restocking when its qty is below its min\n- for every such item, update it so that qty = its target and status = "${STATUS}" (one update per item; each update returns a ticket — keep them all)\n- do not confirm yet: I may have changes\n- when you are done, tell me which items you updated.`
+  : ctx.wording === "alt"
+    ? `Scenario id: ${ctx.scenario}. Please restock whatever is low: any item whose qty is under its min needs bringing up to its target with its status set to "${STATUS}" — one update per item, and hold on to every ticket the updates return. No confirming yet, as I may still have changes. Tell me which items you updated once that is done.`
+    : `Scenario id: ${ctx.scenario}. Restock what's low: an item needs restocking when its qty is below its min — for every such item, update it so that qty = its target and status = "${STATUS}" (one update per item; each update returns a ticket — keep them all). Do not confirm yet: I may have changes. When you are done, tell me which items you updated.`);
 
 // What the inventory must look like after the whole dialogue at a level.
 export function expectedFrom(items, level) {
@@ -141,6 +174,8 @@ function makeDialogue(level) {
     capabilities: ["multi-turn", "multi-step", "tool-use", "policy", "state"],
     multiTurn: true,
     seeded: true,
+    perturb,
+    perturbs: ["paraphrase", "format", "typos"],
     description: `A restock over ${level} user turns against one scenario: the request, then${level >= 2 ? " a change of mind" : ""}${level >= 3 ? ", a hold" : ""}${level >= 4 ? ", and a request the policy caps" : ""} — each turn answered with tools in the same conversation. Scored on the server's end state, the policy, and the final report.`,
     model: labelModel,
     maxRounds: 10, // per user turn
@@ -215,6 +250,13 @@ function makeDialogue(level) {
       scoreNoHarness: (out, ground) => {
         const { ids, total } = parseReport(out);
         return judge(ids, total, ground);
+      },
+      canon: (answer, { structured }) => {
+        if (!structured) { const { ids, total } = parseReport(answer); return canonOf(ids, total); }
+        if (!answer || typeof answer !== "object") return "none";
+        const raw = answer.changed ?? answer.ids ?? [];
+        const ids = (typeof raw === "string" ? raw.split(/[,\s]+/) : Array.isArray(raw) ? raw : []).map((x) => (x && typeof x === "object" ? x.id : x));
+        return canonOf(ids, Number(answer.totalQty ?? answer.total_qty ?? answer.total));
       },
     },
   };

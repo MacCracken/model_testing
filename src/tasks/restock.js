@@ -13,6 +13,7 @@
 import { labelModel } from "../providers/index.js";
 import { BASE, unwrapList } from "./util.js";
 import { summarizeOps } from "../stress.js";
+import { typos } from "../perturb.js";
 
 const STATUS = "reordered";
 const enc = (v) => encodeURIComponent(String(v ?? ""));
@@ -167,15 +168,48 @@ export function parseReport(text) {
   return { ids, total: m ? Number(m[1].replace(/,/g, "")) : NaN };
 }
 
+// The perturbations: the rules in other words, as a numbered list, or with typing errors (the
+// status literal and the endpoint words are never touched). A procedure has one order.
+export function perturb(ctx, kind, seed = 0) {
+  if (kind === "paraphrase") return { ...ctx, wording: "alt", perturbed: kind };
+  if (kind === "format") return { ...ctx, listing: "steps", perturbed: kind };
+  if (kind === "typos") return { ...ctx, typos: (seed >>> 0) || 1, perturbed: kind };
+  return null;
+}
+const PROTECT = [STATUS, "reordered", "totalQty", "scenarios", "items", "confirm", "summary", "history", "price", "reorder", "tickets", "status"];
+
+// The canonical report: the ids changed, sorted, and the total — for agreement across repeats and
+// for consistency under a perturbation.
+function canonOf(ids, total) {
+  return `${[...new Set(ids.map((x) => String(x).trim().toLowerCase()).filter(Boolean))].sort().join(",")}|${Number.isFinite(total) ? total : "?"}`;
+}
+
 function makeRestock(low) {
   const name = `restock${low}`;
-  const rules = (ctx) =>
-    `Scenario id: ${ctx.scenario}. An item needs restocking when its qty is below its min. ` +
-    `For every such item, update it so that qty = its target and status = "${STATUS}" (one update per item; every update returns a ticket). ` +
-    "When all of them are updated, confirm the restock with the complete list of tickets — the server refuses to confirm while any item is still below its minimum. " +
-    "Then report the ids you changed and the total qty across ALL items after your changes, as the server reports it." +
-    (ctx.budget ? ` You have at most ${ctx.budget} requests to this scenario in total — listing, updating, confirming and the summary all count — and every request after that is refused.` : "") +
-    (ctx.stress === "distractors" ? " The scenario also offers per-item history, price updates and a reorder-all shortcut." : "");
+  // The base rules are byte-for-byte what they were; a perturbed ctx says `wording`, `listing` or
+  // `typos`, and the same flags reach the goal an arm gets.
+  const noisy = (ctx, t) => (ctx.typos ? typos(t, ctx.typos, { protect: PROTECT }) : t);
+  const rules = (ctx) => {
+    const budget = ctx.budget ? (ctx.wording === "alt" ? ` Your budget is ${ctx.budget} requests to this scenario all told — every listing, update, confirm and summary counts — and the server refuses anything beyond it.` : ` You have at most ${ctx.budget} requests to this scenario in total — listing, updating, confirming and the summary all count — and every request after that is refused.`) : "";
+    const distract = ctx.stress === "distractors" ? (ctx.wording === "alt" ? " Per-item history, price updates and a reorder-all shortcut are also on offer." : " The scenario also offers per-item history, price updates and a reorder-all shortcut.") : "";
+    if (ctx.listing === "steps") return noisy(ctx,
+      `Scenario id: ${ctx.scenario}.\n` +
+      "1. An item needs restocking when its qty is below its min.\n" +
+      `2. For every such item, update it so that qty = its target and status = "${STATUS}" (one update per item; every update returns a ticket).\n` +
+      "3. When all of them are updated, confirm the restock with the complete list of tickets — the server refuses to confirm while any item is still below its minimum.\n" +
+      "4. Then report the ids you changed and the total qty across ALL items after your changes, as the server reports it." +
+      (budget ? `\n5.${budget}` : "") + (distract ? `\n${budget ? 6 : 5}.${distract}` : ""));
+    if (ctx.wording === "alt") return noisy(ctx,
+      `Scenario id: ${ctx.scenario}. Any item whose qty has dropped under its min is due for restocking. ` +
+      `Bring each such item up to its target qty and mark its status "${STATUS}" — one update per item, and the server hands back a ticket for each. ` +
+      "Once every one of them is done, confirm the restock by submitting the full set of tickets; the server will not confirm while some item is still under its minimum. " +
+      "Finish by reporting which ids you changed and, as the server states it, the total qty over ALL items after your changes." + budget + distract);
+    return noisy(ctx,
+      `Scenario id: ${ctx.scenario}. An item needs restocking when its qty is below its min. ` +
+      `For every such item, update it so that qty = its target and status = "${STATUS}" (one update per item; every update returns a ticket). ` +
+      "When all of them are updated, confirm the restock with the complete list of tickets — the server refuses to confirm while any item is still below its minimum. " +
+      "Then report the ids you changed and the total qty across ALL items after your changes, as the server reports it." + budget + distract);
+  };
   const system = "You are a careful operations agent working an inventory API. Read before you write, use the values the server gives you, and finish with the requested answer.";
 
   return {
@@ -191,25 +225,46 @@ function makeRestock(low) {
     // The synthetic tool loop needs a round per dependent step (models often issue one call at a
     // time), plus room for a second pass after the server refuses an early confirm.
     maxRounds: 2 * low + 8,
+    // The inventory is minted from the trial seed (since 2026-09-16), so every mode and client
+    // restocks the same items and a perturbation is paired on the same inventory.
+    seeded: true,
+    perturb,
+    perturbs: ["paraphrase", "format", "typos"],
 
-    // Each trial gets its own scenario, so trials never share inventory — in parallel included.
+    // Each trial gets its own scenario, so trials never share inventory — in parallel included;
+    // the server takes the trial seed, so the same index mints the same items for everyone.
     // A client run under a stress profile ("…@stress:<profile>") asks the server for that profile.
-    setup: async ({ client } = {}) => {
+    setup: async ({ client, seed } = {}) => {
       const stress = client?.stress ?? null;
-      const s = await api("POST", "/api/scenarios", { low, ...(stress ? { stress } : {}) });
+      const s = await api("POST", "/api/scenarios", { low, ...(Number.isInteger(seed) ? { seed: seed >>> 0 } : {}), ...(stress ? { stress } : {}) });
       return { scenario: s.id, seed: s.seed, items: s.items, low, size: s.items.length, stress: s.stress ?? null, budget: s.budget ?? null };
     },
 
-    goal: (ctx) =>
-      `A webserver runs at ${BASE}. Inventory scenario ${ctx.scenario}: GET /api/scenarios/${ctx.scenario}/items lists the ` +
-      "items as { id, name, qty, min, target, status }. An item needs restocking when qty < min. For every such item, " +
-      `PATCH /api/scenarios/${ctx.scenario}/items/<id> with JSON { "qty": <its target>, "status": "${STATUS}" } — each PATCH ` +
-      `returns a ticket. When every such item is updated, POST /api/scenarios/${ctx.scenario}/confirm with JSON ` +
-      "{ \"tickets\": [all the tickets] } — it answers 409 while any item is still below its minimum. " +
-      `GET /api/scenarios/${ctx.scenario}/summary returns { items, totalQty, low }. Finally report the ids you changed ` +
-      "and totalQty across ALL items after your changes, as the server reports it." +
-      (ctx.budget ? ` You have at most ${ctx.budget} requests to this scenario in total — every endpoint above counts — and every request after that is refused.` : "") +
-      (ctx.stress === "distractors" ? ` GET /api/scenarios/${ctx.scenario}/items/<id>/history, PATCH /api/scenarios/${ctx.scenario}/items/<id>/price { "price" } and POST /api/scenarios/${ctx.scenario}/reorder-all also exist.` : ""),
+    goal: (ctx) => {
+      const budget = ctx.budget ? ` You have at most ${ctx.budget} requests to this scenario in total — every endpoint above counts — and every request after that is refused.` : "";
+      const distract = ctx.stress === "distractors" ? ` GET /api/scenarios/${ctx.scenario}/items/<id>/history, PATCH /api/scenarios/${ctx.scenario}/items/<id>/price { "price" } and POST /api/scenarios/${ctx.scenario}/reorder-all also exist.` : "";
+      if (ctx.listing === "steps") return noisy(ctx,
+        `A webserver runs at ${BASE}. Inventory scenario ${ctx.scenario}.\n` +
+        `1. GET /api/scenarios/${ctx.scenario}/items lists the items as { id, name, qty, min, target, status }. An item needs restocking when qty < min.\n` +
+        `2. For every such item, PATCH /api/scenarios/${ctx.scenario}/items/<id> with JSON { "qty": <its target>, "status": "${STATUS}" } — each PATCH returns a ticket.\n` +
+        `3. When every such item is updated, POST /api/scenarios/${ctx.scenario}/confirm with JSON { "tickets": [all the tickets] } — it answers 409 while any item is still below its minimum.\n` +
+        `4. GET /api/scenarios/${ctx.scenario}/summary returns { items, totalQty, low }. Finally report the ids you changed and totalQty across ALL items after your changes, as the server reports it.` +
+        (budget ? `\n5.${budget}` : "") + (distract ? `\n${budget ? 6 : 5}.${distract}` : ""));
+      if (ctx.wording === "alt") return noisy(ctx,
+        `A webserver runs at ${BASE}. Inventory scenario ${ctx.scenario}: the items — { id, name, qty, min, target, status } — come from GET /api/scenarios/${ctx.scenario}/items. ` +
+        "Any item whose qty has dropped under its min is due for restocking: bring each one up to its target and mark it " +
+        `"${STATUS}" with PATCH /api/scenarios/${ctx.scenario}/items/<id> and JSON { "qty": <its target>, "status": "${STATUS}" }; every PATCH hands back a ticket. ` +
+        `Once every such item is done, POST /api/scenarios/${ctx.scenario}/confirm with JSON { "tickets": [all the tickets] } — the server answers 409 while some item is still under its minimum. ` +
+        `GET /api/scenarios/${ctx.scenario}/summary gives { items, totalQty, low }. Finish by reporting which ids you changed and, as the server states it, totalQty over ALL items after your changes.` + budget + distract);
+      return noisy(ctx,
+        `A webserver runs at ${BASE}. Inventory scenario ${ctx.scenario}: GET /api/scenarios/${ctx.scenario}/items lists the ` +
+        "items as { id, name, qty, min, target, status }. An item needs restocking when qty < min. For every such item, " +
+        `PATCH /api/scenarios/${ctx.scenario}/items/<id> with JSON { "qty": <its target>, "status": "${STATUS}" } — each PATCH ` +
+        `returns a ticket. When every such item is updated, POST /api/scenarios/${ctx.scenario}/confirm with JSON ` +
+        "{ \"tickets\": [all the tickets] } — it answers 409 while any item is still below its minimum. " +
+        `GET /api/scenarios/${ctx.scenario}/summary returns { items, totalQty, low }. Finally report the ids you changed ` +
+        "and totalQty across ALL items after your changes, as the server reports it." + budget + distract);
+    },
 
     // ---- no-harness mode: the control. No tools, so the inventory cannot change. ----
     noHarness: {
@@ -294,9 +349,16 @@ function makeRestock(low) {
         const { ids, total } = parseReport(out);
         return judgeReport(ids, total, ground);
       },
+      canon: (answer, { structured }) => {
+        if (!structured) { const { ids, total } = parseReport(answer); return canonOf(ids, total); }
+        if (!answer || typeof answer !== "object") return "none";
+        const raw = answer.changed ?? answer.ids ?? [];
+        const ids = (typeof raw === "string" ? raw.split(/[,\s]+/) : Array.isArray(raw) ? raw : []).map((x) => (x && typeof x === "object" ? x.id : x));
+        return canonOf(ids, Number(answer.totalQty ?? answer.total_qty ?? answer.total));
+      },
     },
   };
 }
 
 export const restockTasks = [3, 6, 12, 30].map(makeRestock);
-export { tools, distractorTools, toolsFor, schema, STATUS, makeRestock, judgeReport };
+export { tools, distractorTools, toolsFor, schema, STATUS, makeRestock, judgeReport, canonOf };

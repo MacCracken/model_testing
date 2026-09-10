@@ -132,5 +132,12 @@ test("the store stamps `seeded` from the registry on rows that predate it, so th
   indexRuns({ full: true });
   const cells = rawQuery("select task, agreement_pct, flaky from cells where run_id = '20260912T000000-seed' order by task");
   assert.deepEqual(cells.map((c) => [c.task, c.agreement_pct, c.flaky]), [["health", 100, 0], ["wordmath4", null, null]], "four different word problems are not compared; two health trials are");
+  // A restock row from before its scenario took the trial seed carries a random scenario seed in
+  // its ctx: it is not an instance of the seed, so it is not stamped seeded.
+  const older = [1, 2].map((i) => ({ task: "restock3", mode: "harness", client: "c", model: "m", index: i, seed: 100 + i, ctx: { scenario: `scn-${i}`, seed: 55555 + i, items: [] }, correct: true, canon: "sku-1001|10", latencyMs: 1 }));
+  saveRun({ id: "20260912T000001-rest", createdAt: "2026-09-12T00:00:01Z", status: "done", config: { tasks: ["restock3"], modes: ["harness"], clients: ["c"], count: 2 }, rows: older, summary: summarize(older) });
+  indexRuns({ full: true });
+  const rest = rawQuery("select task, agreement_pct from cells where run_id = '20260912T000001-rest'");
+  assert.deepEqual(rest.map((c) => [c.task, c.agreement_pct]), [["restock3", 100]], "two random inventories are one (unseeded) instance for agreement, not two seeds with one trial each");
   closeStore();
 });

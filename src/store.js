@@ -14,9 +14,12 @@ import { summarize } from "./runner.js";
 import { tasks as registeredTasks } from "./tasks/registry.js";
 
 // Rows written before the runner recorded `seeded` get the registry's word, so their agreement is
-// read per instance like everyone else's.
+// read per instance like everyone else's — unless the row's own context says its scenario was
+// minted from another seed than the trial's (restock before 2026-09-16 took a random one), in
+// which case it was not an instance of the seed and stays unseeded.
 const SEEDED = Object.fromEntries(registeredTasks.map((t) => [t.name, t.seeded === true]));
-const withSeeded = (rows) => rows.map((r) => (r.seeded === undefined ? { ...r, seeded: SEEDED[r.task] ?? false } : r));
+const mintedFromSeed = (r) => r.ctx?.seed === undefined || r.ctx?.seed === null || Number(r.ctx.seed) === Number(r.seed);
+export const withSeeded = (rows) => rows.map((r) => (r.seeded === undefined ? { ...r, seeded: (SEEDED[r.task] ?? false) && mintedFromSeed(r) } : r));
 
 const SCHEMA = `
 create table if not exists runs (
