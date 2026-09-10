@@ -148,6 +148,7 @@ function makeDatecalc(level) {
     setup: async ({ seed }) => generate(seed >>> 0, level),
     unanswerable,
     perturb,
+    perturbs: ["paraphrase", "format"],
 
     goal: (ctx) => `${problem(ctx)} Answer with ${format(ctx)}.`,
 

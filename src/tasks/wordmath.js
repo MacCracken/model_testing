@@ -146,6 +146,7 @@ function makeWordmath(steps) {
     setup: async ({ seed }) => generate(seed >>> 0, steps),
     unanswerable,
     perturb,
+    perturbs: ["paraphrase", "format"],
 
     goal: (ctx) => `${problem(ctx)} Give the final number.`,
 

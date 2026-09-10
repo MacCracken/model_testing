@@ -117,6 +117,7 @@ function makeLogicgrid(n) {
 
     setup: async ({ seed }) => generate(seed >>> 0, n),
     perturb,
+    perturbs: ["paraphrase", "order", "format"],
 
     goal: (ctx) => `${problem(ctx)} Answer with one word.`,
 

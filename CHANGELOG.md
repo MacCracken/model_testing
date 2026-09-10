@@ -4,6 +4,60 @@ What shipped, by date. Full measurement tables live in [docs/results.md](docs/re
 forward roadmap is [plan.md](plan.md). Dates are the commit dates; item numbers ([1]–[49]) are the
 roadmap's, stable across the plan, this file and the results.
 
+## 2026-09-15 — abstention and perturbations for the tool and extraction families
+
+### Added
+- **Unanswerable variants for `fanout` and `extract1`** (the first [48] follow-up): under
+  `@abstain`, fanout asks for an item the scenario does not hold — a ghost id minted from the seed
+  in the scenario's own range, which the server answers with 404 — in the tool modes only, since
+  without a tool a guess is a guess either way (a task's `abstainModes` names the modes its
+  variant means something in); extract1 serves the invoice with its number left off (the PO
+  number, the quote reference and the account number stay on it to be mistaken for it), posted to
+  the webserver again so the tool modes fetch what the free-form modes inline, and `remint`
+  rewrites a treated row's documents the same way from its ctx. Each family reads its own natural
+  abstention on top of the generic one (`eval.abstained`, handed the generic reading): no qty for
+  the ghost id — left out, null, "not found", a 404 quoted back — and the invoice number reported
+  as missing (`noValue` in `abstain.js` says what counts); a number for either is the fabrication.
+  The hooks may be async now, and the arms' goal prompt carries the abstain note and the treated
+  schema (a format variant's too) through `goalPrompt`'s last argument.
+- **Perturbations for `fanout`, `follow` and `extract`**: fanout's ids in another order, as a
+  bulleted list, or the ask in other words; follow's ask in other words or its parameters as a
+  block (a chain has one order, so `order` stays unapplied); the extraction documents with the
+  header lines (extract1) or the line items (extract2/3) in another order, in another layout
+  (pipes for padded columns and back, another date style, another label set) or the ask in other
+  words — the statement (extract4) is chronological, so its `order` stays unapplied. `fanout` and
+  `follow` gain a canonical answer so consistency is measured for them; every family declares the
+  kinds its hook can do (`perturbs`), and the task listing (`/api/meta`, `listTasks`) carries
+  `abstain` (the modes) and `perturbs`, so the UI's plan hints come from the tasks instead of a
+  hard-coded list.
+- Tests: 367 (+13: the ghost id and the invoice without its number, deterministic and re-minted;
+  each family's reader on the ways a model can handle the missing thing; the treatment through the
+  runner with the documents posted again and the free-form modes left as minted for fanout; the
+  arms' goal prompt; the listing; every perturbation kind per family with the truth and the base
+  rendering unchanged, and the runner path with consistency).
+
+### Measured (fanout4, fanout8, extract1 under `@abstain`, eight trials per cell; fanout4, follow3, extract1, extract2 under `@perturb`, four trials per cell; seed 2026; tables in docs/results.md)
+- **A 404 is unambiguous: nobody invents a quantity for an item the scenario does not hold.**
+  Both models abstain on all 18 of their unanswerable fanout trials in each tool mode — structured,
+  `answerable: false` with the ghost id left out of the list; free-form, "cannot be determined …
+  not found" or "sku-…: unknown item" — having fetched it and seen the error, and refuse none of
+  the 28 answerable ones.
+- **A missing field is not: gpt-4o-mini passes the purchase-order number off as the invoice
+  number on 12 of 12** unanswerable extract1 trials, in every mode, with `answerable: true` in the
+  structured one; Haiku does so on 5 of 12 (three of them in the free-form tool mode) and
+  otherwise says the number cannot be determined or leaves the field empty. Zero refusals of 60
+  answerable instances; the variant's −12.5 pp pooled (77.8 → 65.3 %, p = 0.03) is the 17
+  fabrications plus one wrong vendor.
+- **The document rewrites move nothing** — header lines or line items in another order, pipes for
+  padded columns with another date style and label set, the ask in other words: 48 of 48 extract1
+  and extract2 answers per model unchanged and right, and the fanout rewrites likewise. **The hop
+  count is what bends**: the run's three changed answers are all follow3 and all the item after
+  two hops instead of three — gpt-4o-mini twice under the reworded ask ("moved 3 times in all"),
+  having fetched all four items in order; Haiku once under the block form ("Hops to follow: 3"),
+  stopping a hop short. Harness-mode consistency: gpt-4o-mini 14/16, 12/12, 16/16 under
+  paraphrase, order, format; Haiku 16/16, 12/12, 15/16. The pooled correctness deltas are within
+  noise.
+
 ## 2026-09-14 (later) — every treatment in the UI
 
 ### Changed

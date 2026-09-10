@@ -77,14 +77,14 @@ export class CodexClient {
     throw new Error("the codex arm only runs structured modes; use a synthetic client for the free-form baseline");
   }
 
-  async runWithTools(prompt, tools, system, { signal, task, mode, ctx = null, skill = null, constraints = null, confidence = null, timeoutMs = this.timeoutMs } = {}) {
+  async runWithTools(prompt, tools, system, { signal, task, mode, ctx = null, skill = null, constraints = null, confidence = null, abstain = null, schema = null, timeoutMs = this.timeoutMs } = {}) {
     // A native skill is the AGENTS.md of the working directory Codex runs in — its own channel for
     // project instructions — so the run gets a scratch directory holding just that file.
     const native = nativeSkill(skill);
     const cwd = native ? mkdtempSync(join(tmpdir(), "hb-codex-")) : this.cwd;
     if (native) writeFileSync(join(cwd, "AGENTS.md"), skillBlock(native));
     const bridge = this.sharedTools ? await startToolBridge(tools ?? []) : null;
-    const goal = goalPrompt(task, mode, prompt, ctx, native ? null : skill, constraints, confidence);
+    const goal = goalPrompt(task, mode, prompt, ctx, native ? null : skill, constraints, confidence, { abstain, schema });
     const spec = bridge ? mcpServerSpec(bridge.url) : null;
     const argv = [
       ...splitCommand(this.command), "exec", "--json", "--ephemeral", "--skip-git-repo-check", "-C", cwd,

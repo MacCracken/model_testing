@@ -509,15 +509,17 @@ function updatePlan() {
     if (effortMode) node.append(el("div", { className: "hint" }, `${effortMode.startsWith("ab") ? "each model also runs at another reasoning effort" : "models run at another reasoning effort"} · translated per provider; the rows record the reasoning that came back · a model that takes no such parameter (OpenAI's non-reasoning models) refuses the request and its rows say so`));
     const confidenceMode = $("#confidence").value;
     if (confidenceMode) node.append(el("div", { className: "hint" }, `${confidenceMode.startsWith("ab") ? "each model also runs asked for a confidence" : "models run asked for a confidence"} · Brier, ECE and the gap are reported`));
+    // Which selected tasks a treatment can touch comes from the task listing (a task's hooks).
     const abstainMode = $("#abstain").value;
     if (abstainMode) {
-      const noAxis = [...state.tasks].filter((n) => !/^(wordmath|tally|datecalc)/.test(n));
-      node.append(el("div", { className: "hint" }, `${abstainMode.startsWith("ab") ? "each model also runs with half the instances unanswerable" : "models run with half the instances unanswerable"}${noAxis.length ? ` · no unanswerable variant for ${noAxis.join(", ")} (unchanged)` : ""}`));
+      const noAxis = [...state.tasks].filter((n) => !taskMeta(n)?.abstain);
+      const someModes = [...state.tasks].filter((n) => { const t = taskMeta(n); return t?.abstain && t.abstain.length < t.modes.length; }).map((n) => `${n} (${taskMeta(n).abstain.join(", ")} only)`);
+      node.append(el("div", { className: "hint" }, `${abstainMode.startsWith("ab") ? "each model also runs with half the instances unanswerable" : "models run with half the instances unanswerable"}${noAxis.length ? ` · no unanswerable variant for ${noAxis.join(", ")} (unchanged)` : ""}${someModes.length ? ` · ${someModes.join(", ")}` : ""}`));
     }
     const perturbMode = $("#perturb").value;
     if (perturbMode) {
       const kind = perturbMode === "ab" ? "paraphrase" : perturbMode.replace(/^ab-/, "");
-      const noAxis = [...state.tasks].filter((n) => !/^(wordmath|tally|datecalc|logicgrid)/.test(n) || (kind === "order" && /^(wordmath|datecalc)/.test(n)));
+      const noAxis = [...state.tasks].filter((n) => !(taskMeta(n)?.perturbs ?? []).includes(kind));
       node.append(el("div", { className: "hint" }, `${perturbMode.startsWith("ab") ? `each model also runs the instances rewritten (${kind})` : `models run the instances rewritten (${kind})`}${noAxis.length ? ` · no ${kind} variant for ${noAxis.join(", ")} (unchanged)` : ""}`));
     }
   }

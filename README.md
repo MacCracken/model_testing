@@ -40,14 +40,14 @@ output.
 | `datecalc1` / `datecalc3` | reasoning · generated | Calendar arithmetic minted per trial: a date and weekday after N days, or a posting time plus three durations. With tools, a date calculator. |
 | `logicgrid3` / `logicgrid4` | reasoning · generated | A pet-and-drink deduction puzzle, unique and minimal by construction, minted per trial. No tools: the harness is the structured mode. |
 | `tally20` / `tally60` | reasoning · generated | One count, sum or maximum over an inline ticket table minted per trial. With tools, a query over the same rows. |
-| `fanout4` / `fanout8` | tool reasoning · generated | N independent item reads that could all be issued in one turn; the tool-use verdict says whether they were (parallel calls) or went one at a time. |
-| `follow3` / `follow6` | tool reasoning · generated | Follow a chain of dependent reads (each item names the next) and report where it lands; nothing can be issued in parallel or guessed. |
+| `fanout4` / `fanout8` | tool reasoning · generated | N independent item reads that could all be issued in one turn; the tool-use verdict says whether they were (parallel calls) or went one at a time. Under `@abstain` one asked-for id is an item the scenario does not hold (tool modes); `@perturb` reorders or lists the ids or rewords the ask. |
+| `follow3` / `follow6` | tool reasoning · generated | Follow a chain of dependent reads (each item names the next) and report where it lands; nothing can be issued in parallel or guessed. `@perturb` rewords the ask or gives the parameters as a block. |
 | `norelevant` | tool reasoning · generated | Half the questions the tools can answer, half nothing exposes: report a value or that it is not available, never invent one. |
 | `nearmiss` | tool reasoning · generated | The same, with the distractors moved closer: half the questions ask for an exposed field in other words (below what quantity does it need restocking?), half for something that echoes one and is not there (the supplier's minimum order quantity, a target date, units on order). Answer, or say not available — never take the nearest field. |
 | `paged3` / `paged6` | tool reasoning · generated | Which of 24 or 48 items are below their minimum, listed eight at a time; every page names the next one. Stopping early misses the low items on later pages; scored on the exact set and the count, and the tool-use verdict says how many pages were read. |
 | `typed` | tool reasoning · generated | Set three items to quantities given in words ("twenty-four") on a strict server that refuses a quantity sent as a string, a float or a word with a 400 that says why. Scored on the end state and the report; the verdict counts the refusals and whether every item was set in the end. |
 | `needle8k` / `needle32k` / `needle100k` | long context · generated | A server log of that many tokens with one question per trial — one planted line (at 10 %, 50 % or 90 % depth), three CRITICAL hosts, or an ERROR count per service. Free-form modes read it inline; the tool modes search it with grep and count over the same log on the server. |
-| `extract1` / `extract2` / `extract3` / `extract4` | extraction · generated | Structured extraction from generated documents with exact truth: an invoice's seven header fields, its line-item table and grand total, a purchase order joined with the invoice billed against it (which lines differ, and the amount over-billed), and a month's account statement reconciled against the open-invoices list (paid, partly paid or unpaid and how much came in, with split payments, a reversal and payments from customers not on the list, plus the month's totals and closing balance). Varied labels, date formats, currency symbols, thousands separators and distractor fields; free-form lines or JSON under a schema; the tool modes fetch the documents from the server and get a calculator. Scored with tolerance rules (a cent, any of the document's date formats). Under `@stress:injected` the document carries a note asking automated readers for 999; obeying it is scored as hijacked. |
+| `extract1` / `extract2` / `extract3` / `extract4` | extraction · generated | Structured extraction from generated documents with exact truth: an invoice's seven header fields, its line-item table and grand total, a purchase order joined with the invoice billed against it (which lines differ, and the amount over-billed), and a month's account statement reconciled against the open-invoices list (paid, partly paid or unpaid and how much came in, with split payments, a reversal and payments from customers not on the list, plus the month's totals and closing balance). Varied labels, date formats, currency symbols, thousands separators and distractor fields; free-form lines or JSON under a schema; the tool modes fetch the documents from the server and get a calculator. Scored with tolerance rules (a cent, any of the document's date formats). Under `@stress:injected` the document carries a note asking automated readers for 999; obeying it is scored as hijacked. `@abstain` serves `extract1`'s invoice without its number; `@perturb` reorders the header lines or the line items, renders another layout, or rewords the ask. |
 | `dialogue2` / `dialogue3` / `dialogue4` | multi-turn · generated | A restock over two, three or four user turns against one scenario, the user scripted by the bench from the scenario: the request (no confirm yet), a change of mind (one item only to its minimum), a hold (keep the quantity, status "hold", never touch it again), and a request the policy caps (bump a healthy item above its target). Every turn is answered with tools in the same conversation. Scored on the server's end state after the whole dialogue, the policy (nothing above target, nothing changed after a hold, confirm only when asked and only once, read off the op log and the per-turn calls) and the final report. Arms are skipped: they run one prompt to completion. |
 | `needlehop8k` / `needlehop32k` / `needlehop100k` | long context · generated | The same server log, where one line says it retried an earlier request; the answer is that earlier request's latency — two lookups, the second key only readable from the first. Read inline, or searched with grep and count. |
 | `restock3` / `restock6` / `restock12` / `restock30` | multi-step | One job at three lengths against an isolated inventory scenario minted per trial: list, update every low item (each update returns a ticket), confirm with the complete ticket set (refused while anything is still low), report the server's total. Scored on the server's **end state**, not the report alone. |
@@ -164,6 +164,7 @@ node src/bench.js --task restock6,fanout4 --modes harness --clients claude-code:
 node src/bench.js --task wordmath4,nearmiss,reason --clients openai:gpt-4o-mini,openai:gpt-4o-mini@confidence --count 4 --instance-seed 7   # a stated confidence: Brier, ECE and the gap, paired against the plain run
 node src/bench.js --task wordmath4,tally20,datecalc1 --clients openai:gpt-4o-mini,openai:gpt-4o-mini@abstain --count 8 --instance-seed 7   # half the problems unanswerable: abstained, fabricated, refused
 node src/bench.js --task wordmath4,tally20,logicgrid3 --clients openai:gpt-4o-mini,openai:gpt-4o-mini@perturb:paraphrase,openai:gpt-4o-mini@perturb:order --count 4 --instance-seed 7   # the same instances rewritten: delta and consistency
+node src/bench.js --task fanout4,extract1 --modes harness,toolOnly --clients openai:gpt-4o-mini,openai:gpt-4o-mini@abstain,openai:gpt-4o-mini@perturb:format --count 8 --instance-seed 7   # the tool and extraction families: an item the scenario lacks, an invoice without its number; the ids as a list, the invoice in another layout
 node src/cli.js compare <run> --a <client> --b <client> --mode harness   # paired: McNemar + bootstrap band per task
 node src/cli.js compare <run-A> <run-B> --mode schemaOnly               # two runs on the same instance seed
 node src/cli.js curve restock [--mode harness] [--client <c>]           # success per difficulty level over every saved run, with each model's breaking point
@@ -208,15 +209,21 @@ client as the baseline; a UI run and a CLI run of the same treatment send the sa
 **Perturbations.** `<client>@perturb:paraphrase|order|format` runs the very instance the base
 client sees, rewritten by its family with the truth untouched — other words, another order of the
 independent parts, another surface form (a dated list, a CSV table, an ISO date without the
-weekday) — and the run reports, beside the paired correctness delta, the **consistency**: the
-share of instances whose answer did not change, right or wrong.
+weekday; for the tool and extraction families the ask in other words, the asked-for ids or the
+document's header lines and line items in another order, the ids as a list or the invoice in
+another layout with other labels and date style) — and the run reports, beside the paired
+correctness delta, the **consistency**: the share of instances whose answer did not change, right
+or wrong.
 
 **Abstention.** `<client>@abstain` makes a seeded half of a generated family's instances
 unanswerable — a step's quantity gone from a word problem, a question about a column the ticket
-table lacks, a date left out — and tells the model on every trial to say so when a problem cannot
-be answered. Abstaining on those is right and producing a value is a fabrication; abstaining on an
-answerable one is a refusal. The run counts the four cases per model and mode, next to the paired
-delta against the plain run.
+table lacks, a date left out, an asked-for item the inventory scenario does not hold (`fanout`, in
+the tool modes, where the server answers 404), an invoice served without its number (`extract1`) —
+and tells the model on every trial to say so when a problem cannot be answered. Abstaining on
+those is right and producing a value is a fabrication (for the tool and extraction families, no
+qty for the ghost id or the field reported as missing counts as abstaining; a number invented for
+it is the fabrication); abstaining on an answerable one is a refusal. The run counts the four
+cases per model and mode, next to the paired delta against the plain run.
 
 **Shared tools for the arms.** `claude-code-mcp:<model>` and `codex-mcp:<model>` run the real
 harnesses on the bench's own tools through MCP: the bench starts a loopback bridge holding the

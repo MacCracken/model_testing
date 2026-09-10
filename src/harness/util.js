@@ -22,17 +22,21 @@ export function nativeSkill(skill) {
   return skill?.how === "native" && skill.text ? skill : null;
 }
 
-export function goalPrompt(task, mode, fallback, ctx = null, skill = null, constraints = null, confidence = null) {
+// `treated.schema` is the schema the synthetic harness was asked for on this trial (a format or
+// abstain variant changes it), preferred over the spec's own; `treated.abstain` is the abstain
+// variant's note, which rides along like the confidence request.
+export function goalPrompt(task, mode, fallback, ctx = null, skill = null, constraints = null, confidence = null, treated = {}) {
   let goal = typeof task?.goal === "function" ? task.goal(ctx ?? {}) : (task?.goal ?? fallback);
   // A confidence variant's request rides along the same way.
   if (typeof confidence === "string" && confidence) goal = `${goal}\n\n${confidence}`;
+  if (typeof treated?.abstain === "string" && treated.abstain) goal = `${goal}\n\n${treated.abstain}`;
   // A constraints variant adds verifiable formatting requirements, the same ones the synthetic
   // harness puts on its prompt.
   if (Array.isArray(constraints) && constraints.length) goal = `${goal}\n\nFormatting requirements — every one of them must be met:\n${constraints.map((c, i) => `${i + 1}. ${c}`).join("\n")}`;
   // A skilled variant of an arm gets the playbook in the prompt (the arm brings its own tools, so
   // "on demand" means preload here; "native" arrives here only when the arm has no own channel).
   if (skill?.text) goal = `${goal}\n\n${skillBlock(skill)}`;
-  const schema = task?.[mode]?.schema;
+  const schema = treated?.schema ?? task?.[mode]?.schema;
   if (!schema) return goal;
   return `${goal}\n\nReturn your final answer as a JSON value that is an instance of this JSON Schema (a value that validates against it — not the schema itself):\n${schemaHint(schema)}\nReply with that JSON value only — no prose, no markdown fences.`;
 }

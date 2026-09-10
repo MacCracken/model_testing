@@ -127,6 +127,7 @@ function makeTally(n) {
     setup: async ({ seed }) => generate(seed >>> 0, n),
     unanswerable,
     perturb,
+    perturbs: ["paraphrase", "order", "format"],
 
     goal: (ctx) => `${problem(ctx)} Give the number.`,
 

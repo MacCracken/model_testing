@@ -190,21 +190,31 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
   the pooled calibration). Browser-safe; served as `/lib/confidence.js`.
 - `src/abstain.js` — abstention as a treatment: `withAbstain(client)` is the `@abstain` variant;
   the runner makes a seeded half (`unanswerableFor(seed)`) of a supporting task's instances
-  unanswerable through the task's `unanswerable(ctx)` hook (wordmath, tally, datecalc), applies
-  `applyAbstain` to the spec (the instruction on every trial; `answerable` and a nullable `answer`
-  on an object schema), and `scoreRecord` gives the generic verdict (`abstentionVerdict`: abstained
-  / fabricated / refused / answered — `abstained()` reads the answer) before the task's own scorer.
-  `abstentionView` counts the four cases per client and mode (`summary.abstention`). A family
-  supports the treatment by exporting `unanswerable(ctx)` and setting it on its tasks; its
-  `toolUse` should accept an unused tool when `ctx.unanswerable`. Browser-safe.
+  unanswerable through the task's `unanswerable(ctx)` hook (wordmath, tally, datecalc; fanout with
+  an id the scenario does not hold, in the tool modes only — `abstainModes` names the modes the
+  variant means something in; extract1 with the invoice number left off the document, posted
+  again), applies `applyAbstain` to the spec (the instruction on every trial; `answerable` and a
+  nullable `answer` on an object schema), and `scoreRecord` gives the generic verdict
+  (`abstentionVerdict`: abstained / fabricated / refused / answered — `abstained()` reads the
+  answer, and a task's own `eval.abstained(answer, { structured, text, ctx, generic })` refines it:
+  fanout takes no qty for the ghost id, extract the field reported as missing, `noValue` deciding
+  what counts) before the task's own scorer. `abstentionView` counts the four cases per client and
+  mode (`summary.abstention`). A family supports the treatment by exporting `unanswerable(ctx)`
+  (async allowed) and setting it on its tasks; its `toolUse` should accept an unused tool when
+  `ctx.unanswerable`. The arms get the note and the treated schema through `goalPrompt`'s last
+  argument (`callOpts.abstain` / `callOpts.schema` from the runner). Browser-safe.
 - `src/perturb.js` — robustness as a treatment: `withPerturb(client, kind)` is the
   `@perturb:paraphrase|order|format` variant; the runner calls the task's `perturb(ctx, kind,
-  seed)` hook after setup (wordmath, tally, datecalc, logicgrid export one; null when the kind
-  has no meaning there, and the row's `perturb.applied` says so). The base rendering must stay
-  byte-for-byte what it was — a hook re-renders from recorded structure (wordmath's `events`,
-  datecalc's `parts`, tally's `query`) rather than changing `generate`. `consistencyOf(base,
-  treat)` in the runner gives, for every treatment's paired delta, the share of paired instances
-  whose canonical answer did not change.
+  seed)` hook after setup (wordmath, tally, datecalc, logicgrid, fanout, follow and extract export
+  one; null when the kind has no meaning there, and the row's `perturb.applied` says so; a task's
+  `perturbs` lists the kinds its hook can do, and the hook may be async — extract posts the
+  rewritten documents again and `remint` honours the ctx's `perturbed` / `unanswerable`). The base
+  rendering must stay byte-for-byte what it was — a hook re-renders from recorded structure
+  (wordmath's `events`, datecalc's `parts`, tally's `query`, extract's generator with another
+  `layout` or a permuted header / row order, fanout's `ids` and the `wording` / `listing` flags its
+  ask reads) rather than changing `generate`. `consistencyOf(base, treat)` in the runner gives,
+  for every treatment's paired delta, the share of paired instances whose canonical answer did not
+  change, so a family in it needs `eval.canon`.
 - `src/constraints.js` — instruction following as a treatment: `withConstraints(client, level)` draws
   one / three / five verifiable requirements from the trial seed (text families for free-form modes,
   JSON-shape families for structured ones), appends them to the prompt (arms: the goal prompt),
@@ -268,6 +278,8 @@ export const task = {
     toolUse,        // optional: ({ toolCalls, toolResults, ctx, rounds }) => { ok, reason } — right tool, right args
                     //   (rounds lets a verdict tell parallel calls from sequential ones)
     needsJudge,     // optional: true when the scorers grade through the judge (explain)
+    abstained,      // optional: (answer, { structured, text, ctx, generic }) => bool — the family's own reading of an
+                    //   abstention under @abstain (the missing thing reported as missing); `generic` is the shared one
     canon,          // optional: (answer, { mode, structured }) => string — the answer's canonical form, for
                     //   agreement across repeated trials; only tasks with fixed truth define one
   },
@@ -289,6 +301,10 @@ export const task = {
   family: "restock", level: 6,             // the family's knob, for difficulty curves (families with a knob only)
   maxRounds: 14,
   skill: "restock",        // optional: the playbook under skills/ a @skill variant loads (default: the task name)
+  unanswerable, abstainModes: ["harness", "toolOnly"],   // optional: the @abstain hook (ctx → ctx, async allowed) and the
+                                                          //   modes it applies in (default: every declared mode)
+  perturb, perturbs: ["paraphrase", "order", "format"],   // optional: the @perturb hook ((ctx, kind, seed) → ctx | null,
+                                                          //   async allowed) and the kinds it can do (default: all three)
 };
 ```
 

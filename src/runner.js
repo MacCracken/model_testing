@@ -11,7 +11,7 @@ import { validateSchema, schemaHint } from "./schema.js";
 import { seedFor, rng } from "./tasks/gen.js";
 import { applyFormat, complied as formatComplied } from "./format.js";
 import { applyConfidence, readConfidence, calibration, calibrationView } from "./confidence.js";
-import { applyAbstain, abstained, abstentionVerdict, abstentionView, unanswerableFor } from "./abstain.js";
+import { applyAbstain, abstained, abstentionVerdict, abstentionView, unanswerableFor, NOTES as ABSTAIN_NOTES } from "./abstain.js";
 
 // Every mode the benchmark knows. `noHarness` vs `harness` is the headline pair; `schemaOnly` and
 // `toolOnly` are the two axes the bundle decomposes into. A task supports a mode by carrying a spec
@@ -118,8 +118,10 @@ export async function scoreRecord(task, record, { judge = null, ctx = record.ctx
   let score;
   if (record.abstain?.applied) {
     // The abstain variant: an unanswerable instance is right when the answer abstains; an
-    // answerable one is scored by the task unless the answer abstained.
-    const did = abstained(parsed, record.answerText);
+    // answerable one is scored by the task unless the answer abstained. A family with its own
+    // reader (the missing thing reported as missing) refines the generic one, which it is handed.
+    const generic = abstained(parsed, record.answerText);
+    const did = typeof task.eval.abstained === "function" ? !!task.eval.abstained(answer, { structured, text: record.answerText ?? "", ctx, generic, mode }) : generic;
     const own = !record.abstain.unanswerable && !did ? await scorer(answer, record.ground, { judge, mode, ctx }) : null;
     score = abstentionVerdict({ unanswerable: !!record.abstain.unanswerable, abstainedAnswer: did, missing: record.abstain.missing, score: own });
     record.abstain.abstention = score.abstention;
@@ -292,17 +294,19 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
     // Per-trial context: a task with `setup` prepares isolated state (an inventory scenario, say),
     // and its prompts, goal, truth and scorers may be functions of it.
     let ctx = typeof task.setup === "function" ? await task.setup({ mode, index, signal, client, seed: instance }) : null;
-    // An abstain variant makes a seeded half of a supporting task's instances unanswerable.
-    if (client.abstain && typeof task.unanswerable === "function" && ctx) {
+    // An abstain variant makes a seeded half of a supporting task's instances unanswerable — in
+    // the modes the family says the variant means something in (`abstainModes`; every declared
+    // mode when it says nothing). The hooks may be async: extract re-posts its rewritten document.
+    if (client.abstain && typeof task.unanswerable === "function" && ctx && (!Array.isArray(task.abstainModes) || task.abstainModes.includes(mode))) {
       record.abstain.applied = true;
       if (unanswerableFor(instance)) {
-        ctx = task.unanswerable(ctx);
+        ctx = await task.unanswerable(ctx, { mode });
         record.abstain.unanswerable = true;
         record.abstain.missing = ctx.missing ?? null;
       }
     }
-    if (client.perturb && typeof task.perturb === "function" && ctx) {
-      const rewritten = task.perturb(ctx, client.perturb, instance);
+    if (client.perturb && typeof task.perturb === "function" && ctx && (!Array.isArray(task.perturbs) || task.perturbs.includes(client.perturb))) {
+      const rewritten = await task.perturb(ctx, client.perturb, instance, { mode });
       if (rewritten) { ctx = rewritten; record.perturb.applied = true; }
     }
     record.ctx = recordedCtx(task, ctx);
@@ -332,7 +336,9 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
     const hasTools = (rspec.tools ?? []).length > 0;
     // A multi-turn spec scripts the user's later turns as a function of the trial context.
     const script = typeof spec.turns === "function" ? spec.turns(ctx ?? {}) : Array.isArray(spec.turns) ? spec.turns : [];
-    const callOpts = { maxRounds: task.maxRounds ?? maxRounds, signal, task, mode, ctx, seed: instance };
+    // An arm builds its own prompt from the task's goal: it gets the treated schema (a format or
+    // abstain variant changed it) and the abstain note the synthetic client's prompt carries.
+    const callOpts = { maxRounds: task.maxRounds ?? maxRounds, signal, task, mode, ctx, seed: instance, schema: rspec.schema ?? null, abstain: record.abstain?.applied ? ABSTAIN_NOTES.structured : null };
 
     let resp;
     if (structured || hasTools) {

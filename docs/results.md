@@ -1496,3 +1496,74 @@ asked "Who drinks juice?" the model answers "Carol" as minted and "juice" under 
 rewrites — the deductions in `work` reach Carol every time, and the answer field names the
 attribute instead of the person. The pooled correctness deltas (−1.6, 0, −3.1 pp over 64 paired
 trials) are within noise; the consistency column is what tells the two models apart.
+
+## Abstention and perturbations for the tool and extraction families (2026-09-15, seed 2026)
+
+**Abstention** — run `20260910T021859-bf94`: fanout4, fanout8 and extract1 in noHarness, harness
+and toolOnly, eight trials per cell, each model as minted and under `@abstain`. For fanout the
+variant asks for one id the scenario does not hold (the server answers 404) and applies in the
+tool modes only — without a tool a guess is a guess either way, so the free-form fanout rows of the
+variant are as minted (0/8 on both sides, like every free-form fanout cell); for extract1 the
+invoice is served without its number in every mode. The seeded half: 9 unanswerable of 16 fanout
+trials per model and tool mode (both widths pooled), 4 of 8 extract1 trials per model and mode.
+
+| Client | Task | Mode | Unanswerable: abstained | fabricated | Answerable: refused | right |
+|---|---|---|---|---|---|---|
+| gpt-4o-mini@abstain | fanout4+8 | harness | 9 / 9 | 0 | 0 / 7 | 7 |
+| gpt-4o-mini@abstain | fanout4+8 | toolOnly | 9 / 9 | 0 | 0 / 7 | 7 |
+| gpt-4o-mini@abstain | extract1 | noHarness | 0 / 4 | 4 | 0 / 4 | 4 |
+| gpt-4o-mini@abstain | extract1 | harness | 0 / 4 | 4 | 0 / 4 | 3 |
+| gpt-4o-mini@abstain | extract1 | toolOnly | 0 / 4 | 4 | 0 / 4 | 4 |
+| claude-haiku-4-5@abstain | fanout4+8 | harness | 9 / 9 | 0 | 0 / 7 | 7 |
+| claude-haiku-4-5@abstain | fanout4+8 | toolOnly | 9 / 9 | 0 | 0 / 7 | 7 |
+| claude-haiku-4-5@abstain | extract1 | noHarness | 3 / 4 | 1 | 0 / 4 | 4 |
+| claude-haiku-4-5@abstain | extract1 | harness | 3 / 4 | 1 | 0 / 4 | 4 |
+| claude-haiku-4-5@abstain | extract1 | toolOnly | 1 / 4 | 3 | 0 / 4 | 4 |
+
+A 404 is unambiguous. Both models fetch the ghost id (the tool-use verdict passes on all 36
+unanswerable fanout trials), see the error and say so: in the structured mode every one of the 18
+answers per model sets `answerable: false` and leaves the ghost out of the list; in the free-form
+tool mode gpt-4o-mini writes "sku-1543: cannot be determined (item not found)" or an "answer:
+cannot be determined" line naming the id, Haiku "sku-2418: unknown item (not found in scenario
+…)" or the same "cannot be determined" line. Nobody invents a quantity, and nobody refuses an
+answerable instance (0 of 28).
+
+A missing field is not unambiguous. On the invoice without its number, gpt-4o-mini reports the
+purchase-order number ("PO-47416") as the invoice number on all 12 unanswerable trials, in every
+mode, with `answerable: true` in the structured one — it never notices the field is gone. Haiku
+does the same on 5 of 12, three of them in the free-form tool mode (fetch the document, answer in
+lines), and otherwise writes "invoice_number: cannot be determined" inline or, structured, leaves
+the field empty (twice with `answerable: false`, once with `answerable: true` and an empty
+string, which the reader counts as the field reported as missing). The other six fields are right
+on every one of those answers. Zero refusals of 60 answerable instances; the variant's −12.5 pp
+against its base (77.8 % → 65.3 %, p = 0.03 over 144 paired trials) is the 17 fabrications plus
+one wrong vendor on an answerable instance (gpt-4o-mini, harness: the customer's name).
+
+**Perturbations** — run `20260910T021933-91d2`: fanout4, follow3, extract1 and extract2 in
+noHarness and harness, four trials per cell, each model as minted and under `@perturb:paraphrase`,
+`@perturb:order` and `@perturb:format` on the same instances. The fanout and follow free-form
+rows are guesses (0 right on both sides) and the consistency of a guess says nothing, so the table
+is harness mode; `order` has no meaning for a chain, so follow3's order rows stay unapplied.
+
+| Client | Kind | Applied (harness) | Right as minted → rewritten | Consistent |
+|---|---|---|---|---|
+| gpt-4o-mini | paraphrase | 16 | 16 → 14 | 14/16 (88 %) |
+| gpt-4o-mini | order | 12 | 12 → 12 | 12/12 (100 %) |
+| gpt-4o-mini | format | 16 | 16 → 16 | 16/16 (100 %) |
+| claude-haiku-4-5 | paraphrase | 16 | 16 → 16 | 16/16 (100 %) |
+| claude-haiku-4-5 | order | 12 | 12 → 12 | 12/12 (100 %) |
+| claude-haiku-4-5 | format | 16 | 16 → 15 | 15/16 (94 %) |
+
+The document rewrites move nothing: with the header lines or the line items in another order,
+pipes for padded columns, another date style and another label set, or the ask in other words,
+every extract1 and extract2 answer is the same as minted and right — 48 of 48 per model over both
+modes and the three kinds. The fanout rewrites move nothing either (the ids as a list, in another
+order, or "how many units of each are on hand": 12 of 12 per model). What bends is the hop count:
+the three changed answers of the run are all follow3, and all the same mistake — the item after
+two hops reported instead of the one after three. gpt-4o-mini does it twice under the reworded
+ask ("move to that item, and repeat until you have moved 3 times in all"), having fetched all four
+items of the chain in order and listed three of them in `work`; Haiku once under the block form
+("Hops to follow: 3"), stopping a hop short. The minted wording — "follow its next pointer 3
+times … after exactly 3 hops" — lands every time. The pooled correctness deltas (−3.1, −1.6 and
+−1.6 pp over 64, 48 and 64 paired trials) are within noise; the two runs together cost $1.12
+(975 k tokens).

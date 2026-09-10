@@ -11,6 +11,7 @@
 // called after the model answers, or a constant for tasks with fixed truth.
 
 import { MODE_NAMES } from "../runner.js";
+import { PERTURB_KINDS } from "../perturb.js";
 import { task as healthTask } from "./health.js";
 import { task as helloTask } from "./hello.js";
 import { task as reasonTask } from "./reason.js";
@@ -64,6 +65,10 @@ export function listTasks() {
     capabilities: t.capabilities ?? [], // what the task measures, for the scorecard
     family: t.family ?? null, // the difficulty family (restock, wordmath, …) and this task's knob value
     level: t.level ?? null,
+    // The treatments the task supports: the modes its abstain variant means something in (null
+    // when it has no unanswerable variant) and the perturbation kinds its hook can do.
+    abstain: typeof t.unanswerable === "function" ? (Array.isArray(t.abstainModes) ? t.abstainModes : MODE_NAMES.filter((m) => !!t[m])) : null,
+    perturbs: typeof t.perturb === "function" ? (Array.isArray(t.perturbs) ? t.perturbs : PERTURB_KINDS) : null,
     source: t.source ?? null, // "public" for an anchor set, with the caveat it carries
     caveat: t.caveat ?? null,
     generated: typeof t.setup === "function" && !!t.seeded,

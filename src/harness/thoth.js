@@ -74,8 +74,8 @@ export class ThothClient {
     throw new Error("the thoth arm only runs structured modes; use a synthetic client for the free-form baseline");
   }
 
-  async runWithTools(prompt, _tools, system, { signal, task, mode, ctx = null, skill = null, constraints = null, confidence = null, timeoutMs = this.timeoutMs } = {}) {
-    const taskText = goalPrompt(task, mode, prompt, ctx, skill, constraints, confidence);
+  async runWithTools(prompt, _tools, system, { signal, task, mode, ctx = null, skill = null, constraints = null, confidence = null, abstain = null, schema = null, timeoutMs = this.timeoutMs } = {}) {
+    const taskText = goalPrompt(task, mode, prompt, ctx, skill, constraints, confidence, { abstain, schema });
 
     const prefix = splitCommand(this.command);
     // Over ssh the remote shell re-parses the argument list, so the task text is single-quoted for it.

@@ -3,14 +3,22 @@
 //
 // `<client>@abstain` runs a family that can mint an unanswerable variant of its instance
 // (`task.unanswerable(ctx)`: wordmath with a quantity missing, tally with a question the table
-// cannot answer, datecalc with the date left out) on a seeded half of its trials as that variant,
-// and tells the model on every trial — answerable or not, so the instruction leaks nothing —
-// that a problem which cannot be answered from what is given should be reported as such. The
-// scoring is then generic: an unanswerable instance is right when the answer abstains and wrong
-// when a value is produced (a fabrication); an answerable one is wrong when the answer abstains
-// (a refusal) and otherwise scored by the task as usual. `abstentionView` counts the four cases
-// per client and mode, and `summarize` pairs the variant with its base like every treatment.
-// Browser-safe: the runner imports it.
+// cannot answer, datecalc with the date left out, fanout with an item the scenario does not hold,
+// extract1 with the invoice number left off the document) on a seeded half of its trials as that
+// variant, and tells the model on every trial — answerable or not, so the instruction leaks
+// nothing — that a problem which cannot be answered from what is given should be reported as
+// such. The scoring is then generic: an unanswerable instance is right when the answer abstains
+// and wrong when a value is produced (a fabrication); an answerable one is wrong when the answer
+// abstains (a refusal) and otherwise scored by the task as usual. `abstentionView` counts the four
+// cases per client and mode, and `summarize` pairs the variant with its base like every treatment.
+//
+// A family whose evidence lives in the environment rather than in the prompt (the scenario-backed
+// tasks) names the modes the variant means something in with `task.abstainModes` — without a tool
+// there is nothing to consult, so a guess is a guess either way — and a family whose natural
+// abstention is "the missing thing reported as missing" (an id with no qty, a field left null)
+// gives `eval.abstained(answer, { structured, text, ctx, generic })` its own reader; the generic
+// one is the fallback and is handed in as `generic`. The hook may be async (extract re-posts the
+// rewritten document to the webserver). Browser-safe: the runner imports it.
 
 import { dice } from "./tasks/gen.js";
 
@@ -90,6 +98,19 @@ export function abstentionView(rows) {
     }
   }
   return out;
+}
+
+// Was a value given for something? The readers of the tool and extraction families use it: an
+// absent, null or empty value, a lone dash, or a phrase of the not-available kind is no value —
+// the missing thing was reported as missing, which is the honest answer, not a fabrication. A
+// number is a value, whatever follows it.
+const NO_VALUE_RE = /^(?:n\/?a\b|none\b|null\b|nil\b|unknown\b|undefined\b|missing\b|absent\b|omitted\b|blank\b|not (?:stated|available|found|provided|given|present|listed|shown|specified|recorded|applicable|determinable|known|included|on |in )|no (?:value|number|invoice number|such item|data|record|such)\b|does not exist|doesn't exist|not exist|cannot be|can't be|could not be|couldn't be|unable to|error\b|[—–-]$|\?$)/i;
+export function noValue(v) {
+  if (v === undefined || v === null) return true;
+  if (typeof v === "number") return Number.isNaN(v);
+  if (typeof v !== "string") return false;
+  const t = v.trim().replace(/^[("\[]+|[.!)"\]]+$/g, "").trim();
+  return t === "" || NO_VALUE_RE.test(t) || ABSTAIN_RE.test(t);
 }
 
 export function describeAbstention(v) {

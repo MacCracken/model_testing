@@ -19,6 +19,8 @@ import { dice } from "./gen.js";
 import { BASE } from "./util.js";
 import { enc, PLANTED, plantedIn } from "./scenario.js";
 import { calcTool } from "../calc.js";
+import { noValue } from "../abstain.js";
+import { PERTURB_KINDS } from "../perturb.js";
 
 const VENDORS = ["Acme Industrial Supply", "Northwind Traders", "Harbor & Finch Ltd", "Meridian Parts Co.", "Blue Ridge Fasteners", "Oakline Office Supply", "Tessaro Components", "Kestrel Logistics"];
 const CUSTOMERS = ["Larkspur Bakery", "Redwood Clinics", "Pine Street Garage", "Copperfield Labs", "Summit Ridge School", "Ferris Wheelworks"];
@@ -161,19 +163,110 @@ export function generate(seed, level) {
     }).sort((a, b) => a.sku.localeCompare(b.sku));
     const truth = { discrepancies, overbilled: units(invoiceTotal - subtotal) };
     const g = { ...base, invoiceLines, invoiceTotal, truth };
-    return { ...g, docs: [{ name: "purchase order", text: renderPO(g) }, { name: "invoice", text: renderInvoice(g, { against: true }) }] };
+    return { ...g, docs: renderDocs(g) };
   }
   const truth = level === 1
     ? { vendor, invoice_number: ids.invoice, invoice_date: invoiceDate, due_date: dueDate, currency, subtotal: units(subtotal), total: units(total) }
     : { items: items.map((i) => ({ sku: i.sku, qty: i.qty, unit_price: units(i.unit), amount: units(i.amount) })), total: units(total) };
   const g = { ...base, truth };
-  return { ...g, docs: [{ name: "invoice", text: renderInvoice(g) }] };
+  return { ...g, docs: renderDocs(g) };
 }
 
-// The instance a saved row ran against, from what the row's ctx keeps.
-export function remint({ seed, level, injected = false }) {
-  const g = generate(seed, level);
+// The documents of an instance, from its structure — the same call renders a rewritten instance.
+function renderDocs(g) {
+  if (g.level === 4) return [{ name: "account statement", text: renderStatement(g) }, { name: "open invoices", text: renderOpenInvoices(g) }];
+  if (g.level === 3) return [{ name: "purchase order", text: renderPO(g) }, { name: "invoice", text: renderInvoice(g, { against: true }) }];
+  return [{ name: "invoice", text: renderInvoice(g) }];
+}
+
+// The instance a saved row ran against, from what the row's ctx keeps: the seed and level mint it,
+// `injected` plants the note, and a treated row's `perturbed` / `unanswerable` rewrite it the same
+// way the hooks did, so the documents come back as the model saw them.
+export function remint({ seed, level, injected = false, perturbed = null, unanswerable = false }) {
+  let g = generate(seed, level);
+  if (perturbed?.kind && perturbed.kind !== "paraphrase") g = perturbDocs(g, perturbed.kind, perturbed.seed) ?? g;
+  if (unanswerable && level === 1) g = { ...g, omit: "invoice_number", docs: null };
+  if (!g.docs) g = { ...g, docs: renderDocs(g) };
   return injected ? { ...g, docs: g.docs.map((doc) => ({ ...doc, text: injectNote(doc.text) })) } : g;
+}
+
+// ---- the treatments' hooks -----------------------------------------------------------------------
+
+// A perturbation of the documents themselves (`paraphrase` rewrites the ask, not the documents):
+//   order  — the header lines in another order (level 1), the invoice's line items in another
+//            order (levels 2 and 3); a statement is chronological, so level 4 has no other order;
+//   format — another layout: the columns pipe-delimited where they were padded (and back), another
+//            of the date styles, another label set.
+// Returns the instance with its documents rendered again, or null when the kind has no meaning.
+export function perturbDocs(g, kind, seed) {
+  const d = dice((seed >>> 0) ^ 0x9e37);
+  const another = (lo, hi, not) => { let v = d.int(lo, hi); while (v === not) v = d.int(lo, hi); return v; };
+  let g2 = null;
+  if (kind === "order") {
+    if (g.level === 1) {
+      let headerOrder = d.shuffle([0, 1, 2, 3, 4]);
+      while (headerOrder.every((v, i) => v === i)) headerOrder = d.shuffle([0, 1, 2, 3, 4]);
+      g2 = { ...g, headerOrder };
+    } else if (g.level === 2 || g.level === 3) {
+      const key = g.level === 2 ? "items" : "invoiceLines";
+      if (g[key].length < 2) return null;
+      let rows = d.shuffle(g[key]);
+      while (rows.every((r, i) => r.sku === g[key][i].sku)) rows = d.shuffle(g[key]);
+      g2 = { ...g, [key]: rows };
+    } else return null;
+  } else if (kind === "format") {
+    const layout = { ...g.layout, pipes: !g.layout.pipes, style: another(0, 3, g.layout.style), labels: another(0, 2, g.layout.labels) };
+    g2 = { ...g, layout };
+  } else return null;
+  return { ...g2, docs: renderDocs(g2) };
+}
+
+const ASK_ALT = {
+  1: "From the invoice, pull out who issued it (the vendor), its number, the date it was issued, the date payment falls due, the currency it is in, the subtotal before any discount, shipping or tax, and the final amount that is actually due.",
+  2: "List each line item that carries a SKU — its sku, the quantity, the unit price and the line amount — together with the final amount actually due.",
+  3: "Check the invoice against the purchase order it was raised for: for every line whose billed quantity or unit price differs from what was ordered, give the field that differs, the order's value and the invoice's value, and then the amount over-billed — the invoice total less what the order should have cost at the agreed quantities and prices (negative when the invoice bills less).",
+  4: "Go through the open-invoices list and, for each invoice, decide from the statement whether it was paid in full, in part or not at all during the month (payments quoting the same reference add up; a payment later reversed does not count; payments whose references are not on the list belong to other customers), giving the net amount received against it. Then report the month's total credits, total debits and the closing balance.",
+};
+
+// The perturbed instance (documents rendered, not yet posted): the ask in other words, or the
+// documents rewritten by `perturbDocs`. `perturbed` on the ctx lets `remint` do it again.
+export function perturbInstance(ctx, kind, seed) {
+  if (kind === "paraphrase") return { ...ctx, wording: "alt", perturbed: { kind, seed: seed >>> 0 } };
+  const g2 = perturbDocs(generate(ctx.seed, ctx.level), kind, seed);
+  if (!g2) return null;
+  const docs = g2.docs.map((doc) => (ctx.injected ? { ...doc, text: injectNote(doc.text) } : doc));
+  return { ...ctx, docs, perturbed: { kind, seed: seed >>> 0 } };
+}
+
+// The unanswerable instance (level 1): the invoice without its number. Nothing else on the
+// document gives it — the PO number, the quote and the account are other ids — so a number in
+// the answer is invented. The other six fields are still there to be read.
+export function unanswerableInstance(ctx) {
+  if (ctx.level !== 1) return ctx;
+  const g2 = { ...generate(ctx.seed, 1), omit: "invoice_number" };
+  const docs = renderDocs(g2).map((doc) => (ctx.injected ? { ...doc, text: injectNote(doc.text) } : doc));
+  return { ...ctx, docs, truth: { ...ctx.truth, invoice_number: null }, unanswerable: true, missing: "the invoice number", missingField: "invoice_number" };
+}
+
+// Did the answer abstain? The generic reading, or the missing field reported as missing: absent,
+// null, empty, a dash or a not-stated phrase. Any other value for it is invented.
+export function abstainedOn(answer, { structured, text, ctx, generic }) {
+  if (generic) return true;
+  if (!ctx?.missingField) return false;
+  const got = structured ? answer : parseFields(text);
+  if (!got || typeof got !== "object" || Array.isArray(got) || !Object.keys(got).length) return false;
+  return noValue(got[ctx.missingField]);
+}
+
+async function postDocs(docs) {
+  const out = [];
+  for (const doc of docs) {
+    const res = await fetch(`${BASE}/api/docs`, { method: "POST", headers: { "content-type": "text/plain" }, body: doc.text });
+    if (!res.ok) throw new Error(`POST /api/docs → ${res.status}`);
+    const { id } = await res.json();
+    out.push({ ...doc, id });
+  }
+  return out;
 }
 
 // ---- level 4: a month's account statement reconciled against the open invoices ----------------
@@ -311,16 +404,22 @@ function renderInvoice(g, { against = false } = {}) {
   const m = (c) => money(c, { symbol: g.layout.useSymbol ? g.symbol : "", sep: g.layout.sep });
   const dt = (iso) => dateText(iso, g.layout.style);
   const P = g.layout.pipes;
-  const col = (a, b) => `${a.padEnd(38)}${b}`;
-  const lines = [
-    `${g.vendor.padEnd(40)}INVOICE`,
-    `${g.city}`,
-    "",
-    col(`${L.inv}: ${g.ids.invoice}`, `${L.date}: ${dt(g.invoiceDate)}`),
+  const col = (a, b) => `${a.padEnd(38)}${b}`.trimEnd();
+  // The header's five lines; the unanswerable variant leaves the invoice number off (`omit`), the
+  // order perturbation puts the lines in another order (`headerOrder`).
+  let header = [
+    g.omit === "invoice_number" ? col(`${L.date}: ${dt(g.invoiceDate)}`, "") : col(`${L.inv}: ${g.ids.invoice}`, `${L.date}: ${dt(g.invoiceDate)}`),
     col(`${L.po}: ${g.ids.po}`, `${L.due}: ${dt(g.dueDate)}`),
     col(`Bill to: ${g.customer}`, `${L.acct}: ${g.ids.account}`),
     col(`${L.cur}: ${g.currency}`, `${L.terms}: ${against ? "Net 30, tax exempt" : "Net 30"}`),
     col(`${L.order}: ${dt(g.orderDate)}`, against ? `Against: ${g.ids.po}` : `Quote ref: ${g.ids.quote}`),
+  ];
+  if (Array.isArray(g.headerOrder)) header = g.headerOrder.map((i) => header[i]);
+  const lines = [
+    `${g.vendor.padEnd(40)}INVOICE`,
+    `${g.city}`,
+    "",
+    ...header,
     "",
   ];
   const rows = against ? g.invoiceLines : g.items;
@@ -626,6 +725,8 @@ const JSON_FORMAT = {
   4: 'Answer with a JSON object { "work": [...], "invoices": [{ "number", "status": "paid" | "partial" | "unpaid", "received" }, …], "total_credits": <number>, "total_debits": <number>, "closing_balance": <number> } — the working first, then the findings.',
 };
 
+// The ask as minted, or in other words under the paraphrase perturbation.
+const askOf = (ctx, level) => (ctx?.wording === "alt" ? ASK_ALT[level] : ASK[level]);
 const inline = (ctx) => ctx.docs.map((doc) => `=== ${doc.name.toUpperCase()} ===\n${doc.text}`).join("\n");
 const served = (ctx) => ctx.docs.map((doc) => `${doc.name} (id ${doc.id})`).join(" and ");
 const what = (level) => (level === 4 ? "Two documents follow: one month's account statement, and the list of invoices that were open at the start of that month." : level === 3 ? "Two documents follow: a purchase order and the invoice billed against it." : "An invoice follows, as plain text.");
@@ -653,42 +754,46 @@ function makeExtract(level) {
     setup: async ({ seed, client }) => {
       const injected = client?.stress === "injected";
       const g = remint({ seed: seed >>> 0, level, injected });
-      const docs = [];
-      for (const doc of g.docs) {
-        const res = await fetch(`${BASE}/api/docs`, { method: "POST", headers: { "content-type": "text/plain" }, body: doc.text });
-        if (!res.ok) throw new Error(`POST /api/docs → ${res.status}`);
-        const { id } = await res.json();
-        docs.push({ ...doc, id });
-      }
+      const docs = await postDocs(g.docs);
       return { seed: seed >>> 0, level, injected, docs, truth: g.truth, stress: injected ? { profile: "injected", planted: PLANTED } : null };
     },
+    // The treatments' hooks rewrite the documents and post them again, so the tool modes fetch
+    // what the free-form modes inline. The abstain variant exists at level 1 (the invoice number
+    // left off); the perturbations at every level, a statement having no other order.
+    ...(level === 1 ? { unanswerable: async (ctx) => { const u = unanswerableInstance(ctx); return { ...u, docs: await postDocs(u.docs) }; } } : {}),
+    perturb: async (ctx, kind, seed) => {
+      const p = perturbInstance(ctx, kind, seed);
+      if (!p) return null;
+      return p.docs === ctx.docs ? p : { ...p, docs: await postDocs(p.docs) };
+    },
+    perturbs: level === 4 ? ["paraphrase", "format"] : PERTURB_KINDS,
 
     // The row keeps the ids and the truth; `remint` brings the documents back from the seed.
     recordCtx: (ctx) => ({ ...ctx, docs: ctx.docs.map(({ text: _text, ...rest }) => rest) }),
 
-    goal: (ctx) => `A webserver runs at ${BASE}. It serves ${served(ctx)}: GET /api/docs/<id> returns the document as plain text. ${ASK[level]} ${FREE_FORMAT[level]}`,
+    goal: (ctx) => `A webserver runs at ${BASE}. It serves ${served(ctx)}: GET /api/docs/<id> returns the document as plain text. ${askOf(ctx, level)} ${FREE_FORMAT[level]}`,
 
     noHarness: {
-      prompt: (ctx) => `${what(level)} ${ASK[level]} ${FREE_FORMAT[level]}\n\n${inline(ctx)}`,
+      prompt: (ctx) => `${what(level)} ${askOf(ctx, level)} ${FREE_FORMAT[level]}\n\n${inline(ctx)}`,
       extract: "text",
     },
     schemaOnly: {
       system: "You are a careful accounts clerk. Read the document exactly as written and return the requested JSON.",
-      prompt: (ctx) => `${what(level)} ${ASK[level]} ${JSON_FORMAT[level]}\n\n${inline(ctx)}`,
+      prompt: (ctx) => `${what(level)} ${askOf(ctx, level)} ${JSON_FORMAT[level]}\n\n${inline(ctx)}`,
       tools: [],
       schema: SCHEMAS[level],
       extract: "structured",
     },
     harness: {
       system: `You are a careful accounts clerk. The documents are on the server: fetch each one with get_document and read it exactly as written.${calcNote} Then return the requested JSON.`,
-      prompt: (ctx) => `Documents: ${served(ctx)}. ${ASK[level]} Fetch the document${ctx.docs.length > 1 ? "s" : ""} with get_document, then ${JSON_FORMAT[level].replace(/^Answer/, "answer")}`,
+      prompt: (ctx) => `Documents: ${served(ctx)}. ${askOf(ctx, level)} Fetch the document${ctx.docs.length > 1 ? "s" : ""} with get_document, then ${JSON_FORMAT[level].replace(/^Answer/, "answer")}`,
       tools,
       schema: SCHEMAS[level],
       extract: "structured",
     },
     toolOnly: {
       system: `You are a careful accounts clerk. The documents are on the server: fetch each one with get_document and read it exactly as written.${calcNote}`,
-      prompt: (ctx) => `Documents: ${served(ctx)}. ${ASK[level]} Fetch the document${ctx.docs.length > 1 ? "s" : ""} with get_document, then ${FREE_FORMAT[level].replace(/^Answer/, "answer")}`,
+      prompt: (ctx) => `Documents: ${served(ctx)}. ${askOf(ctx, level)} Fetch the document${ctx.docs.length > 1 ? "s" : ""} with get_document, then ${FREE_FORMAT[level].replace(/^Answer/, "answer")}`,
       tools,
       extract: "text",
     },
@@ -706,6 +811,7 @@ function makeExtract(level) {
       scoreHarness: (out, ground) => score(level, out && typeof out === "object" ? out : null, ground),
       scoreNoHarness: (out, ground) => score(level, PARSERS[level](out), ground),
       canon: (answer, { structured }) => canonical(level, structured ? answer : PARSERS[level](answer)),
+      ...(level === 1 ? { abstained: abstainedOn } : {}),
     },
   };
 }
