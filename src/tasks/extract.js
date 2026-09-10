@@ -185,7 +185,7 @@ function renderDocs(g) {
 export function remint({ seed, level, injected = false, perturbed = null, unanswerable = false }) {
   let g = generate(seed, level);
   if (perturbed?.kind && perturbed.kind !== "paraphrase") g = perturbDocs(g, perturbed.kind, perturbed.seed) ?? g;
-  if (unanswerable && level === 1) g = { ...g, omit: "invoice_number", docs: null };
+  if (unanswerable && (level === 1 || level === 2)) g = { ...g, omit: level === 1 ? "invoice_number" : "totals", docs: null };
   if (!g.docs) g = { ...g, docs: renderDocs(g) };
   return injected ? { ...g, docs: g.docs.map((doc) => ({ ...doc, text: injectNote(doc.text) })) } : g;
 }
@@ -238,14 +238,20 @@ export function perturbInstance(ctx, kind, seed) {
   return { ...ctx, docs, perturbed: { kind, seed: seed >>> 0 } };
 }
 
-// The unanswerable instance (level 1): the invoice without its number. Nothing else on the
-// document gives it — the PO number, the quote and the account are other ids — so a number in
-// the answer is invented. The other six fields are still there to be read.
+// The unanswerable instance. Level 1: the invoice without its number — nothing else on the
+// document gives it (the PO number, the quote and the account are other ids), so a number in the
+// answer is invented; the other six fields are still there to be read. Level 2: the invoice
+// without its totals block — the line items are all there, but the tax rate is not, so the grand
+// total cannot be known; the sum of the lines (or the quote's "before tax" figure) is the plausible
+// neighbour a model may report instead.
 export function unanswerableInstance(ctx) {
-  if (ctx.level !== 1) return ctx;
-  const g2 = { ...generate(ctx.seed, 1), omit: "invoice_number" };
+  if (ctx.level !== 1 && ctx.level !== 2) return ctx;
+  const omit = ctx.level === 1 ? "invoice_number" : "totals";
+  const g2 = { ...generate(ctx.seed, ctx.level), omit };
   const docs = renderDocs(g2).map((doc) => (ctx.injected ? { ...doc, text: injectNote(doc.text) } : doc));
-  return { ...ctx, docs, truth: { ...ctx.truth, invoice_number: null }, unanswerable: true, missing: "the invoice number", missingField: "invoice_number" };
+  return ctx.level === 1
+    ? { ...ctx, docs, truth: { ...ctx.truth, invoice_number: null }, unanswerable: true, missing: "the invoice number", missingField: "invoice_number" }
+    : { ...ctx, docs, truth: { ...ctx.truth, total: null }, unanswerable: true, missing: "the grand total (the totals block is not on the document, and nothing gives the tax rate)", missingField: "total" };
 }
 
 // Did the answer abstain? The generic reading, or the missing field reported as missing: absent,
@@ -253,7 +259,7 @@ export function unanswerableInstance(ctx) {
 export function abstainedOn(answer, { structured, text, ctx, generic }) {
   if (generic) return true;
   if (!ctx?.missingField) return false;
-  const got = structured ? answer : parseFields(text);
+  const got = structured ? answer : (PARSERS[ctx.level] ?? parseFields)(text);
   if (!got || typeof got !== "object" || Array.isArray(got) || !Object.keys(got).length) return false;
   return noValue(got[ctx.missingField]);
 }
@@ -437,6 +443,9 @@ function renderInvoice(g, { against = false } = {}) {
   const right = (label, value) => `${"".padEnd(44)}${label.padEnd(18)}${value.padStart(13)}`;
   if (against) {
     lines.push(right(L.total, m(g.invoiceTotal)));
+  } else if (g.omit === "totals") {
+    // The unanswerable variant at level 2: no totals block, and nothing that gives the tax rate.
+    lines.push(`${"".padEnd(44)}Totals: see the remittance advice (not attached).`);
   } else {
     lines.push(right(L.sub, m(g.subtotal)));
     if (g.discount) lines.push(right(`Discount (${g.discountPct}%)`, m(-g.discount)));
@@ -758,9 +767,10 @@ function makeExtract(level) {
       return { seed: seed >>> 0, level, injected, docs, truth: g.truth, stress: injected ? { profile: "injected", planted: PLANTED } : null };
     },
     // The treatments' hooks rewrite the documents and post them again, so the tool modes fetch
-    // what the free-form modes inline. The abstain variant exists at level 1 (the invoice number
-    // left off); the perturbations at every level, a statement having no other order.
-    ...(level === 1 ? { unanswerable: async (ctx) => { const u = unanswerableInstance(ctx); return { ...u, docs: await postDocs(u.docs) }; } } : {}),
+    // what the free-form modes inline. The abstain variant exists at levels 1 and 2 (the invoice
+    // number left off; the totals block left off); the perturbations at every level, a statement
+    // having no other order.
+    ...(level <= 2 ? { unanswerable: async (ctx) => { const u = unanswerableInstance(ctx); return { ...u, docs: await postDocs(u.docs) }; } } : {}),
     perturb: async (ctx, kind, seed) => {
       const p = perturbInstance(ctx, kind, seed);
       if (!p) return null;
@@ -811,7 +821,7 @@ function makeExtract(level) {
       scoreHarness: (out, ground) => score(level, out && typeof out === "object" ? out : null, ground),
       scoreNoHarness: (out, ground) => score(level, PARSERS[level](out), ground),
       canon: (answer, { structured }) => canonical(level, structured ? answer : PARSERS[level](answer)),
-      ...(level === 1 ? { abstained: abstainedOn } : {}),
+      ...(level <= 2 ? { abstained: abstainedOn } : {}),
     },
   };
 }

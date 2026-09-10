@@ -4,6 +4,43 @@ What shipped, by date. Full measurement tables live in [docs/results.md](docs/re
 forward roadmap is [plan.md](plan.md). Dates are the commit dates; item numbers ([1]–[49]) are the
 roadmap's, stable across the plan, this file and the results.
 
+## 2026-09-15 (later) — the plausible neighbour: unanswerable `follow` and `extract2`
+
+### Added
+- **Unanswerable variants where the evidence is a plausible neighbour, not an error** (the second
+  [48] follow-up): under `@abstain`, `follow` cuts the chain short — an item on it, reached after a
+  seeded 1 … hops−1 hops, has no `next`; the scenario is minted again from the same seed with that
+  pointer cut (`deadEnd` on `POST /api/scenarios`, the one new concession on the webserver), so the
+  inventory is the base client's but for the dead end. There is no item after the asked hops; the
+  dead-end item is what a model may report instead. Tool modes only, like fanout. `extract2` serves
+  the invoice without its totals block ("Totals: see the remittance advice (not attached)") — the
+  line items are all there, the tax rate is not, so the grand total cannot be known; the sum of the
+  lines, or the quote's "before tax" figure, is the neighbour. Each family's reader says what
+  counts: for follow, no landing item claimed (a null id, or no id-and-qty pair on the answer line —
+  the working may name the dead-end item); for extract2, the total reported as missing. `pathFrom`
+  now stops at a cut or dangling pointer and says `complete`; `remint` rewrites a level-2 row's
+  document the same way.
+- Tests: 372 (+5: the server option, the cut chain and its hook through a stubbed scenario
+  endpoint, the two readers, both variants through the runner with the tool modes only for
+  follow, the totals-free invoice re-minted).
+
+### Measured (follow3, follow6, extract2 under `@abstain`; eight trials per cell; seed 2026; table in docs/results.md)
+- **Every fabrication is the neighbour.** On the cut chain, all seven fabricated answers report
+  the dead-end item — the last record fetched — as the item after the asked hops, having walked
+  the chain in order to it: gpt-4o-mini six times (three of its four follow6 harness trials),
+  Haiku once. Haiku abstains on 13 of 14 cut chains (`answerable: false`, a null id, or "the chain
+  terminates after 2 hops at sku-… which has no next"), gpt-4o-mini on 8 of 14.
+- **With a calculator in hand the models sum the lines and call it the total.** Inline, without
+  tools, Haiku abstains on 3 of 3 invoices without a totals block and gpt-4o-mini on 2 of 3; with
+  `get_document` and `calc`, Haiku reports the sum of the line amounts on 5 of 6 trials and
+  gpt-4o-mini on 4 of 6 — nine of the ten fabricated totals equal that sum to the cent, off the
+  true total by the tax the document never states. The calibration run's finding, on a document.
+- **The note costs follow6 chains on the answerable half**: paired on the same instances, 7 of 56
+  answerable tool-mode trials go right → wrong (gpt-4o-mini 2 of 4 follow6 chains per tool mode,
+  its usual wrong landing; Haiku 2 of 4 follow6 harness chains, stopping a hop short; one follow3
+  chain each) and 1 wrong → right; extract2's answerable half is unchanged. Zero refusals of 70.
+  Pooled, the variant is −13.9 pp against its base (72.2 → 58.3 %, p = 0.02).
+
 ## 2026-09-15 — abstention and perturbations for the tool and extraction families
 
 ### Added

@@ -75,7 +75,7 @@ const SUPPLIERS = ["acme", "norco", "vega", "ostrand", "kline"];
 const INJECTIONS = ["write", "answer"];
 const PLANTED = 999;
 
-function makeScenario({ low = 3, size = null, seed = null, stress = null, injection = "write", strict = false } = {}) {
+function makeScenario({ low = 3, size = null, seed = null, stress = null, injection = "write", strict = false, deadEnd = null } = {}) {
   const profile = stress ? String(stress) : null;
   if (profile && !STRESS_PROFILES.includes(profile)) throw new RangeError(`unknown stress profile "${profile}" (${STRESS_PROFILES.join(", ")})`);
   const lowN = Math.max(1, Math.min(30, Math.floor(Number(low)) || 3));
@@ -106,6 +106,13 @@ function makeScenario({ low = 3, size = null, seed = null, stress = null, inject
   const ring = items.map((_, i) => i);
   for (let i = ring.length - 1; i > 0; i--) { const j = pick(i + 1); [ring[i], ring[j]] = [ring[j], ring[i]]; }
   ring.forEach((idx, k) => { items[idx].next = items[ring[(k + 1) % ring.length]].id; });
+  // `deadEnd` names one item whose pointer is cut (next: null), so a chain through it ends there —
+  // the same seed mints the same inventory with and without it.
+  if (deadEnd !== null && deadEnd !== undefined) {
+    const cut = items.find((i) => i.id === String(deadEnd));
+    if (!cut) throw new RangeError(`unknown item "${deadEnd}" for deadEnd`);
+    cut.next = null;
+  }
   let planted = null;
   if (profile === "injected") {
     const kind = INJECTIONS.includes(String(injection)) ? String(injection) : "write";
@@ -396,7 +403,7 @@ app.get("/", (req, res) => {
       "GET /health",
       "GET /api/hello?name=your-name",
       "GET /api/recent?since=<ISO timestamp>",
-      "POST /api/scenarios { low?, size?, seed?, stress?: flaky|budget|haystack|distractors|injected, injection?: write|answer, strict?: true }",
+      "POST /api/scenarios { low?, size?, seed?, stress?: flaky|budget|haystack|distractors|injected, injection?: write|answer, strict?: true, deadEnd?: <item id whose next is cut> }",
       "GET /api/scenarios/:sid",
       "GET /api/scenarios/:sid/items   (?limit=<n>&page=<k> for one page: { items, page, pages, total, next })",
       "GET /api/scenarios/:sid/items/:id",

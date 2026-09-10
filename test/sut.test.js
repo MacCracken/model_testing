@@ -28,6 +28,20 @@ test("scenarios: seeded creation is reproducible; low count and size hold", asyn
   assert.equal(big.data.items.filter((i) => i.qty < i.min).length, 12);
 });
 
+test("scenarios: deadEnd cuts one item's next pointer and leaves the seeded inventory otherwise the same; an unknown item is a 400", async () => {
+  const plain = (await j("POST", "/api/scenarios", { low: 3, seed: 42 })).data;
+  const cut = plain.items[2].id;
+  const r = await j("POST", "/api/scenarios", { low: 3, seed: 42, deadEnd: cut });
+  assert.equal(r.status, 201);
+  assert.deepEqual(r.data.items.map((i) => ({ ...i, next: i.id === cut ? "(cut)" : i.next })), plain.items.map((i) => ({ ...i, next: i.id === cut ? "(cut)" : i.next })));
+  assert.equal(r.data.items.find((i) => i.id === cut).next, null);
+  assert.equal(r.data.items.filter((i) => i.next === null).length, 1);
+  assert.equal((await j("GET", `/api/scenarios/${r.data.id}/items/${cut}`)).data.next, null, "served that way too");
+  const bad = await j("POST", "/api/scenarios", { low: 3, seed: 42, deadEnd: "sku-0000" });
+  assert.equal(bad.status, 400);
+  assert.match(bad.data.error, /unknown item "sku-0000" for deadEnd/);
+});
+
 test("stress profiles: flaky fails once per call site, budget refuses after low + 5, haystack is 60 wide, distractors gate their endpoints", async () => {
   assert.equal((await j("POST", "/api/scenarios", { low: 2, stress: "nope" })).status, 400);
 

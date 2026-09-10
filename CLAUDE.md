@@ -191,14 +191,15 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
 - `src/abstain.js` — abstention as a treatment: `withAbstain(client)` is the `@abstain` variant;
   the runner makes a seeded half (`unanswerableFor(seed)`) of a supporting task's instances
   unanswerable through the task's `unanswerable(ctx)` hook (wordmath, tally, datecalc; fanout with
-  an id the scenario does not hold, in the tool modes only — `abstainModes` names the modes the
-  variant means something in; extract1 with the invoice number left off the document, posted
-  again), applies `applyAbstain` to the spec (the instruction on every trial; `answerable` and a
+  an id the scenario does not hold and follow with the chain cut short by a scenario minted again
+  with `deadEnd`, both in the tool modes only — `abstainModes` names the modes the variant means
+  something in; extract1 with the invoice number left off the document and extract2 with the
+  totals block left off, posted again), applies `applyAbstain` to the spec (the instruction on every trial; `answerable` and a
   nullable `answer` on an object schema), and `scoreRecord` gives the generic verdict
   (`abstentionVerdict`: abstained / fabricated / refused / answered — `abstained()` reads the
   answer, and a task's own `eval.abstained(answer, { structured, text, ctx, generic })` refines it:
-  fanout takes no qty for the ghost id, extract the field reported as missing, `noValue` deciding
-  what counts) before the task's own scorer. `abstentionView` counts the four cases per client and
+  fanout takes no qty for the ghost id, follow no landing item claimed on the answer line, extract
+  the field reported as missing, `noValue` deciding what counts) before the task's own scorer. `abstentionView` counts the four cases per client and
   mode (`summary.abstention`). A family supports the treatment by exporting `unanswerable(ctx)`
   (async allowed) and setting it on its tasks; its `toolUse` should accept an unused tool when
   `ctx.unanswerable`. The arms get the note and the treated schema through `goalPrompt`'s last
@@ -414,7 +415,8 @@ server actually served (`recentGreetings` in `harness/util.js`), and the **inven
 update, a confirm that is refused while anything is still low, optional stress profiles (flaky,
 budget, haystack, distractors, injected), a paged listing (`?limit=&page=` → `{ items, page, pages,
 total, next }`, for `paged`), a `strict` option that refuses a `qty` or `status` of the wrong JSON
-type with a 400 that says which (for `typed`), and `GET /api/scenarios/:sid` as the end state a
+type with a 400 that says which (for `typed`), a `deadEnd` option that cuts one item's `next`
+pointer (for `follow`'s unanswerable variant), and `GET /api/scenarios/:sid` as the end state a
 trial is scored on, op log included; and the **logs** (`POST /api/logs` as text, `GET /api/logs/:id?grep=`,
 `…/count`) the `needle` family searches, and the **documents** (`POST /api/docs` as text,
 `GET /api/docs/:id` as text/plain) the `extract` family fetches. `test/sut.test.js` pins that contract in-process. Every run (CLI or web) is saved to `results/`, which is gitignored along

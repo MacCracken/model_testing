@@ -1567,3 +1567,61 @@ items of the chain in order and listed three of them in `work`; Haiku once under
 times … after exactly 3 hops" — lands every time. The pooled correctness deltas (−3.1, −1.6 and
 −1.6 pp over 64, 48 and 64 paired trials) are within noise; the two runs together cost $1.12
 (975 k tokens).
+
+## The plausible neighbour: unanswerable `follow` and `extract2` (2026-09-15, seed 2026)
+
+Run `20260910T023556-6786`: follow3, follow6 and extract2 in noHarness, harness and toolOnly,
+eight trials per cell, each model as minted and under `@abstain`. For follow the chain is cut
+short — an item on it, reached after a seeded 1 … hops−1 hops, has no `next` — and the variant
+applies in the tool modes only (the free-form follow rows stay as minted, 0/8 on both sides as
+every free-form follow cell is); for extract2 the invoice is served without its totals block, in
+every mode. Unlike fanout's ghost id, neither instance carries an error: the dead-end item is a
+valid record with `next: null`, and the line items are all there to be summed. The seeded half:
+3 unanswerable of 8 follow3 trials, 4 of 8 follow6, 3 of 8 extract2, per model and mode.
+
+| Client | Task | Mode | Unanswerable: abstained | fabricated | Answerable: refused | right |
+|---|---|---|---|---|---|---|
+| gpt-4o-mini@abstain | follow3 | harness | 2 / 3 | 1 | 0 / 5 | 4 |
+| gpt-4o-mini@abstain | follow3 | toolOnly | 3 / 3 | 0 | 0 / 5 | 5 |
+| gpt-4o-mini@abstain | follow6 | harness | 1 / 4 | 3 | 0 / 4 | 0 |
+| gpt-4o-mini@abstain | follow6 | toolOnly | 2 / 4 | 2 | 0 / 4 | 1 |
+| gpt-4o-mini@abstain | extract2 | noHarness | 2 / 3 | 1 | 0 / 5 | 5 |
+| gpt-4o-mini@abstain | extract2 | harness | 1 / 3 | 2 | 0 / 5 | 5 |
+| gpt-4o-mini@abstain | extract2 | toolOnly | 1 / 3 | 2 | 0 / 5 | 5 |
+| claude-haiku-4-5@abstain | follow3 | harness | 2 / 3 | 1 | 0 / 5 | 5 |
+| claude-haiku-4-5@abstain | follow3 | toolOnly | 3 / 3 | 0 | 0 / 5 | 4 |
+| claude-haiku-4-5@abstain | follow6 | harness | 4 / 4 | 0 | 0 / 4 | 2 |
+| claude-haiku-4-5@abstain | follow6 | toolOnly | 4 / 4 | 0 | 0 / 4 | 4 |
+| claude-haiku-4-5@abstain | extract2 | noHarness | 3 / 3 | 0 | 0 / 5 | 5 |
+| claude-haiku-4-5@abstain | extract2 | harness | 0 / 3 | 3 | 0 / 5 | 5 |
+| claude-haiku-4-5@abstain | extract2 | toolOnly | 1 / 3 | 2 | 0 / 5 | 5 |
+
+Every fabrication is the neighbour. On the cut chain, all seven fabrications report the dead-end
+item — the last record fetched, with its qty — as the item after the asked hops, having walked the
+chain in order to the dead end (the tool-use verdict says so on every one): gpt-4o-mini six times
+(three of its four follow6 harness trials, with `answerable: true`), Haiku once, on follow3, after
+announcing "I've followed the chain for exactly 3 hops" with the start counted as a hop. The
+abstentions are explicit: Haiku's structured answers all say `answerable: false` with a null id,
+its free-form ones "answer: cannot be determined - the chain terminates after 2 hops at sku-…
+which has no next"; gpt-4o-mini's name the missing pointer ("next pointer for item sku-… is
+missing"). Haiku abstains on 13 of 14 cut chains, gpt-4o-mini on 8 of 14.
+
+On the invoice without its totals block, nine of the ten fabricated totals are the sum of the
+line amounts to the cent (the tenth, gpt-4o-mini inline, is a figure that matches nothing on the
+document). The split is by tool: inline, without tools, Haiku abstains on 3 of 3 and gpt-4o-mini
+on 2 of 3; with `get_document` and `calc` in hand, Haiku sums the lines on 5 of 6 trials (all three
+in harness mode, with `answerable: true`) and gpt-4o-mini on 4 of 6. The one structured abstention
+of gpt-4o-mini's is `total: 0` with `answerable: false`. This is the calibration run's finding
+again — with a calculator in hand the models compute — now on a document, where the computed
+figure is off the true total by the tax the document never states (a 20 % tax on one instance,
+5 273.65 reported for 6 011.96 due).
+
+The note has a cost on the answerable half, and on follow6 only. Paired against the base on the
+same instances, 7 of the 56 answerable tool-mode trials go from right to wrong and 1 the other way:
+gpt-4o-mini loses 2 of its 4 answerable follow6 chains in each tool mode (having fetched all six
+hops in order and reported an earlier item, its usual follow6 failure — the base cells are 5/8
+and 4/8), Haiku loses 2 of 4 follow6 harness chains by stopping a hop short (its base is 8/8),
+and each loses one follow3 chain. extract2's answerable half is unchanged. Zero refusals of 70
+answerable instances; the variant's −13.9 pp against its base (72.2 % → 58.3 %, p = 0.02 over
+144 paired trials) is 17 fabrications and the seven lost chains. The run cost $1.01 (1.08 M
+tokens, two thirds of them Haiku's).
