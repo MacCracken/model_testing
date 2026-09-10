@@ -4,6 +4,57 @@ What shipped, by date. Full measurement tables live in [docs/results.md](docs/re
 forward roadmap is [plan.md](plan.md). Dates are the commit dates; item numbers ([1]–[49]) are the
 roadmap's, stable across the plan, this file and the results.
 
+## 2026-09-13 (later) — a stated confidence, and what it is worth
+
+### Added
+- **The `@confidence` treatment** ([28], calibration): `<client>@confidence` asks for the model's
+  probability that its answer is correct — a `confidence` field after the answer fields of an
+  object schema (optional, so validity is unchanged), or a final `confidence: <0–1>` line in the
+  free-form modes; an arm gets the request in its goal prompt. The row records the number the
+  model gave (`confidence.value`, read again on re-score; a percentage or a 0–100 figure is read
+  as one, 1.7 as nothing). `summarize` pairs the variant with its base like every treatment
+  (`delta.byConfidence` / `delta.confidence`, with how many trials stated a number), so a run says
+  whether asking changed the answers.
+- **Calibration** (`src/confidence.js`): Brier score (mean squared distance between the stated
+  probability and the outcome), expected calibration error over ten equal-width bins, and the
+  gap between mean confidence and accuracy (overconfident when positive), per client and mode over
+  the rows that stated a confidence — `summary.calibration`, a block in the report, a Calibration
+  block in the UI with the reliability bins, and `describeCalibration` as the one phrasing.
+- **The `@abstain` treatment** ([28], abstention): `<client>@abstain` runs a family that can mint
+  an unanswerable variant of its instance on a seeded half of its trials as that variant —
+  `wordmath` with one step's quantity gone ("a delivery brings in some more"), `tally` with a
+  question about a column the table does not have, `datecalc` with the date left out — and tells
+  the model on every trial, answerable or not, that a problem which cannot be answered from what
+  is given should be reported as such (`answerable: false` and a null answer in a structured
+  mode, `answer: cannot be determined` in a free-form one). Scoring is generic in `scoreRecord`:
+  on an unanswerable instance abstaining is right and producing a value is a **fabrication**; on
+  an answerable one abstaining is a **refusal** and the task scores the rest. The row records
+  which instance it was and what the answer did (`abstain.unanswerable`, `abstain.abstention`),
+  `summary.abstention` counts the four cases per client and mode (a block in the report and the
+  UI), and the paired delta against the base carries them. The tool-use verdicts of the three
+  families accept a tool left unused when there was nothing to compute.
+- Tests: 347 (the request on object, array and free-form specs; reading a probability, a
+  percentage, a 0–100 figure and the last line; Brier, ECE and the gap on hand-built rows; the
+  view and the paired delta through the summary and the report; the treatment through the runner;
+  the suffix; the three unanswerable variants, the seeded half, reading an abstention, the four
+  verdicts, the view, and the abstain treatment through the runner).
+
+### Measured (seed 2026; tables in docs/results.md)
+- **A stated confidence carries little information from either model** (seven tasks, four trials
+  per cell, gpt-4o-mini and Haiku 4.5): asked for a probability, gpt-4o-mini says 1.0 on 44 of its
+  52 trials — including all four free-form `reason` trials it got wrong — and comes out 13 points
+  overconfident in the free-form modes (Brier 0.18, ECE 0.13); Haiku spreads its numbers (0.95,
+  0.99, 1; 0 on `health` without tools, 0.5–0.95 on the near misses) and comes out 9 points
+  underconfident there (Brier 0.21). In harness mode both are at 100 % accuracy and say so.
+  Asking changed nothing: +0.9 pp pooled, not significant.
+- **With a tool in hand, the models fabricate**: on the unanswerable half (a quantity missing, a
+  column the table lacks, a date left out; eight trials per cell) gpt-4o-mini abstains on 8 of 9
+  free-form and on 1 of 9 in harness mode — with the calculator or the query tool it computes an
+  answer anyway (a "refund" total from the amount column, a word problem with the missing step
+  skipped); Haiku abstains 8/9 free-form and 6/9 in harness mode (every `datecalc` instance
+  without a date got a date). No model ever abstained on an answerable instance (0 refusals of
+  60), so the −11.5 pp drop of the abstain variant (significant, p = 0.03) is fabrication alone.
+
 ## 2026-09-13 — shared tools for the arms through MCP
 
 ### Added

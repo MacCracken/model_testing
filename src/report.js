@@ -1,5 +1,7 @@
 import { traceEvents } from "./export.js";
 import { fmtUsd } from "./prices.js";
+import { describeCalibration } from "./confidence.js";
+import { describeAbstention } from "./abstain.js";
 // report.js — print a run summary the same way everywhere (aggregate.js after a run, `cli show`
 // for a saved one). Pure formatting over the runner's summary shape.
 
@@ -45,6 +47,22 @@ export function printSummary(summary, { log = console.log } = {}) {
     const showReasoning = summary.cost.some((c) => c.reasoningCharsMean > 0);
     log("\n-- correctness × cost × latency (per model and mode; prices from models/prices.json on the run's day)");
     for (const c of summary.cost) log(`   ${c.client.padEnd(30)} ${c.mode.padEnd(10)} ${`${c.correct}/${c.runs} (${c.correctPct.toFixed(0)}%)`.padEnd(14)} ${`${usd(c.costUsd)} total`.padEnd(15)} ${`${usd(c.costPerTrialUsd)}/trial`.padEnd(15)} ${`${usd(c.costPerCorrectUsd)}/correct`.padEnd(17)} p50 ${c.latencyP50Ms}ms${c.unpriced ? `  (${c.unpriced} unpriced)` : ""}${showReasoning && c.reasoningCharsMean !== null ? `  reasoning ${c.reasoningCharsMean} chars` : ""}`);
+  }
+  if (summary.calibration?.length) {
+    log("\n-- calibration (rows that stated a confidence; Brier 0 = perfect, ECE over ten bins, gap = confidence − accuracy)");
+    for (const c of summary.calibration) log(`   ${c.client.padEnd(30)} ${c.mode.padEnd(10)} ${describeCalibration(c)}`);
+  }
+  if (summary.delta?.confidence) {
+    log("\n-- confidence delta (same task, mode and model: plain → asked for a confidence)");
+    for (const [how, d] of Object.entries(summary.delta.confidence)) log(`   ${how.padEnd(13)} ${fmtDelta(d)} · stated in ${d.stated}/${d.treatRuns}${d.calibration ? ` · ${describeCalibration(d.calibration)}` : ""}`);
+  }
+  if (summary.abstention?.length) {
+    log("\n-- abstention (abstain variant: half the instances unanswerable)");
+    for (const v of summary.abstention) log(`   ${v.client.padEnd(30)} ${v.mode.padEnd(10)} ${describeAbstention(v)}`);
+  }
+  if (summary.delta?.abstain) {
+    log("\n-- abstain delta (same task, mode and model: all answerable → half unanswerable)");
+    for (const [how, d] of Object.entries(summary.delta.abstain)) log(`   ${how.padEnd(13)} ${fmtDelta(d)} · abstained ${d.abstained}/${d.unanswerable} unanswerable, fabricated ${d.fabricated} · refused ${d.refused} answerable`);
   }
   if (summary.delta?.effort) {
     log("\n-- effort variants (paired against the base client)");

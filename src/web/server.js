@@ -14,6 +14,9 @@ import { parseAgentsSuffix } from "../agents.js";
 import { parseStressSuffix } from "../stress.js";
 import { parseConstraintsSuffix } from "../constraints.js";
 import { parseFormatSuffix } from "../format.js";
+import { parseEffortSuffix } from "../effort.js";
+import { parseConfidenceSuffix } from "../confidence.js";
+import { parseAbstainSuffix } from "../abstain.js";
 import { lineageOf, loadLineage } from "../lineage.js";
 import { createServer } from "node:http";
 import { readFile, stat } from "node:fs/promises";
@@ -39,7 +42,7 @@ const SUT_BASE = `http://localhost:${SUT_PORT}`;
 // (see runner.js). Served under /lib/ and nowhere else.
 // Every module runner.js imports (transitively) must be listed here, or the browser's import graph
 // fails and the UI goes blank — test/browser-lib.test.js checks it.
-const BROWSER_LIB = new Set(["runner.js", "schema.js", "tasks/gen.js", "format.js", "charts.js"]);
+const BROWSER_LIB = new Set(["runner.js", "schema.js", "tasks/gen.js", "format.js", "charts.js", "confidence.js", "abstain.js"]);
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -80,7 +83,13 @@ function startRun({ tasks, modes, clients, count, parallel = 1, instanceSeed = n
     const co = parseConstraintsSuffix(c);
     if (co.how) return `${co.base}@constraints:${co.how}`;
     const fo = parseFormatSuffix(c);
-    return fo.how ? `${fo.base}@format:${fo.how}` : c;
+    if (fo.how) return `${fo.base}@format:${fo.how}`;
+    const ef = parseEffortSuffix(c);
+    if (ef.how) return `${ef.base}@effort:${ef.how}`;
+    const cf = parseConfidenceSuffix(c);
+    if (cf.how) return `${cf.base}@confidence`;
+    const ab = parseAbstainSuffix(c);
+    return ab.how ? `${ab.base}@abstain` : c;
   };
   const missing = clients.filter((c) => !clientObjs.some((r) => r.name === canonical(c)));
   const controller = new AbortController();

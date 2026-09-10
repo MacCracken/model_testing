@@ -181,6 +181,22 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
   it, with a line on the prompt), judges validity against the treated schema (a re-score re-applies
   it from `row.format`), and records `row.format` (how / applied / complied). Free-form modes are
   left alone.
+- `src/confidence.js` — calibration: `withConfidence(client)` is the `@confidence` variant; the
+  runner applies `applyConfidence` to the spec (a `confidence` field after the answer of an object
+  schema, or a final line in free-form modes; arms get the note through `goalPrompt`), `scoreRecord`
+  reads the stated number with `readConfidence` (so a re-score re-reads it), and `calibration` /
+  `calibrationView` give Brier, ECE over ten bins and the confidence-minus-accuracy gap per client
+  and mode (`summary.calibration`; `delta.confidence` pairs the variant with its base and carries
+  the pooled calibration). Browser-safe; served as `/lib/confidence.js`.
+- `src/abstain.js` — abstention as a treatment: `withAbstain(client)` is the `@abstain` variant;
+  the runner makes a seeded half (`unanswerableFor(seed)`) of a supporting task's instances
+  unanswerable through the task's `unanswerable(ctx)` hook (wordmath, tally, datecalc), applies
+  `applyAbstain` to the spec (the instruction on every trial; `answerable` and a nullable `answer`
+  on an object schema), and `scoreRecord` gives the generic verdict (`abstentionVerdict`: abstained
+  / fabricated / refused / answered — `abstained()` reads the answer) before the task's own scorer.
+  `abstentionView` counts the four cases per client and mode (`summary.abstention`). A family
+  supports the treatment by exporting `unanswerable(ctx)` and setting it on its tasks; its
+  `toolUse` should accept an unused tool when `ctx.unanswerable`. Browser-safe.
 - `src/constraints.js` — instruction following as a treatment: `withConstraints(client, level)` draws
   one / three / five verifiable requirements from the trial seed (text families for free-form modes,
   JSON-shape families for structured ones), appends them to the prompt (arms: the goal prompt),
@@ -295,11 +311,12 @@ own (a real-harness arm), its delta against the free-form rows of the same model
 client in the run, matched on the model id with any `provider/` prefix stripped.
 
 A client run as `…@skill:<how>`, `…@agents:<how>`, `…@stress:<profile>`, `…@constraints:<level>`,
-`…@format:<how>` or `…@effort:<level>` is paired by `summarize` with its base client on the same
-task and mode (`variantDeltas`): `delta.bySkill` / `delta.byAgents` / `delta.byStress` /
-`delta.byConstraints` / `delta.byFormat` / `delta.byEffort` per cell and `delta.skill[how]` /
-`delta.agents[how]` / `delta.stress[profile]` / `delta.constraints[level]` / `delta.format[how]` /
-`delta.effort[level]` pooled, the same shape as the harness delta (`deltaBetween` is the shared
+`…@format:<how>`, `…@effort:<level>`, `…@confidence` or `…@abstain` is paired by `summarize` with its base
+client on the same task and mode (`variantDeltas`): `delta.bySkill` / `delta.byAgents` /
+`delta.byStress` / `delta.byConstraints` / `delta.byFormat` / `delta.byEffort` /
+`delta.byConfidence` per cell and `delta.skill[how]` / `delta.agents[how]` /
+`delta.stress[profile]` / `delta.constraints[level]` / `delta.format[how]` /
+`delta.effort[level]` / `delta.confidence.asked` / `delta.abstain.half` pooled, the same shape as the harness delta (`deltaBetween` is the shared
 baseline-versus-treatment calculation; its `noHarness*`/`harness*` fields mean
 baseline/treatment, with `base*`/`treat*` aliases). `summarize` also returns `cost`, the
 correctness × cost × latency view per client and mode, from the `cost` rows carry.

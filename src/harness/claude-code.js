@@ -105,14 +105,14 @@ export class ClaudeCodeClient {
     throw new Error("the claude-code arm only runs structured modes; use a synthetic client for the free-form baseline");
   }
 
-  async runWithTools(prompt, tools, system, { signal, task, mode, ctx = null, skill = null, constraints = null, agents = null, timeoutMs = this.timeoutMs } = {}) {
+  async runWithTools(prompt, tools, system, { signal, task, mode, ctx = null, skill = null, constraints = null, agents = null, confidence = null, timeoutMs = this.timeoutMs } = {}) {
     // A native skill goes in through Claude Code's own system-prompt flag instead of the goal text.
     const native = nativeSkill(skill);
     // Shared tools: no built-in tools (the Agent tool when a sub-agents variant asks), the bench's
     // tools through the MCP bridge, and the goal names them.
     const bridge = this.sharedTools ? await startToolBridge(tools ?? []) : null;
     const agentNote = agents ? ARM_AGENT_NOTE[agents.how] ?? ARM_AGENT_NOTE.available : null;
-    const goal = [goalPrompt(task, mode, prompt, ctx, native ? null : skill, constraints), bridge ? sharedToolsNote(tools) : null, agentNote].filter(Boolean).join("\n\n");
+    const goal = [goalPrompt(task, mode, prompt, ctx, native ? null : skill, constraints, confidence), bridge ? sharedToolsNote(tools) : null, agentNote].filter(Boolean).join("\n\n");
     // Under shared tools a sub-agents variant also defines a worker agent that carries the bench's
     // tools, so what a sub-agent can do is the same as what the parent can.
     const worker = bridge && agents ? JSON.stringify({ [WORKER_AGENT]: { description: "Works one self-contained piece of the job with the bench's tools and reports the concrete results (ids, tickets, numbers).", prompt: "You are a sub-agent working one piece of a larger job. Use the tools to complete exactly the goal you are given, then reply with a concise final answer stating the concrete results. Do not ask questions; if part of the goal is impossible, say so.", tools: (tools ?? []).map((t) => `mcp__${SERVER_NAME}__${t.name}`) } }) : null;

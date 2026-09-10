@@ -11,6 +11,8 @@ import { withStress, parseStressSuffix } from "../stress.js";
 import { withConstraints, parseConstraintsSuffix } from "../constraints.js";
 import { withFormat, parseFormatSuffix } from "../format.js";
 import { withEffort, parseEffortSuffix, effortParams } from "../effort.js";
+import { withConfidence, parseConfidenceSuffix } from "../confidence.js";
+import { withAbstain, parseAbstainSuffix } from "../abstain.js";
 
 // Provider registry: maps a stable provider name -> a list of models to try, plus the URL and
 // auth scheme. Kept here so CLI flags and the web UI can select providers/tasks/models without
@@ -240,9 +242,11 @@ export function parseClientSpec(spec) {
   const co = parseConstraintsSuffix(st.base);
   const fo = parseFormatSuffix(co.base);
   const ef = parseEffortSuffix(fo.base);
-  const base = ef.base;
-  if (/@(skill|agents|stress|constraints|format|effort)(:|$)/.test(base)) throw new Error(`"${spec}": one variant per client — @skill:<how>, @agents:<how>, @stress:<profile>, @constraints:<level>, @format:<how> or @effort:<level>, not several`);
-  const variant = { ...(sk.how ? { skill: sk.how } : {}), ...(ag.how ? { agents: ag.how } : {}), ...(st.how ? { stress: st.how } : {}), ...(co.how ? { constraints: co.how } : {}), ...(fo.how ? { format: fo.how } : {}), ...(ef.how ? { effort: ef.how } : {}) };
+  const cf = parseConfidenceSuffix(ef.base);
+  const ab = parseAbstainSuffix(cf.base);
+  const base = ab.base;
+  if (/@(skill|agents|stress|constraints|format|effort|confidence|abstain)(:|$)/.test(base)) throw new Error(`"${spec}": one variant per client — @skill:<how>, @agents:<how>, @stress:<profile>, @constraints:<level>, @format:<how>, @effort:<level>, @confidence or @abstain, not several`);
+  const variant = { ...(sk.how ? { skill: sk.how } : {}), ...(ag.how ? { agents: ag.how } : {}), ...(st.how ? { stress: st.how } : {}), ...(co.how ? { constraints: co.how } : {}), ...(fo.how ? { format: fo.how } : {}), ...(ef.how ? { effort: ef.how } : {}), ...(cf.how ? { confidence: cf.how } : {}), ...(ab.how ? { abstain: ab.how } : {}) };
   const idx = base.indexOf(":");
   if (idx === -1) return Object.keys(variant).length ? { provider: base, ...variant } : base;
   return { provider: base.slice(0, idx), model: base.slice(idx + 1), ...variant };
@@ -262,12 +266,12 @@ export function resolveClients(spec, { modelParams = {} } = {}) {
   const clients = [];
   const seen = new Set();
   const push = (provider, model, variant = {}) => {
-    const key = `${provider}:${model}${variant.skill ? `@skill:${variant.skill}` : ""}${variant.agents ? `@agents:${variant.agents}` : ""}${variant.stress ? `@stress:${variant.stress}` : ""}${variant.constraints ? `@constraints:${variant.constraints}` : ""}${variant.format ? `@format:${variant.format}` : ""}${variant.effort ? `@effort:${variant.effort}` : ""}`;
+    const key = `${provider}:${model}${variant.skill ? `@skill:${variant.skill}` : ""}${variant.agents ? `@agents:${variant.agents}` : ""}${variant.stress ? `@stress:${variant.stress}` : ""}${variant.constraints ? `@constraints:${variant.constraints}` : ""}${variant.format ? `@format:${variant.format}` : ""}${variant.effort ? `@effort:${variant.effort}` : ""}${variant.confidence ? "@confidence" : ""}${variant.abstain ? "@abstain" : ""}`;
     if (seen.has(key)) return;
     seen.add(key);
     const c = buildClient({ provider, model, modelParams });
     if (!c) return;
-    clients.push(variant.skill ? withSkill(c, variant.skill) : variant.agents ? withDelegation(c, variant.agents) : variant.stress ? withStress(c, variant.stress) : variant.constraints ? withConstraints(c, variant.constraints) : variant.format ? withFormat(c, variant.format) : variant.effort ? withEffort(c, variant.effort) : c);
+    clients.push(variant.skill ? withSkill(c, variant.skill) : variant.agents ? withDelegation(c, variant.agents) : variant.stress ? withStress(c, variant.stress) : variant.constraints ? withConstraints(c, variant.constraints) : variant.format ? withFormat(c, variant.format) : variant.effort ? withEffort(c, variant.effort) : variant.confidence ? withConfidence(c) : variant.abstain ? withAbstain(c, variant.abstain) : c);
   };
 
   if (!spec || (Array.isArray(spec) && !spec.length)) {
@@ -280,7 +284,7 @@ export function resolveClients(spec, { modelParams = {} } = {}) {
   for (const item of normalizeClientSpecs(spec)) {
     const provider = typeof item === "string" ? item : item.provider;
     const model = typeof item === "string" ? undefined : item.model;
-    const variant = typeof item === "string" ? {} : { skill: item.skill ?? null, agents: item.agents ?? null, stress: item.stress ?? null, constraints: item.constraints ?? null, format: item.format ?? null, effort: item.effort ?? null };
+    const variant = typeof item === "string" ? {} : { skill: item.skill ?? null, agents: item.agents ?? null, stress: item.stress ?? null, constraints: item.constraints ?? null, format: item.format ?? null, effort: item.effort ?? null, confidence: item.confidence ?? null, abstain: item.abstain ?? null };
     if (!PROVIDERS[provider]) continue;
     if (model === undefined) {
       for (const m of PROVIDERS[provider].models) push(provider, m, variant);

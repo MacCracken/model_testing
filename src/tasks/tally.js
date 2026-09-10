@@ -39,6 +39,19 @@ export function generate(seed, n) {
   return { seed, n, rows, question, answer, query };
 }
 
+// The same table with a question it cannot answer: a column it does not have.
+const MISSING = [
+  (r, s) => [`What is the total refund amount across all tickets with status ${s}?`, "a refund column"],
+  (r) => [`How many tickets from the ${r} region are assigned to Priya?`, "an assignee column"],
+  (r) => [`What is the average priority level of the tickets from the ${r} region?`, "a priority column"],
+  (r, s) => [`How many tickets with status ${s} were opened by customers in the ${r} region who had called before?`, "a call-history column"],
+];
+export function unanswerable(ctx) {
+  const d = dice((ctx.seed >>> 0) ^ 0xab);
+  const [question, missing] = d.pick(MISSING)(d.pick(REGIONS), d.pick(STATUSES));
+  return { ...ctx, question, answer: null, query: null, unanswerable: true, missing };
+}
+
 export function runQuery(rows, { region, status, amount_gt, aggregate }) {
   let sel = rows;
   if (region) sel = sel.filter((r) => r.region === String(region).toLowerCase());
@@ -93,6 +106,7 @@ function makeTally(n) {
     maxRounds: 5,
 
     setup: async ({ seed }) => generate(seed >>> 0, n),
+    unanswerable,
 
     goal: (ctx) => `${problem(ctx)} Give the number.`,
 
@@ -125,6 +139,7 @@ function makeTally(n) {
       ground: ({ ctx } = {}) => ctx?.answer ?? null,
       toolUse: ({ toolCalls, toolResults, ctx }) => {
         const calls = toolCalls.filter((c) => c.name === "query_rows");
+        if (ctx?.unanswerable) return { ok: true, reason: calls.length ? `${calls.length} query call(s) on a question the table cannot answer` : "nothing to compute: the table lacks the column" };
         if (!calls.length) return { ok: false, reason: "query_rows was never called — counted by eye" };
         const failed = toolResults.filter((r) => r.name === "query_rows" && r.ok === false).length;
         if (failed) return { ok: false, reason: `${failed} query_rows call(s) failed` };

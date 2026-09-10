@@ -1426,3 +1426,45 @@ on restock3 called `load_skill` first and then the restock tools (3/3, `skill.lo
 `@agents:required` on restock6 restocked 6/6 in the parent with no delegation despite the
 instruction and a `worker` agent carrying the bench's tools — `agents.delegations` 0, which is the
 finding, not a failure of the record.
+
+
+## Calibration and abstention (2026-09-13, seed 2026)
+
+**A stated confidence** — runs `20260910T011743-7d1b` (wordmath4, tally20, regex, reason; four
+trials per cell) and its replay `20260910T012320-8379` (health, nearmiss, extract2, run again
+once the webserver was back; the first run's rows for those three tasks are error rows and do not
+count), pooled: 28 free-form and 24 harness trials per model with a stated confidence.
+
+| Client | Mode | Stated | Accuracy | Mean confidence | Gap | Brier | ECE |
+|---|---|---|---|---|---|---|---|
+| gpt-4o-mini@confidence | noHarness | 28 | 79 % | 91 % | +13 pp | 0.180 | 0.129 |
+| gpt-4o-mini@confidence | harness | 24 | 100 % | 100 % | 0 | 0.000 | 0.000 |
+| claude-haiku-4-5@confidence | noHarness | 28 | 93 % | 84 % | −9 pp | 0.208 | 0.194 |
+| claude-haiku-4-5@confidence | harness | 24 | 100 % | 95 % | −5 pp | 0.042 | 0.049 |
+
+gpt-4o-mini states 1.0 on 44 of its 52 trials, including all four free-form `reason` trials it
+got wrong; its only spread is on the near misses (0.5) and free-form `health` (0.9). Haiku
+spreads its numbers — 0.95 to 1 where it is right, 0 on free-form `health` (it cannot reach the
+server and says so, then guesses right), 0.5 to 0.95 on the near misses where it is wrong twice.
+Asking for the number did not change the answers: +0.9 pp pooled over 112 paired trials, not
+significant; Haiku's free-form 24 → 26 and gpt-4o-mini's harness 27 → 28 are within noise.
+
+**Abstention** — run `20260910T012433-bb97` (wordmath4, tally20, datecalc1; eight trials per cell,
+of which a seeded half unanswerable for the `@abstain` variant: 9 unanswerable and 15 answerable
+per model and mode):
+
+| Client | Mode | Unanswerable: abstained | fabricated | Answerable: refused | right |
+|---|---|---|---|---|---|
+| gpt-4o-mini@abstain | noHarness | 8 / 9 | 1 | 0 / 15 | 11 |
+| gpt-4o-mini@abstain | harness | 1 / 9 | 8 | 0 / 15 | 15 |
+| claude-haiku-4-5@abstain | noHarness | 8 / 9 | 1 | 0 / 15 | 14 |
+| claude-haiku-4-5@abstain | harness | 6 / 9 | 3 | 0 / 15 | 15 |
+
+Free-form, both models say a problem cannot be answered when a quantity, a column or a date is
+missing (the one fabrication each is the tally "refund" question answered from the amount
+column). With a tool in hand they compute anyway: gpt-4o-mini with the calculator works the word
+problem as if the missing step were not there and with the query tool sums the nearest column,
+and every `datecalc` instance without a date got a date from both models through the date tool.
+Nobody abstained on an answerable instance (0 refusals of 60), so the abstain variant's −11.5 pp
+against its base (92.7 % → 81.3 %, p = 0.03 over 96 paired trials) is fabrication alone, and the
+answerable half's correctness is unchanged.

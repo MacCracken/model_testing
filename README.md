@@ -161,6 +161,8 @@ node src/cli.js anchors list | anchors openai:gpt-4o-mini   # the public sets in
 node src/cli.js cost <run-id> [--reprice]                # correctness × cost × latency per model and mode (models/prices.json; --reprice prices old rows for the view)
 node src/cli.js variance --client openai:gpt-4o-mini [--by temperature] [--over-time]   # agreement and flakiness per instance under each setting, or per run
 node src/bench.js --task restock6,fanout4 --modes harness --clients claude-code:claude-haiku-4-5,claude-code-mcp:claude-haiku-4-5 --count 2   # an arm with its own tools next to the same arm on the bench's tools over MCP
+node src/bench.js --task wordmath4,nearmiss,reason --clients openai:gpt-4o-mini,openai:gpt-4o-mini@confidence --count 4 --instance-seed 7   # a stated confidence: Brier, ECE and the gap, paired against the plain run
+node src/bench.js --task wordmath4,tally20,datecalc1 --clients openai:gpt-4o-mini,openai:gpt-4o-mini@abstain --count 8 --instance-seed 7   # half the problems unanswerable: abstained, fabricated, refused
 node src/cli.js compare <run> --a <client> --b <client> --mode harness   # paired: McNemar + bootstrap band per task
 node src/cli.js compare <run-A> <run-B> --mode schemaOnly               # two runs on the same instance seed
 node src/cli.js curve restock [--mode harness] [--client <c>]           # success per difficulty level over every saved run, with each model's breaking point
@@ -191,6 +193,20 @@ capability and mode, a model's latest run of each task with its earlier runs of 
 the same number of trials per task on both sides, so a change of task mix never reads as a change
 in the model — and a checkpoint with its lineage parent; a flag needs the later band to lie
 entirely under the earlier one, and names the per-task split behind it.
+
+**Calibration.** `<client>@confidence` asks for the model's probability that its answer is
+right — a field after the answer in a structured mode, a final line in a free-form one — and the
+run reports, per model and mode, the Brier score, the expected calibration error over ten bins
+and the gap between mean confidence and accuracy, with the reliability bins in the UI. It is
+paired against the plain run like every treatment, so the run also says whether asking changed
+the answers.
+
+**Abstention.** `<client>@abstain` makes a seeded half of a generated family's instances
+unanswerable — a step's quantity gone from a word problem, a question about a column the ticket
+table lacks, a date left out — and tells the model on every trial to say so when a problem cannot
+be answered. Abstaining on those is right and producing a value is a fabrication; abstaining on an
+answerable one is a refusal. The run counts the four cases per model and mode, next to the paired
+delta against the plain run.
 
 **Shared tools for the arms.** `claude-code-mcp:<model>` and `codex-mcp:<model>` run the real
 harnesses on the bench's own tools through MCP: the bench starts a loopback bridge holding the

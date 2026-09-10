@@ -22,8 +22,10 @@ export function nativeSkill(skill) {
   return skill?.how === "native" && skill.text ? skill : null;
 }
 
-export function goalPrompt(task, mode, fallback, ctx = null, skill = null, constraints = null) {
+export function goalPrompt(task, mode, fallback, ctx = null, skill = null, constraints = null, confidence = null) {
   let goal = typeof task?.goal === "function" ? task.goal(ctx ?? {}) : (task?.goal ?? fallback);
+  // A confidence variant's request rides along the same way.
+  if (typeof confidence === "string" && confidence) goal = `${goal}\n\n${confidence}`;
   // A constraints variant adds verifiable formatting requirements, the same ones the synthetic
   // harness puts on its prompt.
   if (Array.isArray(constraints) && constraints.length) goal = `${goal}\n\nFormatting requirements — every one of them must be met:\n${constraints.map((c, i) => `${i + 1}. ${c}`).join("\n")}`;

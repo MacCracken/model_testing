@@ -10,6 +10,8 @@
 import { validateSchema, schemaHint } from "./schema.js";
 import { seedFor, rng } from "./tasks/gen.js";
 import { applyFormat, complied as formatComplied } from "./format.js";
+import { applyConfidence, readConfidence, calibration, calibrationView } from "./confidence.js";
+import { applyAbstain, abstained, abstentionVerdict, abstentionView, unanswerableFor } from "./abstain.js";
 
 // Every mode the benchmark knows. `noHarness` vs `harness` is the headline pair; `schemaOnly` and
 // `toolOnly` are the two axes the bundle decomposes into. A task supports a mode by carrying a spec
@@ -113,9 +115,21 @@ export async function scoreRecord(task, record, { judge = null, ctx = record.ctx
   // (when one is configured) so an open-ended task can grade with it.
   const scorer = structured ? task.eval.scoreHarness : task.eval.scoreNoHarness;
   const answer = structured ? parsed : record.answerText;
-  const score = await scorer(answer, record.ground, { judge, mode, ctx });
+  let score;
+  if (record.abstain?.applied) {
+    // The abstain variant: an unanswerable instance is right when the answer abstains; an
+    // answerable one is scored by the task unless the answer abstained.
+    const did = abstained(parsed, record.answerText);
+    const own = !record.abstain.unanswerable && !did ? await scorer(answer, record.ground, { judge, mode, ctx }) : null;
+    score = abstentionVerdict({ unanswerable: !!record.abstain.unanswerable, abstainedAnswer: did, missing: record.abstain.missing, score: own });
+    record.abstain.abstention = score.abstention;
+  } else {
+    score = await scorer(answer, record.ground, { judge, mode, ctx });
+  }
   record.correct = !!score.correct;
   record.reason = score.reason ?? "";
+  // A stated confidence is read here, so a re-score reads it again with today's reader.
+  if (record.confidence?.applied) record.confidence.value = readConfidence(parsed, record.answerText ?? "");
 
   // A canonical form of the answer, for agreement across repeated trials of the same cell (the
   // variance measure). Only tasks with fixed truth define one; tasks whose truth is minted per
@@ -244,6 +258,10 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
     stress: client.stress ? { how: client.stress, applied: false } : null,
     constraints: client.constraints ? { how: client.constraints, applied: false, total: 0, met: 0, list: [] } : null,
     format: client.format ? { how: client.format, applied: false, complied: null } : null,
+    // A confidence variant asks for the model's probability that its answer is right; the row keeps it.
+    confidence: client.confidence ? { how: client.confidence, applied: false, value: null } : null,
+    // An abstain variant: whether this trial's instance was made unanswerable, and what the answer did.
+    abstain: client.abstain ? { how: client.abstain, applied: false, unanswerable: false, missing: null, abstention: null } : null,
     // The reasoning-effort knob as a variant: the level and the parameters it was sent as.
     effort: client.effort ? { how: client.effort, applied: true, params: client.effortParams ?? {} } : null,
     baseClient: client.baseName ?? null,
@@ -270,7 +288,16 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
   try {
     // Per-trial context: a task with `setup` prepares isolated state (an inventory scenario, say),
     // and its prompts, goal, truth and scorers may be functions of it.
-    const ctx = typeof task.setup === "function" ? await task.setup({ mode, index, signal, client, seed: instance }) : null;
+    let ctx = typeof task.setup === "function" ? await task.setup({ mode, index, signal, client, seed: instance }) : null;
+    // An abstain variant makes a seeded half of a supporting task's instances unanswerable.
+    if (client.abstain && typeof task.unanswerable === "function" && ctx) {
+      record.abstain.applied = true;
+      if (unanswerableFor(instance)) {
+        ctx = task.unanswerable(ctx);
+        record.abstain.unanswerable = true;
+        record.abstain.missing = ctx.missing ?? null;
+      }
+    }
     record.ctx = recordedCtx(task, ctx);
     const text = (v) => (typeof v === "function" ? v(ctx ?? {}) : v);
     let rspec = { ...spec, prompt: text(spec.prompt), system: text(spec.system), tools: text(spec.tools) };
@@ -280,6 +307,13 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
       rspec = treated.spec;
       record.format.applied = treated.applied;
     }
+    // A confidence variant asks for the probability after the answer (a field, or a final line).
+    if (client.confidence) {
+      const asked = applyConfidence(rspec, { structured });
+      rspec = asked.spec;
+      record.confidence.applied = asked.applied;
+    }
+    if (record.abstain?.applied) rspec = applyAbstain(rspec, { structured }).spec;
     record.prompt = capText(rspec.prompt ?? null);
 
     const system = buildSystemPrompt(rspec, mode);
@@ -944,6 +978,12 @@ function variantDeltas(rows, kind) {
     met: treat.reduce((a, r) => a + (r[kind]?.met ?? 0), 0),                       // constraints: adherence
     total: treat.reduce((a, r) => a + (r[kind]?.total ?? 0), 0),
     complied: treat.filter((r) => r[kind]?.complied === true).length,             // format: the answer followed the treatment
+    stated: treat.filter((r) => typeof r[kind]?.value === "number").length,        // confidence: a probability was given
+    unanswerable: treat.filter((r) => r[kind]?.unanswerable).length,               // abstain: the four cases
+    abstained: treat.filter((r) => r[kind]?.abstention === "abstained").length,
+    fabricated: treat.filter((r) => r[kind]?.abstention === "fabricated").length,
+    refused: treat.filter((r) => r[kind]?.abstention === "refused").length,
+    calibration: kind === "confidence" ? calibration(treat) : undefined,
     reasoningCharsMean: (() => { const v = treat.map((r) => r.reasoningChars).filter((x) => typeof x === "number"); return v.length ? Math.round(mean(v)) : null; })(), // effort: how much reasoning came back
     costUsd: treat.reduce((a, r) => a + (r.cost?.usd ?? 0), 0),
   });
@@ -1108,10 +1148,14 @@ export function summarize(rows, { capabilitiesOf = null, levelsOf = null } = {})
   const constraintsD = variantDeltas(rows, "constraints");
   const formatD = variantDeltas(rows, "format");
   const effortD = variantDeltas(rows, "effort");
+  const confidenceD = variantDeltas(rows, "confidence");
+  const abstainD = variantDeltas(rows, "abstain");
 
   return {
     runs: rows.length,
     cost: costView(rows),
+    calibration: calibrationView(rows),
+    abstention: abstentionView(rows),
     tasks: taskNames,
     modes,
     clients: clientNames,
@@ -1140,6 +1184,10 @@ export function summarize(rows, { capabilitiesOf = null, levelsOf = null } = {})
       format: formatD.pooled,
       byEffort: effortD.by,
       effort: effortD.pooled,
+      byConfidence: confidenceD.by,
+      confidence: confidenceD.pooled,
+      byAbstain: abstainD.by,
+      abstain: abstainD.pooled,
     },
   };
 }

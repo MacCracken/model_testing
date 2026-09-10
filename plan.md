@@ -6,7 +6,7 @@ stands, what the field measures that it does not, and what to build next.
 
 ## Start here (handoff, 2026-09-08)
 
-- **Run it.** `npm test` (332 tests; no model or server needed), then `node src/cli.js serve` for
+- **Run it.** `npm test` (347 tests; no model or server needed), then `node src/cli.js serve` for
   the UI on :4000 and `node webserver/server.js` for the system under test on :3000 (`SUT_PORT`).
   Keys and `LOCAL_ENDPOINTS` live in `.env`; runs land in `results/runs/`, the SQLite index beside
   them (`node src/cli.js index --full` rebuilds it).
@@ -69,7 +69,7 @@ rebuildable. Learned on 2026-09-07: a structured schema for a task that needs th
 | Data | one JSON per run, SQLite index (`index`, `query`, `--sql`, `compact`), CSV, versions and lineage on every run, cross-run cell history, suite presets `smoke|standard|full`; every row keeps the model's turns (or an arm's raw transcript) beside its calls and results; `replay` (a new run parented to its original, paired against it), `rescore` (today's scorers over saved rows, in place), a trial as a timeline or a JSONL event log; gate verdicts on the run and in the index |
 | UI | Ledger design, live grid, dumbbell matrix, capability scorecard with regression lines, difficulty curves, paired comparison block, trial drawer with transcript and children, history filter |
 | SUT | the webserver: hello/health, the `/api/recent` log, inventory scenarios with tickets, confirm rules, stress profiles and op log, text logs with grep and count |
-| Tests | 332, none needing a model; the webserver runs in-process |
+| Tests | 347, none needing a model; the webserver runs in-process |
 
 ## What the field measures that we do not
 
@@ -125,9 +125,6 @@ mean something; a structured schema carries `work` before the answer.
 
 - **[27] Code execution.** Generated function specs with hidden tests, executed in isolation
   (worker threads with limits, or a container — see decisions); repository-scale tasks later.
-- **[28] Calibration and abstention.** A stated confidence with every answer → Brier score and ECE
-  per cell; generators mint unanswerable variants so abstention is rewarded over fabrication (the
-  `lookup` refuse-versus-fabricate split and `norelevant`'s unanswerable half, made systematic).
 - **[29] Robustness perturbations.** Paraphrase, ordering and format perturbations minted by the
   generators; consistency across perturbations as a metric beside agreement.
 - **[30] Pairwise mode for open-ended tasks.** Position-swapped pairwise judging with Bradley-Terry

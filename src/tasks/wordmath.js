@@ -65,7 +65,22 @@ export function generate(seed, steps) {
     question = `Each ${scene.one} accounts for ${per} ${unit}. How many ${unit} are in ${scene.place} at the end?`;
     ops.push(`×${per}`);
   }
-  return { seed, steps, story: lines.join(" "), question, answer, ops };
+  return { seed, steps, lines, story: lines.join(" "), question, answer, ops };
+}
+
+// The same problem with one step's quantity gone ("a delivery brings in some more"): the final
+// count can no longer be worked out. `missing` names what was dropped; `answer` is null.
+export function unanswerable(ctx) {
+  const d = dice((ctx.seed >>> 0) ^ 0xab);
+  const lines = ctx.lines ?? String(ctx.story ?? "").split(/(?<=\.)\s+(?=On )/);
+  const numbered = lines.map((l, i) => ({ l, i })).filter(({ l }, i) => i > 0 && /\b\d+\b/.test(l) && !/vans arrive/.test(l));
+  const withVans = lines.map((l, i) => ({ l, i })).filter(({ l }) => /vans arrive/.test(l));
+  const pick = numbered.length ? d.pick(numbered) : withVans.length ? d.pick(withVans) : null;
+  if (!pick) return { ...ctx, unanswerable: true, answer: null, missing: "the opening count", story: lines.map((l, i) => (i === 0 ? l.replace(/holds \d+ /, "holds some ") : l)).join(" ") };
+  const dropped = pick.l.match(/\b\d+\b/)[0];
+  const rewritten = /vans arrive/.test(pick.l) ? pick.l.replace(/each carrying \d+/, "each carrying some") : pick.l.replace(/\b\d+\b/, "some");
+  const out = lines.map((l, i) => (i === pick.i ? rewritten : l));
+  return { ...ctx, lines: out, story: out.join(" "), unanswerable: true, answer: null, missing: `the quantity in "${rewritten.replace(/\.$/, "")}" (${dropped})` };
 }
 
 // The structured answer has room to work: "JSON only — no prose" otherwise forbids the reasoning
@@ -96,6 +111,7 @@ function makeWordmath(steps) {
     maxRounds: steps + 4,
 
     setup: async ({ seed }) => generate(seed >>> 0, steps),
+    unanswerable,
 
     goal: (ctx) => `${problem(ctx)} Give the final number.`,
 
@@ -126,8 +142,9 @@ function makeWordmath(steps) {
 
     eval: {
       ground: ({ ctx } = {}) => ctx?.answer ?? null,
-      toolUse: ({ toolCalls, toolResults }) => {
+      toolUse: ({ toolCalls, toolResults, ctx }) => {
         const calls = toolCalls.filter((c) => c.name === "calc");
+        if (ctx?.unanswerable) return { ok: true, reason: calls.length ? `${calls.length} calc call(s) on a problem with a quantity missing` : "nothing to compute: a quantity was missing" };
         if (!calls.length) return { ok: false, reason: "calc was never called — the arithmetic was done in the head" };
         const failed = toolResults.filter((r) => r.name === "calc" && r.ok === false).length;
         if (failed) return { ok: false, reason: `${failed} of ${calls.length} calc expression(s) did not evaluate` };

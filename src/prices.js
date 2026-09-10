@@ -41,7 +41,7 @@ export function loadPrices({ force = false } = {}) {
   return cache;
 }
 
-const stripVariant = (s) => String(s ?? "").replace(/@(skill|agents|stress|constraints|format|effort)(:[a-z]+)?$/, "");
+const stripVariant = (s) => String(s ?? "").replace(/@(skill|agents|stress|constraints|format|effort|confidence|abstain)(:[a-z]+)?$/, "");
 const globMatch = (pattern, s) => new RegExp(`^${pattern.split("*").map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(".*")}$`).test(s);
 
 // The entry for a client: its id exactly, then its model id (any `provider/` prefix dropped), then

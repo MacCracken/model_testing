@@ -73,6 +73,14 @@ export function generate(seed, level) {
   };
 }
 
+// The same question with the date left out: nothing can be placed on the calendar.
+export function unanswerable(ctx) {
+  const text = ctx.level === 1
+    ? String(ctx.text).replace(/is issued on .*? and expires/, "is issued and expires")
+    : String(ctx.text).replace(/is posted on .*? at (\d{1,2}:\d{2})\./, "is posted at $1 on a date that was not recorded.");
+  return { ...ctx, text, date: null, time: null, weekday: null, answer: null, unanswerable: true, missing: "the starting date" };
+}
+
 const schema = {
   type: "object",
   properties: {
@@ -114,6 +122,7 @@ function makeDatecalc(level) {
     maxRounds: 6,
 
     setup: async ({ seed }) => generate(seed >>> 0, level),
+    unanswerable,
 
     goal: (ctx) => `${problem(ctx)} Answer with ${format(ctx)}.`,
 
@@ -144,8 +153,9 @@ function makeDatecalc(level) {
 
     eval: {
       ground: ({ ctx } = {}) => (ctx ? { date: ctx.date, time: ctx.time, weekday: ctx.weekday, wantsTime: ctx.wantsTime } : null),
-      toolUse: ({ toolCalls, toolResults }) => {
+      toolUse: ({ toolCalls, toolResults, ctx }) => {
         const calls = toolCalls.filter((c) => c.name === "add_time" || c.name === "days_between");
+        if (ctx?.unanswerable) return { ok: true, reason: calls.length ? `${calls.length} date tool call(s) with no date to start from` : "nothing to compute: no starting date" };
         if (!calls.length) return { ok: false, reason: "no date tool was called" };
         const failed = toolResults.filter((r) => (r.name === "add_time" || r.name === "days_between") && r.ok === false).length;
         return failed ? { ok: false, reason: `${failed} date tool call(s) failed` } : { ok: true, reason: `${calls.length} date tool call(s)` };
