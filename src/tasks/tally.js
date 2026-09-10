@@ -6,6 +6,7 @@
 // delegate the counting instead of doing it by eye.
 
 import { labelModel } from "../providers/index.js";
+import { typos } from "../perturb.js";
 import { dice, numberIn } from "./gen.js";
 
 const REGIONS = ["north", "south", "east", "west"];
@@ -81,6 +82,11 @@ export function perturb(ctx, kind, seed = 0) {
   if (kind === "order") return { ...ctx, rows: dice((seed >>> 0) ^ 0x9e37).shuffle(ctx.rows), perturbed: kind };
   if (kind === "format") return { ...ctx, tableFormat: "csv", perturbed: kind };
   if (kind === "paraphrase") { const q = ctx.query ? REPHRASE(ctx.query) : null; return q ? { ...ctx, question: q, perturbed: kind } : null; }
+  if (kind === "typos") {
+    // Typing errors in the question; the table, the regions and the statuses it names are untouched.
+    const question = typos(ctx.question, seed, { protect: [...REGIONS, ...STATUSES, "amount", "days", "days_open"] });
+    return question === ctx.question ? null : { ...ctx, question, perturbed: kind };
+  }
   return null;
 }
 
@@ -127,7 +133,7 @@ function makeTally(n) {
     setup: async ({ seed }) => generate(seed >>> 0, n),
     unanswerable,
     perturb,
-    perturbs: ["paraphrase", "order", "format"],
+    perturbs: ["paraphrase", "order", "format", "typos"],
 
     goal: (ctx) => `${problem(ctx)} Give the number.`,
 

@@ -20,7 +20,7 @@ import { BASE } from "./util.js";
 import { enc, PLANTED, plantedIn } from "./scenario.js";
 import { calcTool } from "../calc.js";
 import { noValue } from "../abstain.js";
-import { PERTURB_KINDS } from "../perturb.js";
+import { PERTURB_KINDS, typos } from "../perturb.js";
 
 const VENDORS = ["Acme Industrial Supply", "Northwind Traders", "Harbor & Finch Ltd", "Meridian Parts Co.", "Blue Ridge Fasteners", "Oakline Office Supply", "Tessaro Components", "Kestrel Logistics"];
 const CUSTOMERS = ["Larkspur Bakery", "Redwood Clinics", "Pine Street Garage", "Copperfield Labs", "Summit Ridge School", "Ferris Wheelworks"];
@@ -196,9 +196,16 @@ export function remint({ seed, level, injected = false, perturbed = null, unansw
 //   order  — the header lines in another order (level 1), the invoice's line items in another
 //            order (levels 2 and 3); a statement is chronological, so level 4 has no other order;
 //   format — another layout: the columns pipe-delimited where they were padded (and back), another
-//            of the date styles, another label set.
+//            of the date styles, another label set;
+//   typos  — OCR-like noise: typing errors in the labels, descriptions and boilerplate, never in
+//            a number, an id, a date, a code or the names the answer is scored on.
 // Returns the instance with its documents rendered again, or null when the kind has no meaning.
 export function perturbDocs(g, kind, seed) {
+  if (kind === "typos") {
+    const names = [g.vendor, g.customer, g.holder, ...(g.invoices ?? []).map((inv) => inv.customer)].filter(Boolean).flatMap((n) => n.split(/[^A-Za-z]+/)).filter(Boolean);
+    const docs = renderDocs(g).map((doc, i) => ({ ...doc, text: typos(doc.text, (seed >>> 0) + i * 7919, { protect: names }) }));
+    return { ...g, docs };
+  }
   const d = dice((seed >>> 0) ^ 0x9e37);
   const another = (lo, hi, not) => { let v = d.int(lo, hi); while (v === not) v = d.int(lo, hi); return v; };
   let g2 = null;
@@ -776,7 +783,7 @@ function makeExtract(level) {
       if (!p) return null;
       return p.docs === ctx.docs ? p : { ...p, docs: await postDocs(p.docs) };
     },
-    perturbs: level === 4 ? ["paraphrase", "format"] : PERTURB_KINDS,
+    perturbs: level === 4 ? ["paraphrase", "format", "typos"] : PERTURB_KINDS,
 
     // The row keeps the ids and the truth; `remint` brings the documents back from the seed.
     recordCtx: (ctx) => ({ ...ctx, docs: ctx.docs.map(({ text: _text, ...rest }) => rest) }),

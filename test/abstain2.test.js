@@ -284,12 +284,12 @@ test("the listing says which tasks the abstain and perturb treatments touch, and
   assert.deepEqual(by.follow3.abstain, ["harness", "toolOnly"]);
   assert.deepEqual(by.wordmath4.abstain, by.wordmath4.modes);
   assert.equal(by.reason.abstain, null);
-  assert.deepEqual(by.fanout4.perturbs, ["paraphrase", "order", "format"]);
-  assert.deepEqual(by.follow3.perturbs, ["paraphrase", "format"]);
-  assert.deepEqual(by.extract2.perturbs, ["paraphrase", "order", "format"]);
-  assert.deepEqual(by.extract4.perturbs, ["paraphrase", "format"]);
-  assert.deepEqual(by.wordmath4.perturbs, ["paraphrase", "format"]);
-  assert.deepEqual(by.tally20.perturbs, ["paraphrase", "order", "format"]);
+  assert.deepEqual(by.fanout4.perturbs, ["paraphrase", "order", "format", "typos"]);
+  assert.deepEqual(by.follow3.perturbs, ["paraphrase", "format", "typos"]);
+  assert.deepEqual(by.extract2.perturbs, ["paraphrase", "order", "format", "typos"]);
+  assert.deepEqual(by.extract4.perturbs, ["paraphrase", "format", "typos"]);
+  assert.deepEqual(by.wordmath4.perturbs, ["paraphrase", "format", "typos"]);
+  assert.deepEqual(by.tally20.perturbs, ["paraphrase", "order", "format", "typos"]);
   assert.equal(by.reason.perturbs, null);
 });
 

@@ -205,7 +205,7 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
   `ctx.unanswerable`. The arms get the note and the treated schema through `goalPrompt`'s last
   argument (`callOpts.abstain` / `callOpts.schema` from the runner). Browser-safe.
 - `src/perturb.js` — robustness as a treatment: `withPerturb(client, kind)` is the
-  `@perturb:paraphrase|order|format` variant; the runner calls the task's `perturb(ctx, kind,
+  `@perturb:paraphrase|order|format|typos` variant; the runner calls the task's `perturb(ctx, kind,
   seed)` hook after setup (wordmath, tally, datecalc, logicgrid, fanout, follow and extract export
   one; null when the kind has no meaning there, and the row's `perturb.applied` says so; a task's
   `perturbs` lists the kinds its hook can do, and the hook may be async — extract posts the
@@ -213,9 +213,13 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
   rendering must stay byte-for-byte what it was — a hook re-renders from recorded structure
   (wordmath's `events`, datecalc's `parts`, tally's `query`, extract's generator with another
   `layout` or a permuted header / row order, fanout's `ids` and the `wording` / `listing` flags its
-  ask reads) rather than changing `generate`. `consistencyOf(base, treat)` in the runner gives,
-  for every treatment's paired delta, the share of paired instances whose canonical answer did not
-  change, so a family in it needs `eval.canon`.
+  ask reads) rather than changing `generate`. `typos(text, seed, { protect })` is the shared
+  noise for the fourth kind — inner letters swapped, dropped, doubled or struck beside themselves
+  in about a quarter of the words of four letters or more, never in a number, an id, a code in
+  capitals, a date word or a protected word — and each hook says what it protects (the entities
+  it scores on). `consistencyOf(base, treat)` in the runner gives, for every treatment's paired
+  delta, the share of paired instances whose canonical answer did not change, so a family in it
+  needs `eval.canon`.
 - `src/constraints.js` — instruction following as a treatment: `withConstraints(client, level)` draws
   one / three / five verifiable requirements from the trial seed (text families for free-form modes,
   JSON-shape families for structured ones), appends them to the prompt (arms: the goal prompt),

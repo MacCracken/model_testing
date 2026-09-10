@@ -4,6 +4,27 @@ What shipped, by date. Full measurement tables live in [docs/results.md](docs/re
 forward roadmap is [plan.md](plan.md). Dates are the commit dates; item numbers ([1]–[49]) are the
 roadmap's, stable across the plan, this file and the results.
 
+## 2026-09-16 — typos, the fourth perturbation
+
+### Added
+- **`@perturb:typos`** (the third [48] follow-up, and the robustness axis's classic): typing errors
+  in the words — two inner letters swapped, one dropped, one doubled, or one struck beside itself,
+  first and last letters kept — in about a quarter of the eligible words, at least one, seeded and
+  deterministic (`typos` in `perturb.js`). Never in a number, an id, a code in capitals, a month or
+  weekday name, or a word the family protects: wordmath noises its prose and keeps the day names;
+  tally its question and keeps the regions, statuses and column names; datecalc the sentence and
+  keeps the date; logicgrid the clues and the question and keeps the names, pets and drinks; fanout
+  and follow the ask's prose and keep the ids (and follow the field name `next`); extract the
+  documents themselves — OCR-like noise in the labels, descriptions and boilerplate with the
+  amounts, ids, dates, currency codes and the vendor, customer and account-holder names intact —
+  re-minted from the row's ctx like the other kinds. A text with no eligible word leaves the row
+  unapplied. The UI's perturb select offers it, alone and A/B.
+- Tests: 376 (+4: the helper's guarantees over 60 seeds, every family's hook with the numbers,
+  dates, entities and truth unchanged, the documents re-minted, the suffix, the listing and the
+  runner path).
+
+@@MEASURED3@@
+
 ## 2026-09-15 (later) — the plausible neighbour: unanswerable `follow` and `extract2`
 
 ### Added

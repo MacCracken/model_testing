@@ -135,10 +135,10 @@ test("the treatment through the runner: the instance is rewritten, the truth kep
 });
 
 test("the suffix: kinds, default, the spec, the paired variant, no stacking", () => {
-  assert.deepEqual(PERTURB_KINDS, ["paraphrase", "order", "format"]);
+  assert.deepEqual(PERTURB_KINDS, ["paraphrase", "order", "format", "typos"]);
   assert.deepEqual(parsePerturbSuffix("local:m@perturb:order"), { base: "local:m", how: "order" });
   assert.deepEqual(parsePerturbSuffix("local:m@perturb"), { base: "local:m", how: "paraphrase" });
-  assert.throws(() => parsePerturbSuffix("local:m@perturb:typos"), /unknown perturbation/);
+  assert.throws(() => parsePerturbSuffix("local:m@perturb:noise"), /unknown perturbation/);
   assert.deepEqual(parseClientSpec("local:m@perturb:format"), { provider: "local", model: "m", perturb: "format" });
   assert.throws(() => parseClientSpec("local:m@abstain@perturb"), /one variant per client/);
   const [b, v] = resolveClients("local:ornith-1.5:9b,local:ornith-1.5:9b@perturb:order");

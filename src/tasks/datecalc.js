@@ -6,6 +6,7 @@
 // The harness axis is a date tool. Truth is computed in UTC while the problem is generated.
 
 import { labelModel } from "../providers/index.js";
+import { typos } from "../perturb.js";
 import { dice, wordIn } from "./gen.js";
 
 const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -94,6 +95,11 @@ export function perturb(ctx, kind, seed = 0) {
       : `A parcel is posted on ${date} at ${fmtTime(p.start)}. Processing takes ${plural(p.a, "day")} and ${plural(p.b, "hour")}; transit then takes ${p.c} minutes; the courier holds it for ${plural(p.e, "day")} more before delivering it.`;
     return { ...ctx, text, perturbed: kind };
   }
+  if (kind === "typos") {
+    // Typing errors in the prose; the date, the weekday and every number are untouched.
+    const text = typos(ctx.text, seed);
+    return text === ctx.text ? null : { ...ctx, text, perturbed: kind };
+  }
   return null;
 }
 
@@ -148,7 +154,7 @@ function makeDatecalc(level) {
     setup: async ({ seed }) => generate(seed >>> 0, level),
     unanswerable,
     perturb,
-    perturbs: ["paraphrase", "format"],
+    perturbs: ["paraphrase", "format", "typos"],
 
     goal: (ctx) => `${problem(ctx)} Answer with ${format(ctx)}.`,
 

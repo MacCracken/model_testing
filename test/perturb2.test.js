@@ -54,8 +54,8 @@ test("fanout: order permutes the ids, format lists them, paraphrase rewords the 
   const p = fanoutPerturb(ctx, "paraphrase", 1);
   assert.match(t.toolOnly.prompt(p), /how many units of each are on hand right now: sku-1001, sku-1003/);
   assert.match(t.goal(fanoutPerturb(f, "paraphrase", 1)), /on hand right now:\n- sku-1001/);
-  assert.equal(fanoutPerturb(ctx, "typos", 1), null);
-  assert.deepEqual(t.perturbs, ["paraphrase", "order", "format"]);
+  assert.equal(fanoutPerturb(ctx, "noise", 1), null);
+  assert.deepEqual(t.perturbs, ["paraphrase", "order", "format", "typos"]);
   const canon = t.eval.canon;
   assert.equal(canon({ quantities: [{ id: "sku-1003", qty: 9 }, { id: "SKU-1001", qty: 5 }] }, { structured: true }), "sku-1001:5,sku-1003:9");
   assert.equal(canon("sku-1001: 5\nsku-1003: 9", { structured: false }), "sku-1001:5,sku-1003:9");
@@ -70,7 +70,7 @@ test("follow: paraphrase rewords the ask, format gives the parameters as a block
   assert.match(t.harness.prompt(followPerturb(ctx, "paraphrase")), /Begin at item sku-1001\. Every item's record has a "next" field/);
   assert.match(t.harness.prompt(followPerturb(ctx, "format")), /^Scenario: scn-1\nStart item: sku-1001\nHops to follow: 3 \(/);
   assert.equal(followPerturb(ctx, "order"), null);
-  assert.deepEqual(t.perturbs, ["paraphrase", "format"]);
+  assert.deepEqual(t.perturbs, ["paraphrase", "format", "typos"]);
   assert.equal(t.eval.canon({ id: "SKU-1004", qty: 12 }, { structured: true }), "sku-1004|12");
   assert.equal(t.eval.canon("I land on sku-1004 with qty 12.\nanswer: sku-1004 12", { structured: false }), "sku-1004|12");
   assert.equal(t.eval.canon("no idea", { structured: false }), "none");
@@ -113,8 +113,8 @@ test("extract: order permutes the header lines or the line items, format changes
   const f4 = perturbInstance(c4, "format", 3);
   assert.deepEqual(f4.truth, g4.truth);
   assert.notEqual(f4.docs[0].text, g4.docs[0].text);
-  assert.deepEqual(extractTasks[3].perturbs, ["paraphrase", "format"]);
-  assert.deepEqual(extractTasks[0].perturbs, ["paraphrase", "order", "format"]);
+  assert.deepEqual(extractTasks[3].perturbs, ["paraphrase", "format", "typos"]);
+  assert.deepEqual(extractTasks[0].perturbs, ["paraphrase", "order", "format", "typos"]);
   // Under the injected profile the note is planted in the rewritten documents too.
   const gi = generate(5, 2);
   const ci = { seed: 5, level: 2, injected: true, docs: gi.docs.map((d) => ({ ...d, text: injectNote(d.text) })), truth: gi.truth };

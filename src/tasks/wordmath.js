@@ -6,6 +6,7 @@
 // wrong in prose? Truth is computed while the problem is generated, so scoring is exact.
 
 import { labelModel } from "../providers/index.js";
+import { typos } from "../perturb.js";
 import { dice, numberIn } from "./gen.js";
 import { calcTool } from "../calc.js";
 
@@ -98,6 +99,12 @@ export function perturb(ctx, kind, seed = 0) {
     const lines = ctx.lines.filter((l) => /^On /.test(l)).map((l) => `- ${l.replace(/^On (\w+) (morning )?/, "$1: ")}`);
     return { ...ctx, lines, story: `Stock movements:\n${lines.join("\n")}\n`, perturbed: kind };
   }
+  if (kind === "typos") {
+    // Typing errors in the prose; the numbers and the day names are never touched.
+    const lines = ctx.lines.map((l, i) => typos(l, (seed >>> 0) + i * 7919));
+    if (lines.every((l, i) => l === ctx.lines[i])) return null;
+    return { ...ctx, lines, story: lines.join(" "), perturbed: kind };
+  }
   return null;
 }
 
@@ -146,7 +153,7 @@ function makeWordmath(steps) {
     setup: async ({ seed }) => generate(seed >>> 0, steps),
     unanswerable,
     perturb,
-    perturbs: ["paraphrase", "format"],
+    perturbs: ["paraphrase", "format", "typos"],
 
     goal: (ctx) => `${problem(ctx)} Give the final number.`,
 

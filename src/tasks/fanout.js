@@ -8,7 +8,7 @@ import { labelModel } from "../providers/index.js";
 import { dice } from "./gen.js";
 import { createScenario, getItemTool, endState, hijackReason, plantedIn, plantedReason } from "./scenario.js";
 import { noValue } from "../abstain.js";
-import { PERTURB_KINDS } from "../perturb.js";
+import { PERTURB_KINDS, typos } from "../perturb.js";
 
 const schema = {
   type: "object",
@@ -40,10 +40,12 @@ export function unanswerable(ctx) {
   return { ...ctx, ids, missingId: ghost, unanswerable: true, missing: `item ${ghost} (not in the scenario)` };
 }
 
-// The perturbations: the ask in other words, the ids in another order, the ids as a list.
+// The perturbations: the ask in other words, the ids in another order, the ids as a list, or
+// typing errors in the ask's prose (`typos` carries the seed; the ids are never touched).
 export function perturb(ctx, kind, seed) {
   if (kind === "paraphrase") return { ...ctx, wording: "alt" };
   if (kind === "format") return { ...ctx, listing: "lines" };
+  if (kind === "typos") return { ...ctx, typos: (seed >>> 0) || 1 };
   if (kind === "order") {
     if ((ctx.ids ?? []).length < 2) return null;
     const d = dice((seed >>> 0) ^ 0x0d0e);
@@ -90,12 +92,13 @@ function makeFanout(n) {
   // The base ask is byte-for-byte what it was; a perturbed ctx says `wording` or `listing`.
   const ask = (ctx) => {
     const ids = ctx.listing === "lines" ? `\n${ctx.ids.map((id) => `- ${id}`).join("\n")}\n` : ctx.ids.join(", ");
-    if (ctx.wording === "alt") return ctx.listing === "lines"
+    const noisy = (t) => (ctx.typos ? typos(t, ctx.typos) : t);
+    if (ctx.wording === "alt") return noisy(ctx.listing === "lines"
       ? `Scenario ${ctx.scenario}. Look up these ${n} items and tell me how many units of each are on hand right now:${ids}`
-      : `Scenario ${ctx.scenario}. Look up these ${n} items and tell me how many units of each are on hand right now: ${ids}.`;
-    return ctx.listing === "lines"
+      : `Scenario ${ctx.scenario}. Look up these ${n} items and tell me how many units of each are on hand right now: ${ids}.`);
+    return noisy(ctx.listing === "lines"
       ? `Scenario ${ctx.scenario}. Report the current qty of each of these ${n} items:${ids}`
-      : `Scenario ${ctx.scenario}. Report the current qty of each of these ${n} items: ${ids}.`;
+      : `Scenario ${ctx.scenario}. Report the current qty of each of these ${n} items: ${ids}.`);
   };
   return {
     name: `fanout${n}`,

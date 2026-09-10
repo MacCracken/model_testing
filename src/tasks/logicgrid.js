@@ -7,6 +7,7 @@
 // like `reason`, its harness is the structured mode.
 
 import { labelModel } from "../providers/index.js";
+import { typos } from "../perturb.js";
 import { dice, wordIn } from "./gen.js";
 
 const NAMES = ["Alice", "Bob", "Carol", "Dave"];
@@ -80,6 +81,15 @@ export function perturb(ctx, kind, seed = 0) {
   if (kind === "order") return { ...ctx, clues: d.shuffle(ctx.clues), perturbed: kind };
   if (kind === "format") return { ...ctx, clueFormat: "lines", perturbed: kind };
   if (kind === "paraphrase") return { ...ctx, clues: ctx.clues.map((c) => { for (const [re, f] of REWRITES) { const m = c.match(re); if (m) return f(m); } return c; }), perturbed: kind };
+  if (kind === "typos") {
+    // Typing errors in the clues and the question; the names, pets and drinks — the puzzle's
+    // entities, and the answer's candidates — are never touched.
+    const protect = [...(ctx.solution?.names ?? []), ...(ctx.solution?.pet ?? []), ...(ctx.solution?.drink ?? []), ...(ctx.candidates ?? [])];
+    const clues = ctx.clues.map((c, i) => typos(c, (seed >>> 0) + i * 7919, { protect }));
+    const question = typos(ctx.question ?? "", (seed >>> 0) + 104729, { protect });
+    if (clues.every((c, i) => c === ctx.clues[i]) && question === ctx.question) return null;
+    return { ...ctx, clues, question, perturbed: kind };
+  }
   return null;
 }
 
@@ -117,7 +127,7 @@ function makeLogicgrid(n) {
 
     setup: async ({ seed }) => generate(seed >>> 0, n),
     perturb,
-    perturbs: ["paraphrase", "order", "format"],
+    perturbs: ["paraphrase", "order", "format", "typos"],
 
     goal: (ctx) => `${problem(ctx)} Answer with one word.`,
 
