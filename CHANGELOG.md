@@ -4,6 +4,37 @@ What shipped, by date. Full measurement tables live in [docs/results.md](docs/re
 forward roadmap is [plan.md](plan.md). Dates are the commit dates; item numbers ([1]–[49]) are the
 roadmap's, stable across the plan, this file and the results.
 
+## 2026-09-19 — instructions that must survive a conversation
+
+### Added
+- **Requirements composed across dialogue turns** (the eighth [48] follow-up): under
+  `@constraints`, a scripted dialogue now states the requirements once, on the first turn, "for
+  your final report, at the end of this conversation", and checks the last turn's answer — the
+  turns between carry nothing, and the row's `constraints` says `statedTurn: 1` / `checkedTurn:
+  n`. Before this the wrapper restated the block on every turn and checked the last answer, so a
+  dialogue measured the same thing as a single prompt. Arms get the requirements on the first turn
+  through the goal prompt as before.
+- **A sentence-count family** for the free-form modes: "Write exactly N sentences" (two to
+  four), counted approximately — a terminator followed by whitespace or the end, so a decimal
+  point is not one and an abbreviation is — and marked `approximate: true` on the record, as the
+  IFEval reimplementation marks its sentence counter. A language family was considered and left
+  out: the answer's words are part of the truth for the word-answer families (a French "chien"
+  for logicgrid's "dog" would be right and scored wrong), so it would confound adherence with
+  correctness.
+- Tests: 403 (+2: the sentence counter and the family's mark; a three-turn dialogue through the
+  runner with the block on the first turn only, nothing on the others, the verdict on the last
+  answer with the turn fields, and a single-turn call unchanged).
+
+### Measured (dialogue3, wordmath4, lineup4; noHarness, toolOnly, harness; gpt-4o-mini and Haiku 4.5; four trials per cell; seed 2026; table in docs/results.md)
+- **Text requirements stated at the start of a three-turn restock do not survive it**: checked
+  on the third turn's answer, gpt-4o-mini keeps 2 of 12 in the free-form tool mode and Haiku 6 of
+  12, against ten to twelve of twelve on a single prompt. The JSON-shape requirements survive
+  (12/12 and 10/12), restated in effect by the schema on every turn. The same requirements restated on every turn (the free-form path's old behaviour, in the same
+  run) were kept 10/12 by both models; stated once and re-run (`20260910T155851-68b1`), 2/12 by
+  both — what survives is a word limit and a forbidden word, the two that need no remembering.
+- The sentence-count family is the hardest on a single prompt (1/4 and 2/4: the working runs to
+  more sentences than asked). Correctness is unchanged under the treatment (75.0 → 73.4 %, p = 1).
+
 ## 2026-09-18 (later) — near-duplicate tools
 
 ### Added

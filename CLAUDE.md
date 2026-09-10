@@ -228,10 +228,13 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
   delta, the share of paired instances whose canonical answer did not change, so a family in it
   needs `eval.canon`.
 - `src/constraints.js` — instruction following as a treatment: `withConstraints(client, level)` draws
-  one / three / five verifiable requirements from the trial seed (text families for free-form modes,
-  JSON-shape families for structured ones), appends them to the prompt (arms: the goal prompt),
-  checks the answer, and puts `row.constraints` (met / total / list) on the row; `variantDeltas`
-  pools adherence next to the correctness delta. Both `chat` and `runWithTools` receive
+  one / three / five verifiable requirements from the trial seed (text families for free-form modes
+  — word limits, forbidden and required words, an opening or closing phrase, no commas, bullet and
+  sentence counts, the sentence count marked `approximate` — JSON-shape families for structured
+  ones), appends them to the prompt (arms: the goal prompt), checks the answer, and puts
+  `row.constraints` (met / total / list) on the row; `variantDeltas` pools adherence next to the
+  correctness delta. In a scripted dialogue the block goes on the first turn only, for the final
+  report, and the last turn's answer is checked (`statedTurn` / `checkedTurn`). Both `chat` and `runWithTools` receive
   `{ task, mode, ctx, seed }`, so wrappers behave the same on the free-form path.
 - `src/lineage.js` — the model registry (`models/lineage.json` or `LINEAGE_FILE`): client id →
   family / checkpoint / step / parent / trainedOn. Runs record `config.lineage` for their clients,

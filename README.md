@@ -321,10 +321,7 @@ per-item work that way. Children's tool calls and tokens fold into the parent's 
 shows the sub-agents delta with how often delegation was actually used. Claude Code runs the variant
 through its own Agent tool; other arms report that they have no channel.
 
-**Constraints.** `openai:gpt-4o-mini@constraints:light|medium|heavy` adds one, three or five verifiable
-formatting requirements to every prompt — word limits, forbidden or required words, an opening or
-closing phrase, no commas, bullet counts for free-form answers; key order, an attestation key and a
-single line for JSON answers — drawn from the instance seed so every model gets the same ones. The
+**Constraints.** `openai:gpt-4o-mini@constraints:light|medium|heavy` adds one, three or five verifiable formatting requirements to every prompt — word limits, forbidden or required words, an opening or closing phrase, no commas, bullet counts and a sentence count (counted approximately, and marked so) for free-form answers; key order, an attestation key and a single line for JSON answers — drawn from the instance seed so every model gets the same ones. In a scripted dialogue the requirements are stated once, on the first turn, for the final report, and the last turn's answer is checked: whether an instruction given at the start survives the conversation. The
 row records which were met, and the report shows **adherence** next to the correctness delta, so
 "did the job" and "did it as told" stay separate.
 

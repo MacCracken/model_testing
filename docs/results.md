@@ -1796,3 +1796,46 @@ or looked anything up twice. The two misses are one instance: asked which item h
 qty, gpt-4o-mini lists the twelve items and names the wrong one in both modes — the scan across a
 list, the weakness `paged` found, not the pick. Like `typed`, the family is a floor for the house
 checkpoints rather than a separator for the hosted models. The run cost $0.14 (165 k tokens).
+
+## Instructions that must survive a conversation (2026-09-19, seed 2026, four trials per cell)
+
+Run `20260910T155545-fe17`: dialogue3, wordmath4 and lineup4 in noHarness, toolOnly and harness
+(lineup has no tool mode), each model plain and under `@constraints:medium` — three verifiable
+requirements per trial, text ones in the free-form modes (word limits, forbidden and required
+words, an opening or closing phrase, no commas, bullets, a sentence count) and JSON-shape ones in
+the structured modes (key order, an attestation key, a single line). On the single-prompt tasks
+the requirements go on the prompt; on the dialogue they are stated once, on the first turn, for
+the final report, and the third turn's answer is checked.
+
+| Client | Task | Mode | Requirements met | All three met | Right, plain → constrained |
+|---|---|---|---|---|---|
+| gpt-4o-mini | wordmath4 | noHarness | 10/12 | 2/4 | 4 → 4 |
+| gpt-4o-mini | wordmath4 | toolOnly | 12/12 | 4/4 | 3 → 4 |
+| gpt-4o-mini | wordmath4 | harness | 12/12 | 4/4 | 4 → 4 |
+| gpt-4o-mini | lineup4 | noHarness | 10/12 | 2/4 | 4 → 3 |
+| gpt-4o-mini | lineup4 | harness | 12/12 | 4/4 | 2 → 2 |
+| gpt-4o-mini | dialogue3 | toolOnly | **2/12** | 0/4 | 1 → 1 |
+| gpt-4o-mini | dialogue3 | harness | 10/12 | 2/4 | 2 → 2 |
+| claude-haiku-4-5 | wordmath4 | noHarness | 12/12 | 4/4 | 4 → 4 |
+| claude-haiku-4-5 | wordmath4 | toolOnly | 10/12 | 2/4 | 4 → 4 |
+| claude-haiku-4-5 | wordmath4 | harness | 12/12 | 4/4 | 4 → 4 |
+| claude-haiku-4-5 | lineup4 | noHarness | 10/12 | 2/4 | 4 → 3 |
+| claude-haiku-4-5 | lineup4 | harness | 12/12 | 4/4 | 4 → 4 |
+| claude-haiku-4-5 | dialogue3 | toolOnly | **6/12** | 1/4 | 4 → 4 |
+| claude-haiku-4-5 | dialogue3 | harness | 12/12 | 4/4 | 4 → 4 |
+
+On a single prompt both models keep ten to twelve of twelve requirements, as the earlier
+constraints runs found. Stated once at the start of a three-turn restock and checked at the end,
+the text requirements do not survive the conversation: gpt-4o-mini keeps 2 of 12 in the free-form
+tool mode ("Begin your answer with Summary:", "no commas", "at least 40 words" all gone by the
+third turn — the only two kept are a word limit it would have met anyway and a word it never
+uses), Haiku 6 of 12. The JSON-shape requirements survive (Haiku 12/12, gpt-4o-mini 10/12, the two
+misses an attestation key left out), but those are restated in effect by the schema the harness
+injects on every turn. The sentence-count family is the hardest of the twelve on a single prompt
+too (Haiku 1/4, gpt-4o-mini 2/4: the working is more sentences than asked), and it is counted
+approximately, which the record says. Correctness is unchanged under the treatment (75.0 % →
+73.4 % pooled, p = 1). The free-form control makes the same point twice over: in the first run its `chat` path still
+restated the block on every turn (the old behaviour, fixed the same day), and both models kept
+10 of 12; re-run with the requirements stated once (`20260910T155851-68b1`), both keep 2 of 12 —
+a word limit and a forbidden word, the ones that need no remembering — with the opening phrase,
+the closing phrase, the bullets and "no commas" all gone by the third turn. The run cost $0.71 (753 k tokens).

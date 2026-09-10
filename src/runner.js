@@ -190,10 +190,14 @@ async function runDialogue(client, prompts, tools, system, opts) {
   let ttftMs = null;
   let ttfaMs = null;
   let last = null;
+  // The row's prompt is the first turn as the model saw it (a wrapper may have added to it); each
+  // dialogue entry keeps its own turn the same way.
+  let firstPrompt;
   for (let t = 0; t < prompts.length; t++) {
     const n = t + 1;
     const started = performance.now();
     const resp = await client.runWithTools(prompts[t], tools, system, { ...opts, history, turn: n, turnsTotal: prompts.length });
+    if (t === 0 && typeof resp.effectivePrompt === "string") firstPrompt = resp.effectivePrompt;
     for (const c of resp.toolCalls ?? []) toolCalls.push({ ...c, turn: n });
     for (const r of resp.toolResults ?? []) toolResults.push({ ...r, turn: n });
     for (const x of resp.turns ?? []) turns.push({ ...x, dialogueTurn: n });
@@ -201,11 +205,11 @@ async function runDialogue(client, prompts, tools, system, opts) {
     reasoningChars += resp.reasoningChars ?? 0;
     rounds += resp.rounds ?? 0;
     if (t === 0) { ttftMs = resp.ttftMs ?? null; ttfaMs = resp.ttfaMs ?? null; }
-    dialogue.push({ turn: n, user: prompts[t], answer: resp.text ?? "", calls: (resp.toolCalls ?? []).length, rounds: resp.rounds ?? 0, ms: Math.round(performance.now() - started) });
+    dialogue.push({ turn: n, user: typeof resp.effectivePrompt === "string" ? resp.effectivePrompt : prompts[t], answer: resp.text ?? "", calls: (resp.toolCalls ?? []).length, rounds: resp.rounds ?? 0, ms: Math.round(performance.now() - started) });
     history = Array.isArray(resp.messages) ? resp.messages : [...history, { role: "user", content: prompts[t] }, { role: "assistant", content: resp.text ?? "" }];
     last = resp;
   }
-  return { ...last, toolCalls, toolResults, turns: turns.length ? turns : null, usage, reasoningChars, rounds, ttftMs, ttfaMs, dialogue };
+  return { ...last, ...(firstPrompt !== undefined ? { effectivePrompt: firstPrompt } : {}), toolCalls, toolResults, turns: turns.length ? turns : null, usage, reasoningChars, rounds, ttftMs, ttfaMs, dialogue };
 }
 
 /** Run a single (task, mode, client) trial once and score it. Never throws. */
@@ -368,14 +372,18 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
       let messages = [...(system ? [{ role: "system", content: system }] : []), { role: "user", content: rspec.prompt }];
       const dialogue = [];
       let usage = null;
+      // The row's prompt is the first turn as the model saw it (a wrapper may have added to it).
+      let firstPrompt;
       for (let t = 0; ; t++) {
         const started = performance.now();
         resp = await client.chat(messages, undefined, { signal, task, mode, ctx, seed: instance, ...(script.length ? { turn: t + 1, turnsTotal: script.length + 1 } : {}) });
+        if (t === 0 && typeof resp.effectivePrompt === "string") firstPrompt = resp.effectivePrompt;
         usage = sumUsage(usage, resp.usage);
-        if (script.length) dialogue.push({ turn: t + 1, user: messages.at(-1).content, answer: resp.text ?? "", calls: 0, rounds: 1, ms: Math.round(performance.now() - started) });
+        if (script.length) dialogue.push({ turn: t + 1, user: typeof resp.effectivePrompt === "string" ? resp.effectivePrompt : messages.at(-1).content, answer: resp.text ?? "", calls: 0, rounds: 1, ms: Math.round(performance.now() - started) });
         if (t >= script.length) break;
         messages = [...messages, { role: "assistant", content: resp.text ?? "" }, { role: "user", content: script[t] }];
       }
+      if (script.length && firstPrompt !== undefined) resp = { ...resp, effectivePrompt: firstPrompt };
       if (script.length) resp = { ...resp, usage, dialogue };
     }
     // The dialogue as it went: each user turn and the answer it got (capped like the prompt).

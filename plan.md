@@ -7,7 +7,7 @@ the last built item of the original roadmap landed, and refreshed on 2026-09-15.
 
 ## Start here (handoff, 2026-09-15)
 
-- **Run it.** `npm test` (401 tests; no model or server needed), then `node src/cli.js serve` for
+- **Run it.** `npm test` (403 tests; no model or server needed), then `node src/cli.js serve` for
   the UI on :4000 and `node webserver/server.js` for the system under test on :3000 (`SUT_PORT`).
   Keys and `LOCAL_ENDPOINTS` live in `.env`; runs land in `results/runs/`, the SQLite index beside
   them (`node src/cli.js index --full` rebuilds it); `node src/cli.js anchors fetch all` pulls the
@@ -30,11 +30,12 @@ the last built item of the original roadmap landed, and refreshed on 2026-09-15.
   recorded structure).
 - **Next.** Nothing on the original roadmap is left to build without a decision or an external
   channel; the review below says what each remaining item needs. The price-table upkeep in [51]
-  is the user's; seven of [48]'s follow-ups landed on 2026-09-15/18 (abstention and perturbation
+  is the user's; eight of [48]'s follow-ups landed on 2026-09-15/19 (abstention and perturbation
   for the tool and extraction families; the plausible-neighbour variants for `follow` and
   `extract2`; typos as the fourth perturbation; the rules and the user's turns rewritten for
-  `restock` and `dialogue`; the `convert`, `lineup` and `toolpick` families), the rest wait for a
-  tier to saturate; [27] the day the sandbox decision is taken.
+  `restock` and `dialogue`; the `convert`, `lineup` and `toolpick` families; requirements stated
+  once across a dialogue and a sentence-count family), the rest wait for a tier to saturate;
+  [27] the day the sandbox decision is taken.
 - **Environment notes.** Ollama 0.33 on :11434 serves `ornith-1.5:9b` (a 9 B thinking model, at
   ceiling on the easy tool tasks, 4/4 on paged3 where gpt-4o-mini is 1/4; its reasoning switches
   off only through `reasoning: { effort: "none" }` on the OpenAI route — `think: false`,
@@ -90,7 +91,7 @@ gpt-4o-mini is 1.0 whatever the outcome; agreement is only meaningful per instan
 | Data | one JSON per run, SQLite index (`index`, `query`, `--sql`, `compact`; `source`, `cost_usd`, `effort`, `depth`, lineage per trial), CSV and JSONL export, versions and lineage on every run, cross-run cell history, suite presets `smoke|standard|full|nightly`; every row keeps the model's turns (or an arm's raw transcript) beside its calls and results; `replay` and `rescore`; the anchor cache with provenance |
 | UI | Ledger design, a setup panel with every treatment and the A/B convention, live grid, headline with a column per treatment, tools × schema 2×2, cost, calibration and abstention blocks, capability scorecard with radars, sparklines and regression lines, lineage graph, difficulty curves with the depth sweep, paired comparison block, dumbbell matrix, trial drawer with transcript, dialogue turns and children, replay button, history filter |
 | SUT | the webserver: hello/health, the `/api/recent` log, inventory scenarios with tickets, confirm rules, stress profiles, pagination, strict types and an op log, text logs with grep and count, documents |
-| Tests | 401, none needing a model; the webserver runs in-process |
+| Tests | 403, none needing a model; the webserver runs in-process |
 
 ## What the field measures that we do not
 
@@ -116,7 +117,7 @@ priority for the stated purpose:
 | Tool use / function calling | BFCL v4 (AST + executable checks, parallel calls, irrelevance detection, multi-turn), τ²-bench, MCP-Bench | six tool tasks, decoys, restock, stress profiles, `fanout`, `follow`, `toolpick` (near-duplicate tools), `norelevant` and `nearmiss`, `paged`, `typed`, the `injected` profile, `dialogue`, the BFCL anchors, arms on shared tools with verdicts | a harder `typed` once a model trips the current one ([48]) | low |
 | Agentic multi-step | SWE-bench Verified, Terminal-Bench, GAIA, BrowseComp, OSWorld | restock family (3–30 steps), four real arms, two of them on the bench's tools | other domains (files, terminal, scheduling), longer horizons; the sandboxed code family ([27]) | **high**, gated by decision 2 |
 | Reasoning / math | GPQA Diamond, HLE, ARC-AGI-2, FrontierMath, LiveBench math | `reason`, the generated `wordmath`, `convert`, `datecalc`, `logicgrid`, `lineup`, `tally` families with a tool or the structured mode as the harness axis, GSM8K as the anchor | harder tiers as models saturate ([48]) | medium |
-| Instruction following | IFEval, LiveBench IF | `@constraints` (eleven families), `@format`, IFEval itself as the anchor | more families (sentences, language), requirements across turns ([48]) | low |
+| Instruction following | IFEval, LiveBench IF | `@constraints` (twelve families, stated once across a dialogue), `@format`, IFEval itself as the anchor | a language family ([48]) | low |
 | Long context | RULER at 4 k–1 M | `needle8k/32k/100k`, `needlehop8k/32k/100k`, the depth sweep | sizes past 100 k for models that take them ([48]) | medium |
 | Structured extraction | LiveBench data analysis, enterprise extraction evals | `transform`, the `extract` family with four tiers and injection through the document | other document kinds, OCR-like noise, multi-page tables ([48]) | low |
 | Statistics & reproducibility | HELM CIs, Inspect logs, lm-eval fixed prompts | everything in the table above | nothing until the house checkpoints arrive | — |
@@ -186,8 +187,8 @@ use stops separating on the tier it extends:
 
 - generators: harder `extract` and `dialogue` tiers (small); `logicgrid5` and `lineup8` (small);
   a `convert4` once a model in use is at ceiling on `convert3`;
-- constraints: length-in-sentences and language families (small); requirements composed across
-  dialogue turns (small);
+- constraints: a language family, if a detector without a dependency is worth its approximation
+  and the word-answer families are kept out of its way (small);
 - long context: 200 k and 500 k needles for models that take them (small; model-dependent);
 - tool breadth: a harder `typed` with nested arguments and enums once a model trips the current
   one (small); a `toolpick` tier with tools whose descriptions, not names, differ (small);
