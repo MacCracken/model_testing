@@ -4,6 +4,73 @@ What shipped, by date. Full measurement tables live in [docs/results.md](docs/re
 forward roadmap is [plan.md](plan.md). Dates are the commit dates; item numbers ([1]–[49]) are the
 roadmap's, stable across the plan, this file and the results.
 
+## 2026-09-21 (later) — code, run in a box; endpoints on the network
+
+### Added
+- **[27] Code execution** — the `code` family (`code1/2/3`, `src/tasks/code.js`) and the sandbox
+  it runs in (`src/sandbox.js`). Decision 2 is taken as a child Node process under the permission
+  model rather than a container: `node --permission` denies the candidate the file system, child
+  processes, workers, addons and the network (Node 26 covers all five), the heap is capped, the
+  run is cut by the clock, and the candidate lives in a bare `vm` realm that no host object enters
+  (the arguments are parsed from JSON inside it, the results come back as a string), so the
+  classic climbs from a constructor reach nothing. Zero dependencies; Docker stays the answer if
+  repository-scale tasks are ever wanted. The family: twelve seeded kinds of pure function over
+  three levels (one rule and its edges; a few rules that interact; several rules with a fail
+  case), each rendered with parameters drawn from the seed — the divisor, the letter, the
+  bounds, the tie rule, the separator, the count rule, the touching rule, the unit set, the top
+  n, the delimiter, the run length — so the usual exercise is a different function on every trial
+  and a remembered solution fails the hidden edge cases. The reference implementation is rendered
+  from the same parameters and is the truth; three examples are the visible tests in the prompt,
+  eight random cases plus every edge case are the hidden tests each mode is scored on. The harness
+  axis is `run_tests` (the sandbox on the examples, the failures reported back), the tool-use
+  verdict says whether the code was tested before it went out, and the capability tag is `code`.
+  The `code` playbook under `skills/` is the `@skill` treatment's.
+- **A user who reacts** — the `clarify` family (`clarify2/3`, `src/tasks/clarify.js`), the reactive
+  dialogue user from [48]. A scripted turn may now be a function of the model's previous turn
+  (`runDialogue` hands it the answer, its parsed JSON, the calls and their results), and the
+  family uses it: the opening asks for one of the k low items without saying which — the one the
+  supplier called about — and says to ask before changing anything; the second turn answers a
+  question with the item (id and name) and asks for the restock and the report, or names the
+  item to a guesser and has the guess undone. The user's reading of the first turn is kept on the
+  ctx for the ground, and the score wants the question before any write, the named item at its
+  target with nothing else touched, and an honest report — a lucky guess is a write before
+  asking. No confirm: the server refuses one while other items stay low. Capability
+  `clarification`; `skills/clarify.md` for the treatment.
+- **Endpoints on the network.** A named endpoint takes a key of its own (`<NAME>_API_KEY` in
+  `.env`, sent as the bearer token on every request and on the model-list probe; the fixed local
+  token without one), `cli probe <endpoint>` with no model lists what a host serves (and says
+  when a keyed server answers 401 for want of the key), `cli list` shows the address and whether
+  the key is set, and every run records where its models were served from (`config.endpoints`:
+  address, host, and whether it is another machine; `show <run>` prints it), so a row's latency
+  and the thermal record can be read against the right machine.
+- Tests: 433 (+7 for the clarify family: the cast, the reactive turn, the question reader, whole
+  trials through the in-process webserver with a model that asks, guesses, restocks everything or
+  slips after asking, the control path rendering the reactive turn, and the registry; +9 for the
+  sandbox and the code family: the verdict for a right, wrong, throwing,
+  syntax-broken, missing, looping and heap-exhausting candidate; no way out of the realm; the
+  generator's determinism, coverage of every kind, and its references passing their own hidden
+  tests; the readers, scorers, tool and verdict; the registry entries. +4 for the endpoints: the
+  key from the name, the served-from record, the probe with the key, and the CLI listing).
+
+### Measured
+- **Code from a spec, hosted** (run `20260911T172519-3ef6`, seed 2026, four trials per cell): the
+  first two levels are at ceiling for both models with tools; at level 3 gpt-4o-mini and Haiku
+  are each 3/4 in three modes, and gpt-4o-mini falls to 1/4 in schema-only — one answer was not
+  JSON, the others compacted the ranges wrong — the same shape as the arithmetic finding: a JSON
+  box with no room to think costs code as it costs sums. The test tool did not rescue either
+  model at level 3: each ran the examples once, saw them pass and answered, and the hidden edge
+  cases (a quoted CSV field's inner spaces, a doubled quote) failed — the tool measures what the
+  model asks it to run. Tables in docs/results.md; the local models follow as their queue runs.
+- **A user who reacts, hosted** (run `20260911T173851-9b40`, seed 2026, four trials per cell):
+  asking is not the hard part — gpt-4o-mini and Haiku asked which item was meant in 31 of 32
+  tool-mode trials (one guess), and both asked every time in the control mode. Twelve of the
+  sixteen tool-mode misses are the report giving the total from before the restock: read while
+  looking, remembered, never read again after the update. Haiku 3/4 and 3/4 with tools alone,
+  2/4 and 2/4 with the schema; gpt-4o-mini 1/4 to 2/4. Tables in docs/results.md.
+- **The key on the endpoint**: `llama serve --api-key` over the LAN address answers 401 to the
+  probe without `LLAMACPP_API_KEY` and passes six of six with it; the run records both servers'
+  addresses with the LAN one marked as another machine.
+
 ## 2026-09-21 — the laptop's heat, on the row
 
 ### Added

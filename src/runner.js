@@ -174,7 +174,8 @@ function sumUsage(a, b) {
 }
 
 // A scripted dialogue on the tool path: the spec's prompt, then the user turns the spec scripts for
-// this trial, each answered by a full tool loop that continues the same conversation. The synthetic
+// this trial (a string, or a function of the model's previous turn for a user who reacts), each
+// answered by a full tool loop that continues the same conversation. The synthetic
 // client takes the conversation so far as `history` and returns it grown (`messages`); a client
 // that returns none gets the turn and its answer appended. Calls, results and loop turns are tagged
 // with the user turn they belong to; the final message is the last turn's.
@@ -196,7 +197,12 @@ async function runDialogue(client, prompts, tools, system, opts) {
   for (let t = 0; t < prompts.length; t++) {
     const n = t + 1;
     const started = performance.now();
-    const resp = await client.runWithTools(prompts[t], tools, system, { ...opts, history, turn: n, turnsTotal: prompts.length });
+    // A reactive user: a scripted turn may be a function of what the model just did — its last
+    // answer (text and parsed JSON), the calls it made and their results — and returns the message.
+    const prompt = typeof prompts[t] === "function"
+      ? String(prompts[t]({ turn: n, answer: last?.text ?? "", structured: last?.structured ?? null, calls: last?.toolCalls ?? [], results: last?.toolResults ?? [] }) ?? "")
+      : prompts[t];
+    const resp = await client.runWithTools(prompt, tools, system, { ...opts, history, turn: n, turnsTotal: prompts.length });
     if (t === 0 && typeof resp.effectivePrompt === "string") firstPrompt = resp.effectivePrompt;
     for (const c of resp.toolCalls ?? []) toolCalls.push({ ...c, turn: n });
     for (const r of resp.toolResults ?? []) toolResults.push({ ...r, turn: n });
@@ -205,8 +211,8 @@ async function runDialogue(client, prompts, tools, system, opts) {
     reasoningChars += resp.reasoningChars ?? 0;
     rounds += resp.rounds ?? 0;
     if (t === 0) { ttftMs = resp.ttftMs ?? null; ttfaMs = resp.ttfaMs ?? null; }
-    dialogue.push({ turn: n, user: typeof resp.effectivePrompt === "string" ? resp.effectivePrompt : prompts[t], answer: resp.text ?? "", calls: (resp.toolCalls ?? []).length, rounds: resp.rounds ?? 0, ms: Math.round(performance.now() - started) });
-    history = Array.isArray(resp.messages) ? resp.messages : [...history, { role: "user", content: prompts[t] }, { role: "assistant", content: resp.text ?? "" }];
+    dialogue.push({ turn: n, user: typeof resp.effectivePrompt === "string" ? resp.effectivePrompt : prompt, answer: resp.text ?? "", calls: (resp.toolCalls ?? []).length, rounds: resp.rounds ?? 0, ms: Math.round(performance.now() - started) });
+    history = Array.isArray(resp.messages) ? resp.messages : [...history, { role: "user", content: prompt }, { role: "assistant", content: resp.text ?? "" }];
     last = resp;
   }
   return { ...last, ...(firstPrompt !== undefined ? { effectivePrompt: firstPrompt } : {}), toolCalls, toolResults, turns: turns.length ? turns : null, usage, reasoningChars, rounds, ttftMs, ttfaMs, dialogue };
@@ -381,7 +387,11 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
         usage = sumUsage(usage, resp.usage);
         if (script.length) dialogue.push({ turn: t + 1, user: typeof resp.effectivePrompt === "string" ? resp.effectivePrompt : messages.at(-1).content, answer: resp.text ?? "", calls: 0, rounds: 1, ms: Math.round(performance.now() - started) });
         if (t >= script.length) break;
-        messages = [...messages, { role: "assistant", content: resp.text ?? "" }, { role: "user", content: script[t] }];
+        // A reactive user's turn is a function of the answer just given (no tools ran on this path).
+        const next = typeof script[t] === "function"
+          ? String(script[t]({ turn: t + 2, answer: resp.text ?? "", structured: resp.structured ?? null, calls: [], results: [] }) ?? "")
+          : script[t];
+        messages = [...messages, { role: "assistant", content: resp.text ?? "" }, { role: "user", content: next }];
       }
       if (script.length && firstPrompt !== undefined) resp = { ...resp, effectivePrompt: firstPrompt };
       if (script.length) resp = { ...resp, usage, dialogue };

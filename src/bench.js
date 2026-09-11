@@ -14,7 +14,7 @@ import "./env.js";
 import "./store.js";
 import { lineageOf } from "./lineage.js";
 import { getTask, tasks as allTasks } from "./tasks/registry.js";
-import { resolveClients } from "./providers/index.js";
+import { endpointsFor, resolveClients } from "./providers/index.js";
 import { runMatrix, planMatrix, isStructuredMode, describeSignificance, compareRows, describePaired, MODE_NAMES, DEFAULT_MODES } from "./runner.js";
 import { newRunId, saveRun, loadRun } from "./results.js";
 import { pricingFor } from "./prices.js";
@@ -228,6 +228,7 @@ async function main() {
       suite: process.env.BENCH_SUITE ?? null,
       timeBoxMs,
       lineage: lineageOf(clients.map((c) => c.name)),
+      endpoints: endpointsFor(clients.map((c) => c.name)),
     },
     versions: benchVersions(),
     env: thermalStart ? { thermal: { start: thermalStart, end: thermalState() } } : null,

@@ -33,8 +33,20 @@ async function main() {
       const args = parseArgs(rest);
       const spec = args._[0];
       if (!spec) { console.error("usage: node src/cli.js probe <provider:model> [--effort none|low|…] [--json]"); process.exit(1); }
-      const { resolveClients, probeLocalModels } = await import("./providers/index.js");
+      const { resolveClients, probeLocalModels, PROVIDERS, apiKeyFor } = await import("./providers/index.js");
       const { probeClient, describeProbe } = await import("./probe.js");
+      // A bare local provider (`probe llamacpp`): list what the host serves and say how to probe one.
+      if (!spec.includes(":") && PROVIDERS[spec]?.local) {
+        const cfg = PROVIDERS[spec];
+        const url = cfg.baseUrl.replace(/\/chat\/completions$/, "");
+        const ids = await probeLocalModels({ provider: spec, timeoutMs: 4000 });
+        if (args.json) { console.log(JSON.stringify({ provider: spec, url, keyEnv: cfg.keyEnv ?? null, keyed: !!apiKeyFor(spec), models: ids ?? [] }, null, 2)); process.exit(ids ? 0 : 1); }
+        if (!ids) { console.log(`${spec}: nothing answers at ${url}${cfg.keyEnv ? (apiKeyFor(spec) ? ` (${cfg.keyEnv} set)` : ` (${cfg.keyEnv} not set — a keyed server answers 401)`) : ""}`); process.exit(1); }
+        console.log(`${spec} serves ${ids.length} model${ids.length === 1 ? "" : "s"} at ${url}${cfg.keyEnv ? (apiKeyFor(spec) ? ` (${cfg.keyEnv} set)` : "") : ""}`);
+        for (const id of ids) console.log(`  ${spec}:${id}`);
+        console.log(`probe one with: node src/cli.js probe ${spec}:${ids[0]}`);
+        process.exit(0);
+      }
       const clients = resolveClients(spec);
       if (!clients.length) { console.error(`no client for "${spec}" — unknown provider, or its key is not in .env`); process.exit(1); }
       const results = [];
@@ -59,7 +71,7 @@ async function main() {
         const status = cfg.harness
           ? `harness arm · ${cfg.baseUrl}${cfg.keyEnv ? (hasCredentials(name) ? ` · ${cfg.keyEnv} set` : ` · ${cfg.keyEnv} missing`) : ""}`
           : cfg.needsKey === false
-            ? (d?.live ? `live, ${models.length} model(s)${cfg.endpoint ? ` · ${cfg.baseUrl.replace(/\/chat\/completions$/, "")}` : ""}` : `offline — ${cfg.endpoint ? `nothing answers at ${cfg.baseUrl.replace(/\/chat\/completions$/, "")}` : "showing the fallback list"}`)
+            ? (d?.live ? `live, ${models.length} model(s)${cfg.endpoint ? ` · ${cfg.baseUrl.replace(/\/chat\/completions$/, "")}${d?.keyed ? ` · ${d.keyEnv} set` : ""}` : ""}` : `offline — ${cfg.endpoint ? `nothing answers at ${cfg.baseUrl.replace(/\/chat\/completions$/, "")}${cfg.keyEnv && !d?.keyed ? ` (${cfg.keyEnv} not set)` : ""}` : "showing the fallback list"}`)
             : (hasCredentials(name) ? "key set" : `${name.toUpperCase()}_API_KEY missing`);
         console.log(`  ${name.padEnd(10)} [${status}]`);
         for (const m of models) console.log(`    ${name}:${m.padEnd(30)} ${labelModel(m)}`);
@@ -105,6 +117,9 @@ async function main() {
         capabilitiesOf: Object.fromEntries(tagged.map((t) => [t.name, t.capabilities])),
         levelsOf: Object.fromEntries(tagged.filter((t) => t.family).map((t) => [t.name, { family: t.family, level: t.level }])),
       });
+      // Where the models were served from (the Ollama daemon and every named endpoint of the run),
+      // so latencies and the thermal record are read against the right machine.
+      if (run.config?.endpoints) console.log(`served from: ${Object.entries(run.config.endpoints).map(([name, e]) => `${name} → ${e.url}${e.remote ? " (another machine; the thermal record below is this one's)" : ""}`).join(" · ")}`);
       printSummary(summary);
       if (args.table) console.log(`\n${summaryTable(summary)}`);
       break;

@@ -144,14 +144,36 @@ export function parseLocalEndpoints(spec) {
   return out;
 }
 
+// A named endpoint may carry a key: `<NAME>_API_KEY` in .env (the name upper-cased, dashes to
+// underscores) is sent as a bearer token when set — a server on the network runs with `--api-key`
+// — and the fixed "Bearer local" goes out when it is not, so a keyless local server still works.
+export const endpointKeyEnv = (name) => `${String(name).toUpperCase().replace(/[^A-Z0-9]/g, "_")}_API_KEY`;
+
 export function registerLocalEndpoints(map) {
   const added = [];
   for (const [name, url] of Object.entries(map)) {
     if (PROVIDERS[name] && !PROVIDERS[name].endpoint) continue; // never shadow a built-in provider
-    PROVIDERS[name] = { baseUrl: url, auth: () => "Bearer local", needsKey: false, local: true, endpoint: true, models: [] };
+    PROVIDERS[name] = { baseUrl: url, auth: (key) => (key && key !== "local" ? `Bearer ${key}` : "Bearer local"), keyEnv: endpointKeyEnv(name), needsKey: false, local: true, endpoint: true, models: [] };
     added.push(name);
   }
   return added;
+}
+
+// Where a run's models are served from: for every local provider among the clients (the Ollama
+// daemon and each named endpoint), the server's address without the route, and its host — so a
+// row's latency and the thermal record can be read against the right machine.
+export function endpointsFor(clientNames) {
+  const out = {};
+  for (const name of clientNames ?? []) {
+    const provider = String(name).split(":")[0];
+    const cfg = PROVIDERS[provider];
+    if (!cfg || !cfg.local || out[provider]) continue;
+    const url = String(cfg.baseUrl).replace(/\/chat\/completions$/, "");
+    let host = null;
+    try { host = new URL(url).hostname; } catch { host = null; }
+    out[provider] = { url, host, remote: host !== null && !/^(localhost|127\.0\.0\.1|::1|0\.0\.0\.0)$/i.test(host) };
+  }
+  return Object.keys(out).length ? out : null;
 }
 registerLocalEndpoints(parseLocalEndpoints(envValue("LOCAL_ENDPOINTS", "")));
 
@@ -306,8 +328,8 @@ export async function probeLocalModels({ timeoutMs = 1500, provider = "local" } 
   if (!cfg) return null;
   const url = cfg.baseUrl.replace(/\/chat\/completions$/, "/models");
   try {
-    // A hosted route wants the key; a local daemon ignores the header.
-    const key = cfg.local ? null : apiKeyFor(provider);
+    // A hosted route wants the key; a local daemon ignores the header, and a keyed endpoint needs it.
+    const key = apiKeyFor(provider) || null;
     const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs), ...(key ? { headers: { Authorization: cfg.auth(key) } } : {}) });
     if (!res.ok) return null;
     const data = await res.json();
@@ -335,6 +357,8 @@ export async function describeProviders({ probe = true } = {}) {
     sharedTools: !!cfg.sharedTools,
     needsKey: cfg.needsKey !== false,
     hasKey: hasCredentials(name),
+    keyEnv: cfg.keyEnv ?? (cfg.endpoint ? endpointKeyEnv(name) : null),
+    keyed: !!apiKeyFor(name), // a key is actually set (an endpoint works without one)
     local: !!cfg.local,
     endpoint: !!cfg.endpoint,
     live: cfg.local || cfg.probeModels ? (live[name] ?? null) !== null : null,

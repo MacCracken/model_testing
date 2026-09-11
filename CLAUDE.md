@@ -25,7 +25,7 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
   records `ttftMs` / `ttfaMs`; `stream: false` keeps the plain path.
 - `src/tasks/` — task specs: prompt/tools/schema per mode + `eval` block (ground + scorers).
   `tasks/util.js` holds what they share: the webserver `BASE` URL and `unwrapList`. Generated
-  families (`wordmath`, `datecalc`, `logicgrid`, `lineup`, `tally`, `convert`) mint an instance per trial from
+  families (`wordmath`, `datecalc`, `logicgrid`, `lineup`, `tally`, `convert`, `code`) mint an instance per trial from
   the trial's seed in `setup` (`seeded: true`); `tasks/gen.js` holds the seeded RNG, `seedFor` and
   lenient answer readers, `src/calc.js` the exact calculator that is the harness axis for
   arithmetic (`+ - * / %`, parentheses, and `ceil` / `floor` / `round(x, places)` / `abs`, with
@@ -53,6 +53,14 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
   of mind, a hold, a request the policy caps), the runner answers each with a full tool loop in the
   same conversation, and the score reads the end state, the policy (from the op log and the
   per-turn calls) and the final report; `multiTurn: true` makes the planner skip the arms. The
+  clarify family (`clarify2/3`, `tasks/clarify.js`) is the reactive user: the opening turn asks for
+  one of the k low items without saying which (and says: ask before you change anything), and
+  the second turn is a function the runner calls with the model's first — to a question it
+  answers with the item and asks for the restock and the report, to a guess it names the item
+  and has the guess undone — the decision kept on the ctx (`ctx.clarify`) for the ground; scored
+  on asking before any write, the end state (the named item at target, nothing else touched; no
+  confirm, the server refuses one while other items stay low) and the report; capability
+  `clarification`. The
   scenario-backed families (`fanout`, `follow`, `toolpick`, `norelevant`, `nearmiss`, `paged`,
   `typed` and `restock`) share `tasks/scenario.js`:
   the server API, a scenario minted from the trial seed (the server takes the seed, so the inventory
@@ -94,7 +102,9 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
   and `transcript` (an arm's raw output, capped) beside its calls and results. A spec with `turns`
   runs a scripted dialogue (`runDialogue`): each user turn continues the same conversation — the
   synthetic client takes `history` and returns `messages` — and the row keeps `dialogue` (one entry
-  per user turn) with every call, result and loop turn tagged by its `turn`.
+  per user turn) with every call, result and loop turn tagged by its `turn`. A scripted turn may be
+  a function of the model's previous turn (`{ turn, answer, structured, calls, results }` → the
+  message): a user who reacts, still deterministic for the seed.
 - `src/results.js` — run persistence (`results/runs/<id>.json`); `onRunSaved` lets the store index
   every save without the saver knowing about it. A run may carry `parent` (`{ id, kind: "replay" }`,
   set by `bench --replay` / `POST /api/runs { replayOf }`) and `rescored` (one note per re-score).
@@ -275,6 +285,21 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
   `summary.thermal` and the report prints a line when trials ran under pressure. It records; it
   never limits a run — parallelism and timeouts for local endpoints are the operator's choice (a
   laptop is steadier one request at a time, a desktop holds its clocks).
+- `src/sandbox.js` — untrusted JavaScript run against a test set in a child Node process under the
+  permission model (`--permission`: no file system, child processes, workers, addons or network),
+  with a heap cap, a wall-clock cut and a stdout cap; the candidate lives in a bare `vm` realm that
+  no host object enters (the arguments are parsed from JSON inside it, the results come back as a
+  string), so there is nothing to climb to `process` from. `runInSandbox({ code, name, tests })`
+  resolves to { ok, passed, total, failures, error, timedOut, ms } and never rejects; `codeIn`
+  reads the code out of an answer (a tagged fence, any fence, bare code); `describeSandbox`
+  phrases a result. The code family (`code1/2/3`, `tasks/code.js`) is built on it: twelve seeded
+  kinds of pure function across three levels, each rendered with parameters from the seed (the
+  divisor, the separator, the tie rule, the delimiter, the unit set …) so the classic exercise is
+  a different function every trial; the reference implementation is rendered from the same
+  parameters and is the truth, three examples are the visible tests in the prompt, eight random
+  cases plus the edge cases are the hidden tests every mode is scored on. The harness axis is
+  `run_tests` (the sandbox on the examples, failures reported back); the tool-use verdict says
+  whether the code was tested before it went out. Capability tag `code`.
 - `src/probe.js` — `probeClient(client, { listModels, effort })`: an endpoint's readiness for the
   bench through the bench's own client — listed, answers (with streamed usage), calls a tool and
   takes its result, returns JSON, accepts the reasoning parameter — with `ready` the verdict a
@@ -317,6 +342,8 @@ export const task = {
   setup: async ({ mode, index, client, seed }) => ({ scenario: "scn-…", items: [...] }),
   // optional: a scripted user — the later user turns as a function of the context; the runner answers
   // each in the same conversation and scores the end. Arms are skipped (multiTurn: true says so).
+  // A turn may itself be a function of the model's previous turn ({ turn, answer, structured, calls,
+  // results } → the message) for a user who reacts to what the model did.
   turns: (ctx) => [`Change of plan for ${ctx.items[0].id}: …`, "Then confirm and report."],
   // optional: what the row records as its `ctx` — a record for the drawer, the index and a replay,
   // not the environment (default: the ctx itself). The live ctx still reaches prompts, tools, ground
@@ -410,7 +437,10 @@ a key, so its list is the route's. `--effort <level>` rides in `modelParams.effo
 translated per provider when the client is built (`effortParams`).
 `BENCH_TIMEOUT_MS` (per-request timeout; five minutes for a local endpoint and two for a hosted
 route when unset), `OLLAMA_BASE_URL`, `LOCAL_ENDPOINTS` (named OpenAI-compatible servers for your own checkpoints, on
-this machine or any host on the network; `cli list` probes each on its own address),
+this machine or any host on the network; `<NAME>_API_KEY` is an endpoint's bearer token when its
+server runs with one, the fixed local token goes out otherwise; `cli list` probes each on its own
+address and `cli probe <endpoint>` lists what a host serves; `endpointsFor` records every run's
+serving hosts as `config.endpoints`, printed by `show`),
 `LINEAGE_FILE`, `SUT_PORT` (the webserver's port; `PORT` is a legacy fallback) and `RESULTS_DIR` are
 honored from `.env` too.
 

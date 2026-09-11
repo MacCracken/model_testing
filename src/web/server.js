@@ -25,7 +25,7 @@ import { extname, join, normalize, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { listTasks, getTask } from "../tasks/registry.js";
-import { describeProviders, resolveClients } from "../providers/index.js";
+import { endpointsFor, describeProviders, resolveClients } from "../providers/index.js";
 import { runMatrix, MODE_NAMES, DEFAULT_MODES } from "../runner.js";
 import { describeSkipped, resolveJudge } from "../bench.js";
 import { newRunId, saveRun, loadRun, listRuns, deleteRun, runHeader } from "../results.js";
@@ -106,7 +106,7 @@ function startRun({ tasks, modes, clients, count, parallel = 1, instanceSeed = n
     source: "web",
     // A replay names the run it re-runs; the index carries it, and the UI labels it.
     parent,
-    config: { tasks, modes, clients: clientObjs.map((c) => c.name), count, parallel, instanceSeed, modelParams, judge: judge?.name ?? null, lineage: lineageOf(clientObjs.map((c) => c.name)) },
+    config: { tasks, modes, clients: clientObjs.map((c) => c.name), count, parallel, instanceSeed, modelParams, judge: judge?.name ?? null, lineage: lineageOf(clientObjs.map((c) => c.name)), endpoints: endpointsFor(clientObjs.map((c) => c.name)) },
     versions: benchVersions(),
     env: (() => { const t = thermalState(); return t ? { thermal: { start: t, end: null } } : null; })(),
     warnings: missing.length ? [`skipped (no API key or unknown provider): ${missing.join(", ")}`] : [],

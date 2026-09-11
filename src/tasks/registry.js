@@ -24,6 +24,7 @@ import { restockTasks } from "./restock.js";
 import { wordmathTasks } from "./wordmath.js";
 import { convertTasks } from "./convert.js";
 import { lineupTasks } from "./lineup.js";
+import { codeTasks } from "./code.js";
 import { toolpickTasks } from "./toolpick.js";
 import { datecalcTasks } from "./datecalc.js";
 import { logicgridTasks } from "./logicgrid.js";
@@ -34,6 +35,7 @@ import { task as norelevantTask } from "./norelevant.js";
 import { needleTasks, needlehopTasks } from "./needle.js";
 import { extractTasks } from "./extract.js";
 import { dialogueTasks } from "./dialogue.js";
+import { clarifyTasks } from "./clarify.js";
 import { task as nearmissTask } from "./nearmiss.js";
 import { pagedTasks } from "./paged.js";
 import { task as typedTask } from "./typed.js";
@@ -41,8 +43,8 @@ import { publicTasks } from "./public.js";
 
 export const tasks = [
   healthTask, helloTask, reasonTask, lookupTask, regexTask, chainTask, transformTask, explainTask,
-  ...restockTasks, ...wordmathTasks, ...convertTasks, ...datecalcTasks, ...logicgridTasks, ...lineupTasks, ...tallyTasks,
-  ...fanoutTasks, ...followTasks, ...toolpickTasks, norelevantTask, ...needleTasks, ...needlehopTasks, ...extractTasks, ...dialogueTasks,
+  ...restockTasks, ...wordmathTasks, ...convertTasks, ...datecalcTasks, ...logicgridTasks, ...lineupTasks, ...tallyTasks, ...codeTasks,
+  ...fanoutTasks, ...followTasks, ...toolpickTasks, norelevantTask, ...needleTasks, ...needlehopTasks, ...extractTasks, ...dialogueTasks, ...clarifyTasks,
   nearmissTask, ...pagedTasks, typedTask,
   ...publicTasks,
 ];

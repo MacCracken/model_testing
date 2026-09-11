@@ -10,7 +10,7 @@
 import "./env.js";
 import "./store.js";
 import { lineageOf } from "./lineage.js";
-import { resolveClients } from "./providers/index.js";
+import { endpointsFor, resolveClients } from "./providers/index.js";
 import { resolveTasks, resolveModes, describeSkipped, modelParamsFrom, resolveJudge } from "./bench.js";
 import { benchVersions } from "./version.js";
 import { thermalState, sampleEnvironment } from "./thermal.js";
@@ -72,7 +72,7 @@ export async function main() {
     finishedAt: new Date().toISOString(),
     status: "done",
     source: "aggregate",
-    config: { tasks: taskList.map((t) => t.name), modes: modeList, clients: clients.map((c) => c.name), count, parallel, instanceSeed, modelParams, judge: judge?.name ?? null, lineage: lineageOf(clients.map((c) => c.name)) },
+    config: { tasks: taskList.map((t) => t.name), modes: modeList, clients: clients.map((c) => c.name), count, parallel, instanceSeed, modelParams, judge: judge?.name ?? null, lineage: lineageOf(clients.map((c) => c.name)), endpoints: endpointsFor(clients.map((c) => c.name)) },
     versions: benchVersions(),
     env: thermalStart ? { thermal: { start: thermalStart, end: thermalState() } } : null,
     warnings: describeSkipped(skipped),

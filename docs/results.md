@@ -2040,3 +2040,58 @@ The `cli list` bug this surfaced: it printed the Ollama daemon's model count bes
 endpoint and listed none of the endpoint's own models (`llamacpp [live, 5 model(s)]` for a server
 serving one). It now probes each endpoint on its own address and prints what that server lists,
 with the address; an endpoint nothing answers at says so (`test/list.test.js`).
+
+## Code from a spec: `code1/2/3` (2026-09-21, seed 2026, four trials per cell)
+
+Run `20260911T172519-3ef6`: the two hosted models, all four modes. A trial is right when the
+model's function passes every hidden test (eight random cases plus the edge cases the rules name)
+in the sandbox; with tools, `run_tests` runs the three examples from the prompt.
+
+| Task | Model | noHarness | harness | schemaOnly | toolOnly |
+|---|---|---|---|---|---|
+| code1 | gpt-4o-mini | 4/4 | 4/4 | 4/4 | 4/4 |
+| code1 | claude-haiku-4-5 | 4/4 | 4/4 | 4/4 | 4/4 |
+| code2 | gpt-4o-mini | 4/4 | 4/4 | 3/4 | 3/4 |
+| code2 | claude-haiku-4-5 | 4/4 | 4/4 | 4/4 | 4/4 |
+| code3 | gpt-4o-mini | 3/4 | 3/4 | 1/4 | 3/4 |
+| code3 | claude-haiku-4-5 | 3/4 | 3/4 | 3/4 | 3/4 |
+
+The misses are spec reading, not syntax: gpt-4o-mini's `topK` kept a duplicate where the rule
+asked for distinct values; its `csvRow` dropped the doubled quote and kept a leading space on an
+unquoted field; Haiku's `csvRow` trimmed the inner spaces of a quoted field. In schema-only mode
+gpt-4o-mini gave one answer that was not JSON and compacted the ranges wrong twice (every run of
+two listed one by one, duplicates kept) — 1/4 against 3/4 with room to think or a tool. Every
+tool-mode trial called `run_tests` (one to two runs for Haiku; one for gpt-4o-mini, nine on two
+trials that kept fixing); on the level-3 misses both models saw the examples pass and answered,
+and the hidden edge cases failed — the tool runs what it is given. Cost: 210 k tokens for the
+96 trials; the sandbox took under 30 ms per verdict.
+
+**The key on the endpoint** (2026-09-21): `llama serve --api-key` over the laptop's LAN address —
+the bare probe without `LLAMACPP_API_KEY` reports nothing answering and names the missing key,
+the model probe fails its first check with the server's 401, and with the key set both pass
+(six of six); a one-trial run against it and Ollama records `config.endpoints` with the LAN
+server marked as another machine.
+
+## A user who reacts: `clarify2/3` (2026-09-21, seed 2026, four trials per cell)
+
+Run `20260911T173851-9b40`: the two hosted models, the control and the two tool modes. The
+opening asks for one of the two or three low items without saying which and says to ask before
+changing anything; the second turn is rendered from what the model did. A trial is right when the
+model asked before any write, the named item alone is at its target, and the report gives the ids
+and the total as the server's summary has it after the restock.
+
+| Task | Model | noHarness | harness | toolOnly | asked before writing (tool modes) |
+|---|---|---|---|---|---|
+| clarify2 | gpt-4o-mini | 0/4 | 1/4 | 1/4 | 7/8 |
+| clarify2 | claude-haiku-4-5 | 0/4 | 2/4 | 3/4 | 8/8 |
+| clarify3 | gpt-4o-mini | 0/4 | 2/4 | 2/4 | 8/8 |
+| clarify3 | claude-haiku-4-5 | 0/4 | 2/4 | 3/4 | 8/8 |
+
+Asking is not the hard part: both models asked in 31 of 32 tool-mode trials (gpt-4o-mini
+restocked two items before asking once), and in the control mode, with nothing to look at, both
+asked every time. The misses are what came after. Twelve of the sixteen tool-mode misses are the
+same one: the report gives the total from before the restock — the model had read the summary
+while looking in turn one, restocked in turn two, and reported the number it remembered without
+reading again (one Haiku trial read the summary in the same round as the update, so it saw the
+old total). One report was simply wrong. The control mode cannot change the server, so its rows
+are wrong by design; it shows the asking, not the doing. Cost: 231 k tokens for 48 trials.

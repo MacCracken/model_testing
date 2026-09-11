@@ -68,6 +68,18 @@ Each name becomes a provider like `local`: no key, models probed live from its `
 offline in the UI when the server is down. Clients are `<name>:<model>` — `vllm:my-ckpt-2000`. A
 name never shadows a built-in provider.
 
+**A key, another machine.** A server that runs with a key (`llama serve --api-key …`, `vllm serve
+--api-key …`) gets it from `.env` as `<NAME>_API_KEY` — the endpoint's name upper-cased, dashes to
+underscores: `LLAMACPP_API_KEY`, `MY_HOST_API_KEY` — sent as the bearer token on every request and on
+the model-list probe; without one the fixed local token goes out, so a keyless server needs nothing.
+The address may be any host on the network: bind the runtime to every interface (`--host 0.0.0.0`),
+name its LAN address (`desk=http://192.168.1.80:8080/v1`), and `node src/cli.js probe desk` lists
+what that host serves with the key (a keyed server with no key set answers 401, and the line says
+so), `probe desk:<model>` runs the six checks, `list` shows the address and whether the key is set.
+Every run records where its models were served from (`config.endpoints`: the address, the host,
+and whether it is another machine), `show <run>` prints it above the summary, and the thermal
+record on the rows stays this machine's — a model on a desktop has its own heat.
+
 ## 3. Record the lineage
 
 Add the checkpoint to `models/lineage.json` (or the file `LINEAGE_FILE` points at):

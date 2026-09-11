@@ -7,7 +7,7 @@ the last built item of the original roadmap landed, and refreshed on 2026-09-15.
 
 ## Start here (handoff, 2026-09-15)
 
-- **Run it.** `npm test` (413 tests; no model or server needed), then `node src/cli.js serve` for
+- **Run it.** `npm test` (433 tests; no model or server needed), then `node src/cli.js serve` for
   the UI on :4000 and `node webserver/server.js` for the system under test on :3000 (`SUT_PORT`).
   Keys and `LOCAL_ENDPOINTS` live in `.env`; runs land in `results/runs/`, the SQLite index beside
   them (`node src/cli.js index --full` rebuilds it); `node src/cli.js anchors fetch all` pulls the
@@ -35,7 +35,9 @@ the last built item of the original roadmap landed, and refreshed on 2026-09-15.
   `extract2`; typos as the fourth perturbation; the rules and the user's turns rewritten for
   `restock` and `dialogue`; the `convert`, `lineup` and `toolpick` families and `convert4`;
   requirements stated once across a dialogue and a sentence-count family), the rest wait for a
-  tier to saturate; [27] the day the sandbox decision is taken.
+  tier to saturate; [27] shipped on 2026-09-21 with decision 2 taken (a child Node process under
+  the permission model), together with keyed endpoints on the network, the served-from record and
+  the reactive dialogue user (`clarify2/3`).
 - **Environment notes.** Ollama 0.33 on :11434 serves `ornith-1.5:9b` (a 9 B thinking model, at
   ceiling on the easy tool tasks, 4/4 on paged3 where gpt-4o-mini is 1/4; its reasoning switches
   off only through `reasoning: { effort: "none" }` on the OpenAI route — `think: false`,
@@ -144,14 +146,6 @@ What follows is everything left, each with what it needs and a recommendation.
 
 ### Gated by a decision
 
-- **[27] Code execution.** Generated function specs with hidden tests, executed in isolation;
-  repository-scale tasks later. *Needs:* decision 2 (worker threads with limits, or a container).
-  *Size:* medium — a generator of small pure-function specs with a hidden test set per seed, a
-  runner that executes a candidate against the tests in isolation, the family in the four modes
-  (a "run the tests" tool as the harness axis), a difficulty knob (spec length, edge cases).
-  *Recommendation:* worker threads first — they keep the zero-dependency rule, and the specs this
-  bench would mint (pure functions over numbers and strings) need no filesystem or network;
-  Docker can come later for repository-scale tasks if they are ever wanted.
 - **[30] Pairwise mode for open-ended tasks.** Position-swapped pairwise judging with Bradley-Terry
   ratings across models. *Needs:* a small human-labelled set (about fifty pairs) before the judge
   is trusted, and more than one judged task to be worth the machinery (`explain` is the only one).
@@ -197,7 +191,6 @@ use stops separating on the tier it extends:
 - abstention beyond what landed on 2026-09-15/16: unanswerable variants for the join and the
   statement (`extract3/4`) and for `restock` (small each); every family with a rewrite now has
   its perturbations;
-- a reactive dialogue user that answers the model's questions from the scenario (medium);
 - an over-refusal suite of benign borderline tasks, if decision 3 says so (medium).
 
 ### Upkeep
@@ -211,11 +204,11 @@ use stops separating on the tier it extends:
 ## Decisions needed
 
 1. **Order.** Recommendation: [51] first (minutes, and the cost view starts telling the truth
-   for every model in use); then [48]'s follow-ups as tiers saturate; [27] the day decision 2 is
-   taken; [38] the week the first checkpoint is served; [40] when a MATH or GPQA anchor is wanted.
-2. **Code sandbox.** Worker-thread isolation keeps the zero-dependency rule but is weaker; Docker is
-   stronger and a dependency. This gates [27]; the recommendation above is worker threads for
-   pure-function specs.
+   for every model in use); then [48]'s follow-ups as tiers saturate; [38] the week the first
+   checkpoint is served; [40] when a MATH or GPQA anchor is wanted.
+2. **Code sandbox — taken (2026-09-21).** A child Node process under the permission model (no
+   file system, processes, workers, addons or network; heap and clock capped; a bare realm) runs
+   the code family with zero dependencies. Docker only if repository-scale tasks are ever wanted.
 3. **Scope of knowledge and safety.** Exclude closed-book knowledge as an axis (the recommendation:
    yes, it stays open-book)? Add over-refusal on benign borderline tasks? (Injection through tool
    output and through documents is built.)

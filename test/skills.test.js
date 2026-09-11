@@ -15,7 +15,7 @@ test("parseSkillSuffix reads the @skill variant off a client spec", () => {
 
 test("every tool task has a playbook; reason and explain have none", () => {
   const names = listSkills();
-  assert.deepEqual(names, ["chain", "health", "hello", "lookup", "regex", "restock", "transform"], "every tool task has a playbook; reason and explain do not");
+  assert.deepEqual(names, ["chain", "clarify", "code", "health", "hello", "lookup", "regex", "restock", "transform"], "every tool task has a playbook; reason and explain do not");
   for (const t of restockTasks) assert.equal(skillFor(t).name, "restock");
   assert.match(skillFor(restockTasks[0]).text, /qty == min/);
   assert.equal(skillFor({ name: "reason" }), null);

@@ -41,6 +41,8 @@ output.
 | `datecalc1` / `datecalc3` | reasoning · generated | Calendar arithmetic minted per trial: a date and weekday after N days, or a posting time plus three durations. With tools, a date calculator. |
 | `logicgrid3` / `logicgrid4` | reasoning · generated | A pet-and-drink deduction puzzle, unique and minimal by construction, minted per trial. No tools: the harness is the structured mode. |
 | `lineup4` / `lineup6` | reasoning · generated | An ordering puzzle — a race's finishing order, a queue, or a row of houses — unique and minimal by construction, minted per trial: before and after, next to, two places apart, first or last, between; who holds a place, which place someone holds, who is right after someone. No tools: the harness is the structured mode. |
+| `code1` / `code2` / `code3` | coding · generated | A pure function to write from a spec minted per trial — one rule and its edges; a few rules that interact; several rules with a fail case — over twelve seeded kinds (sums, counts, clamps, slugs, run-length codes, range merges, duration parsing, word frequencies, CSV fields, range compaction) whose parameters come from the seed, so a remembered solution to the usual version fails the hidden edge cases. Scored by hidden tests in a sandbox (a child Node process under the permission model: no files, processes or network). With tools, `run_tests` runs the examples and reports what failed. |
+| `clarify2` / `clarify3` | multi-turn · generated | A request that names none of the two or three low items it could mean — "the one the supplier called about" — with the instruction to ask before changing anything, and a user whose second turn reacts to what the model did: a question is answered with the item, a guess is named and has to be undone. Scored on asking before any write, the end state (the named item at its target, nothing else touched) and the report; a lucky guess is still a write before asking. |
 | `tally20` / `tally60` | reasoning · generated | One count, sum or maximum over an inline ticket table minted per trial. With tools, a query over the same rows. |
 | `fanout4` / `fanout8` | tool reasoning · generated | N independent item reads that could all be issued in one turn; the tool-use verdict says whether they were (parallel calls) or went one at a time. Under `@abstain` one asked-for id is an item the scenario does not hold (tool modes); `@perturb` reorders or lists the ids or rewords the ask. |
 | `follow3` / `follow6` | tool reasoning · generated | Follow a chain of dependent reads (each item names the next) and report where it lands; nothing can be issued in parallel or guessed. Under `@abstain` the chain is cut short of the asked hops (tool modes); `@perturb` rewords the ask or gives the parameters as a block. |
@@ -125,6 +127,7 @@ node src/bench.js --task restock12 --modes harness --clients anthropic:claude-ha
 node src/bench.js --task restock6 --modes harness --clients openai:gpt-5.4-mini,openai:gpt-5.4-mini@stress:budget,openai:gpt-5.4-mini@stress:distractors --count 4   # stress A/B
 node src/bench.js --task wordmath4,datecalc3,logicgrid4,tally60 --clients openai:gpt-4o-mini,anthropic:claude-haiku-4-5 --count 4 --instance-seed 7   # generated reasoning, paired
 node src/bench.js --task convert1,convert2,convert3 --clients openai:gpt-4o-mini --count 8 --instance-seed 7   # unit conversions: the factor from memory against the exact tool
+node src/bench.js --task code1,code2,code3 --modes noHarness,harness,schemaOnly,toolOnly --clients openai:gpt-4o-mini --count 4 --instance-seed 2026   # code from a spec: does a test runner help, does JSON-only hurt
 node src/bench.js --task hello,regex,tally20 --clients openai:gpt-4o-mini,openai:gpt-4o-mini@constraints:heavy --count 4 --instance-seed 7   # instruction following
 node src/bench.js --task fanout8,follow6,norelevant --modes harness --clients openai:gpt-4o-mini,openai:gpt-4o-mini@stress:injected --count 4 --instance-seed 7   # tool-use breadth + injection
 node src/bench.js --task paged6,typed,nearmiss --modes toolOnly,harness --clients openai:gpt-4o-mini,anthropic:claude-haiku-4-5 --count 4 --instance-seed 7   # paged results, strict types, near misses
@@ -306,7 +309,9 @@ tasks with fixed truth) and whether the cell was flaky, in the report and the he
 **Your own checkpoints.** Serve a checkpoint with vLLM, llama.cpp or MLX, on this machine or on
 another host on the network, name the server in `LOCAL_ENDPOINTS` (`vllm=http://127.0.0.1:8000/v1`,
 `desk=http://192.168.1.80:8080/v1`), and it is a provider like `local` — run it as `vllm:<model>`;
-`node src/cli.js list` probes each endpoint on its own address and shows what it serves. Record it in `models/lineage.json` (family, checkpoint, step, parent) and every run
+`node src/cli.js list` probes each endpoint on its own address and shows what it serves; a server
+that runs with a key gets it from `<NAME>_API_KEY` in `.env`, `probe <name>` lists a host's models,
+and every run records its serving hosts (`config.endpoints`). Record it in `models/lineage.json` (family, checkpoint, step, parent) and every run
 carries that lineage; `node src/cli.js suite smoke|standard|full --clients …` runs the presets,
 `compare <run> --a <checkpoint> --parent` pairs it against its parent, `scorecard` gives its profile,
 and `models` lists the registry. `suite nightly` runs the standard suite under a time box and gates
