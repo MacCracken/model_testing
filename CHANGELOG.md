@@ -18,9 +18,32 @@ roadmap's, stable across the plan, this file and the results.
   and never limits: parallelism and timeouts for a local endpoint stay the operator's choice; the
   serving guide notes that a laptop is steadier one request at a time and a desktop holds its
   clocks.
-- Tests: 412 (+4: the pmset parser under pressure and without a record, the state off macOS and
+- **`cli list` probes each named endpoint on its own address** and prints what that server lists
+  with the address; an endpoint nothing answers at says so. The serving guide names the unified
+  `llama serve` (jinja on by default), shows a LAN host in `LOCAL_ENDPOINTS`, and says what serving
+  from another machine changes: only the bench talks to the model host (the tools run here against
+  the webserver), latencies include the network, and the thermal record on the rows is this
+  machine's, not the host's.
+- Tests: 413 (+4: the pmset parser under pressure and without a record, the state off macOS and
   through an injected reader, the pooled summary and its phrasing, the runner stamping every row
-  from the hook and the report line).
+  from the hook and the report line; +1: `cli list` against a fake daemon, a fake endpoint and a
+  dead port).
+
+### Fixed
+- `cli list` printed the Ollama daemon's model count beside every named endpoint and listed none of
+  the endpoint's own models (`llamacpp [live, 5 model(s)]` for a server serving one).
+
+### Measured
+- **The same weights on two servers.** llama.cpp was installed all along as the unified `llama`
+  binary (the 2026-09-20 note said otherwise; it looked for `llama-server`). `llama serve` loaded
+  ornith's GGUF from Ollama's blob store and the bench reached it over the laptop's LAN address —
+  the path a desktop host takes: the probe passed six of six, and on the same instances llama.cpp
+  and Ollama agree 8/8 in harness mode and 3/8 free-form (McNemar p = 1 both ways; run
+  `20260911T170349-ecda`): the weights decide the answers, not the runtime, and the network hop is
+  invisible beside a five-second trial. llama.cpp honours the per-request `reasoning_effort`
+  (`none` gives zero reasoning tokens) where Ollama's route needs `reasoning: { effort }`. Ollama's
+  free-form first token is a second and a half slower and its harness prompt a thousand tokens
+  larger for the same tool schema. Tables in docs/results.md.
 
 ## 2026-09-20 — is the endpoint ready? (`cli probe`)
 

@@ -409,7 +409,8 @@ hosted provider with `probeModels: true` (Gemini, Mistral, xAI) is probed the sa
 a key, so its list is the route's. `--effort <level>` rides in `modelParams.effort` and is
 translated per provider when the client is built (`effortParams`).
 `BENCH_TIMEOUT_MS` (per-request timeout; five minutes for a local endpoint and two for a hosted
-route when unset), `OLLAMA_BASE_URL`, `LOCAL_ENDPOINTS` (named OpenAI-compatible servers for your own checkpoints),
+route when unset), `OLLAMA_BASE_URL`, `LOCAL_ENDPOINTS` (named OpenAI-compatible servers for your own checkpoints, on
+this machine or any host on the network; `cli list` probes each on its own address),
 `LINEAGE_FILE`, `SUT_PORT` (the webserver's port; `PORT` is a legacy fallback) and `RESULTS_DIR` are
 honored from `.env` too.
 

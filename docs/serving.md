@@ -13,7 +13,7 @@ version you have installed.
 | Runtime | Serve | OpenAI route |
 |---|---|---|
 | **vLLM** (HF safetensors, GPU) | `vllm serve /path/to/checkpoint --served-model-name my-ckpt-2000 --port 8000 --enable-auto-tool-choice --tool-call-parser hermes` | `http://127.0.0.1:8000/v1` |
-| **llama.cpp** (GGUF, CPU / Metal / CUDA) | `llama-server -m /path/to/model.gguf --port 8080 --jinja -c 16384` | `http://127.0.0.1:8080/v1` |
+| **llama.cpp** (GGUF, CPU / Metal / CUDA) | `llama serve -m /path/to/model.gguf --alias my-ckpt-2000 --host 0.0.0.0 --port 8080 -c 16384` (the unified `llama` binary; older installs: `llama-server … --jinja`) | `http://<host>:8080/v1` |
 | **MLX** (Apple Silicon, HF or MLX weights) | `python -m mlx_lm.server --model /path/to/checkpoint --port 8081` | `http://127.0.0.1:8081/v1` |
 | **Ollama** (GGUF or safetensors via a Modelfile) | `printf 'FROM /path/to/model.gguf\n' > Modelfile && ollama create my-ckpt-2000 -f Modelfile` | `http://127.0.0.1:11434/v1` (already the `local` provider) |
 
@@ -21,8 +21,9 @@ Notes that matter for this bench:
 
 - **Tool calling must be on.** Harness mode sends `tools`; a server that ignores them scores the
   model as if it never called a tool. vLLM needs `--enable-auto-tool-choice` and a
-  `--tool-call-parser` matching the model's chat template; llama.cpp needs `--jinja`; MLX and
-  Ollama follow the model's template. `node src/cli.js probe <endpoint>:<model>` is the check:
+  `--tool-call-parser` matching the model's chat template; llama.cpp's unified `llama serve` has the
+  jinja engine on by default (an older `llama-server` needs `--jinja`); MLX and Ollama follow the
+  model's template. `node src/cli.js probe <endpoint>:<model>` is the check:
   it lists the model, gets an answer, has the model call a tool and repeat the token the result
   carried, asks for JSON, and sends the reasoning parameter — with a verdict and an exit code of
   1 when the endpoint is not ready for a harness-mode run.
@@ -33,6 +34,17 @@ Notes that matter for this bench:
   endpoint gets five minutes per request by default (a hosted route two), `BENCH_TIMEOUT_MS`
   sets either, and the runtime's own reasoning-effort knob (`--effort none`) is the better lever
   than `--model-param`.
+- **Another machine can serve.** The address in `LOCAL_ENDPOINTS` is any http(s) URL, so a
+  desktop or a server on the network hosts the model while the bench runs here: start the runtime
+  bound to every interface (`--host 0.0.0.0`; vLLM and MLX bind so by default), name its LAN
+  address, and `node src/cli.js list` shows the endpoint's address with the models it lists.
+  Only the bench talks to the model host; the tools run in the bench process against the
+  webserver on this machine, so the host never needs to reach it. Latencies then include the
+  network, and the thermal record on the rows is this machine's, not the host's. Measured on
+  2026-09-11 with the same ornith weights served by `llama serve` on the laptop's LAN address and
+  by Ollama: the probe passes all six checks, and llama.cpp honours the per-request
+  `reasoning_effort` ("none" gives zero reasoning tokens where Ollama's route needs its own
+  `reasoning: { effort }` shape) — see docs/results.md.
 - Requests under `--parallel` queue at the server; latency columns then include queueing. Compare
   latencies serial-to-serial. On a laptop, one request at a time (`--parallel 1`) is the setting
   that keeps the numbers steady: a second request in flight doubles the heat, macOS answers by
@@ -49,7 +61,7 @@ Notes that matter for this bench:
 In `.env`:
 
 ```
-LOCAL_ENDPOINTS=vllm=http://127.0.0.1:8000/v1;llamacpp=http://127.0.0.1:8080/v1;mlx=http://127.0.0.1:8081/v1
+LOCAL_ENDPOINTS=vllm=http://127.0.0.1:8000/v1;llamacpp=http://192.168.1.80:8080/v1;mlx=http://127.0.0.1:8081/v1
 ```
 
 Each name becomes a provider like `local`: no key, models probed live from its `/v1/models`, marked

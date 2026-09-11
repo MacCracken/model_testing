@@ -1992,5 +1992,51 @@ convert4 and lineup6 answers. Every row here cost nothing but time.
 Every local model is ready for a harness-mode run: each calls the echo tool and repeats the token
 its result carried, returns the JSON asked for, streams its usage and takes the reasoning
 parameter. The first-token times are the model load plus a short think; the two Gemma sizes and
-the 27 B Qwen answer as fast as the 9 B. No vLLM, llama.cpp or MLX server binary is installed here
-and `LOCAL_ENDPOINTS` is unset, so the local provider is Ollama alone.
+the 27 B Qwen answer as fast as the 9 B. `LOCAL_ENDPOINTS` was unset for these runs, so the local
+provider was Ollama alone (the note that no llama.cpp was installed was wrong: the unified `llama`
+binary was there all along — the next section).
+
+## The same weights on two servers: llama.cpp over the LAN address against Ollama (2026-09-21, seed 7, two trials per cell)
+
+llama.cpp is installed here as the unified `llama` binary (build 10679). `llama serve` loaded
+ornith's GGUF straight from Ollama's blob store, bound to every interface, and the bench reached it
+through `LOCAL_ENDPOINTS=llamacpp=http://192.168.1.121:8080/v1` — the laptop's LAN address rather
+than localhost, the path a desktop host will take. The probe passed all six checks (listed;
+"OK" with the first token at 138 ms and 15+24 tokens; streamed usage; the echo tool called and its
+token repeated in two rounds; JSON parsed back; `reasoning_effort="none"` accepted). Sent directly,
+the parameter does what it says on this route: `none` gave the answer in 4 completion tokens with no
+reasoning, `high` 64 tokens with 96 characters of it — where Ollama's OpenAI route needs its own
+`reasoning: { effort }` shape (2026-09-20). Run `20260911T170349-ecda`: the same instances for both
+servers (`--instance-seed 7`, `--effort none`, one trial at a time), thermal pressure on 0 of 32
+trials.
+
+| Task | Mode | llama.cpp (LAN) | Ollama | Paired |
+|---|---|---|---|---|
+| health | harness | 2/2, 851 ms | 2/2, 1051 ms | both right on both |
+| chain | harness | 2/2, 4271 ms | 2/2, 4495 ms | both right on both |
+| wordmath4 | harness | 2/2, 8983 ms | 2/2, 6313 ms | both right on both |
+| fanout4 | harness | 2/2, 10053 ms | 2/2, 11997 ms | both right on both |
+| health | noHarness | 1/2 | 1/2 | discordant: one up, one down |
+| chain | noHarness | 0/2 | 0/2 | neither, as designed (no tools) |
+| wordmath4 | noHarness | 2/2 | 2/2 | both right on both |
+| fanout4 | noHarness | 0/2 | 0/2 | neither, as designed (no tools) |
+
+| Server | Mode | Correct | Latency avg / median | First token avg | Tokens in + out | Reasoning chars |
+|---|---|---|---|---|---|---|
+| llama.cpp over the LAN | harness | 8/8 | 6039 / 7877 ms | 603 ms | 12 843 + 1 946 | 0 |
+| Ollama | harness | 8/8 | 5964 / 5230 ms | 818 ms | 13 999 + 1 890 | 0 |
+| llama.cpp over the LAN | noHarness | 3/8 | 5144 / 5680 ms | 125 ms | 749 + 1 832 | 0 |
+| Ollama | noHarness | 3/8 | 7238 / 6667 ms | 1 760 ms | 748 + 2 003 | 0 |
+
+The two servers agree on every harness instance (8 of 8 both right, McNemar p = 1) and on six of
+eight free-form ones (the two health discordances are the free-form guess at an uptime, one each
+way; p = 1): the weights, not the runtime, decide the answers, and the network hop costs nothing
+visible next to a five-second trial. Ollama's free-form first token is a second and a half slower
+than llama.cpp's, its prompt count a thousand tokens higher in harness mode — the two runtimes
+render the same tool schema differently, which is a cost difference, not a capability one.
+`--effort none` switched thinking off on both routes (zero reasoning characters on every row).
+
+The `cli list` bug this surfaced: it printed the Ollama daemon's model count beside every named
+endpoint and listed none of the endpoint's own models (`llamacpp [live, 5 model(s)]` for a server
+serving one). It now probes each endpoint on its own address and prints what that server lists,
+with the address; an endpoint nothing answers at says so (`test/list.test.js`).

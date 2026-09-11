@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 import { listTasks } from "./tasks/registry.js";
-import { PROVIDERS, hasCredentials, labelModel, probeLocalModels } from "./providers/index.js";
+import { PROVIDERS, hasCredentials, labelModel, describeProviders } from "./providers/index.js";
 import { parseArgs } from "./args.js";
 import { listRuns, loadRun, saveRun } from "./results.js";
 import { summarize } from "./runner.js";
@@ -49,15 +49,17 @@ async function main() {
       for (const t of listTasks()) {
         console.log(`  ${t.name.padEnd(10)} ${t.category.padEnd(15)} modes: ${t.modes.join(",").padEnd(30)} ${t.description}`);
       }
-      const live = await probeLocalModels();
+      // Every local provider — Ollama and each named endpoint — is probed on its own address, so
+      // an endpoint's line says what that server lists, not what the Ollama daemon does.
+      const described = await describeProviders();
       console.log("\nProviders:");
       for (const [name, cfg] of Object.entries(PROVIDERS)) {
-        const models = name === "local" && live ? live : cfg.models;
-        if (cfg.harness && name !== "local") { /* the arm's model is whatever it routes to */ }
+        const d = described.find((x) => x.name === name);
+        const models = d ? d.models.map((m) => m.id) : cfg.models;
         const status = cfg.harness
           ? `harness arm · ${cfg.baseUrl}${cfg.keyEnv ? (hasCredentials(name) ? ` · ${cfg.keyEnv} set` : ` · ${cfg.keyEnv} missing`) : ""}`
           : cfg.needsKey === false
-            ? (live ? `live, ${live.length} model(s)` : "offline — showing the fallback list")
+            ? (d?.live ? `live, ${models.length} model(s)${cfg.endpoint ? ` · ${cfg.baseUrl.replace(/\/chat\/completions$/, "")}` : ""}` : `offline — ${cfg.endpoint ? `nothing answers at ${cfg.baseUrl.replace(/\/chat\/completions$/, "")}` : "showing the fallback list"}`)
             : (hasCredentials(name) ? "key set" : `${name.toUpperCase()}_API_KEY missing`);
         console.log(`  ${name.padEnd(10)} [${status}]`);
         for (const m of models) console.log(`    ${name}:${m.padEnd(30)} ${labelModel(m)}`);

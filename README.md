@@ -303,9 +303,10 @@ and latencies measured under parallel load on a local model include queueing. Re
 report their **stability**: agreement (the share of trials giving the same canonical answer, on
 tasks with fixed truth) and whether the cell was flaky, in the report and the headline.
 
-**Your own checkpoints.** Serve a checkpoint with vLLM, llama.cpp or MLX, name the server in
-`LOCAL_ENDPOINTS` (`vllm=http://127.0.0.1:8000/v1`), and it is a provider like `local` — run it as
-`vllm:<model>`. Record it in `models/lineage.json` (family, checkpoint, step, parent) and every run
+**Your own checkpoints.** Serve a checkpoint with vLLM, llama.cpp or MLX, on this machine or on
+another host on the network, name the server in `LOCAL_ENDPOINTS` (`vllm=http://127.0.0.1:8000/v1`,
+`desk=http://192.168.1.80:8080/v1`), and it is a provider like `local` — run it as `vllm:<model>`;
+`node src/cli.js list` probes each endpoint on its own address and shows what it serves. Record it in `models/lineage.json` (family, checkpoint, step, parent) and every run
 carries that lineage; `node src/cli.js suite smoke|standard|full --clients …` runs the presets,
 `compare <run> --a <checkpoint> --parent` pairs it against its parent, `scorecard` gives its profile,
 and `models` lists the registry. `suite nightly` runs the standard suite under a time box and gates

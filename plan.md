@@ -7,7 +7,7 @@ the last built item of the original roadmap landed, and refreshed on 2026-09-15.
 
 ## Start here (handoff, 2026-09-15)
 
-- **Run it.** `npm test` (412 tests; no model or server needed), then `node src/cli.js serve` for
+- **Run it.** `npm test` (413 tests; no model or server needed), then `node src/cli.js serve` for
   the UI on :4000 and `node webserver/server.js` for the system under test on :3000 (`SUT_PORT`).
   Keys and `LOCAL_ENDPOINTS` live in `.env`; runs land in `results/runs/`, the SQLite index beside
   them (`node src/cli.js index --full` rebuilds it); `node src/cli.js anchors fetch all` pulls the
@@ -40,7 +40,10 @@ the last built item of the original roadmap landed, and refreshed on 2026-09-15.
   ceiling on the easy tool tasks, 4/4 on paged3 where gpt-4o-mini is 1/4; its reasoning switches
   off only through `reasoning: { effort: "none" }` on the OpenAI route — `think: false`,
   `reasoning_effort` and `/no_think` do nothing there, and the graded levels change nothing);
-  `qwen3.5` is parked on its thinking output. The arms need their own logins (`codex login`,
+  `qwen3.5` is parked on its thinking output. llama.cpp is installed as the unified `llama` binary (`~/.local/bin/llama`, build 10679;
+  `llama serve`, jinja on by default, `reasoning_effort` honoured per request) and serves ornith's
+  GGUF straight from Ollama's blob store; the bench reached it over the laptop's LAN address, which
+  is the path a desktop host will take — the user's target is model hosts elsewhere on the network. The arms need their own logins (`codex login`,
   Claude Code, Pi); Thoth runs on the arch host (README, "Thoth"); Pi has no MCP flag, so it stays
   bring-your-own. The webserver keeps scenarios, logs and documents in memory, so restarting it
   mid-run loses them — and the desktop app stops preview servers on its own, which once turned 96
@@ -216,8 +219,10 @@ use stops separating on the tier it extends:
 3. **Scope of knowledge and safety.** Exclude closed-book knowledge as an axis (the recommendation:
    yes, it stays open-book)? Add over-refusal on benign borderline tasks? (Injection through tool
    output and through documents is built.)
-4. **Serving stack for trained checkpoints** (vLLM, llama.cpp, MLX) — decides which recipe in
-   docs/serving.md gets exercised first and which endpoint the suite presets default to.
+4. **Serving stack for trained checkpoints** (vLLM, llama.cpp, MLX) — decides which endpoint the
+   suite presets default to. llama.cpp's recipe is the one exercised (the same weights on llama.cpp
+   and Ollama agree on the same instances; docs/results.md); vLLM has no Metal backend on this
+   laptop, and MLX needs weights outside Ollama's store.
 5. **Hosted-model budget** for standing matrices (the nightly suite on one hosted model is about
    3 M tokens and three minutes), the cross-harness model set, and Thoth's tool policy ([44]).
 
