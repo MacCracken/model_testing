@@ -2,56 +2,72 @@
 
 Forward-facing only. What shipped, by date, is in [CHANGELOG.md](CHANGELOG.md); every measurement
 table is in [docs/results.md](docs/results.md). This file says what the project is for, where it
-stands, what the field measures that it does not, and what is left — reviewed on 2026-09-14, when
-the last built item of the original roadmap landed, and refreshed on 2026-09-15.
+stands, what the field measures that it does not, and what is left — reviewed on 2026-09-21, when
+[27] (the last built item of the original roadmap) landed together with the network endpoints and
+the reactive user.
 
-## Start here (handoff, 2026-09-15)
+## Start here (handoff, 2026-09-21)
 
 - **Run it.** `npm test` (433 tests; no model or server needed), then `node src/cli.js serve` for
-  the UI on :4000 and `node webserver/server.js` for the system under test on :3000 (`SUT_PORT`).
-  Keys and `LOCAL_ENDPOINTS` live in `.env`; runs land in `results/runs/`, the SQLite index beside
-  them (`node src/cli.js index --full` rebuilds it); `node src/cli.js anchors fetch all` pulls the
-  public sets into `anchors/` before the anchor tasks can run.
-- **Read it.** `node src/cli.js show <run> --table` for one run (`--rows`, then `--trial <n>` for
-  one trial as a timeline); across runs `scorecard <client>` (`--svg` for the radar, `--family`
-  for a lineage line), `curve <family>`, `variance --client <c>` (agreement per instance under each
-  temperature, `--over-time` per run), `trend`, `regressions` (`--out`, `--webhook`, `--fail` for
-  CI), `cost <run>`, `anchors <client>`, `models --graph`, `compare`; `replay <run>` runs the same
-  instances again as a run parented to it, `rescore <run> | --all` applies today's scorers to
-  saved rows in place, `gate <run> --gates gates/nightly.json` gives a verdict with an exit code
-  (`suite nightly` runs and gates in one go). Every table ever quoted is in docs/results.md; the
-  "Measured" sections of the changelog carry the conclusions.
+  the UI on :4000 and `node webserver/server.js` for the system under test on :3000. The webserver
+  listens on `PORT` (the desktop app injects it for a preview); the bench reads the server's port
+  from `SUT_PORT` — for a long background run start a private copy with `PORT=3001 node
+  webserver/server.js` and run the bench with `SUT_PORT=3001`, so the app's preview lifecycle
+  cannot kill it mid-run. Keys and `LOCAL_ENDPOINTS` live in `.env`; runs land in `results/runs/`,
+  the SQLite index beside them (`node src/cli.js index --full` rebuilds it); `node src/cli.js
+  anchors fetch all` pulls the public sets into `anchors/` before the anchor tasks can run.
+- **Read it.** `node src/cli.js show <run> --table` for one run (it prints where the models were
+  served from; `--rows`, then `--trial <n>` for one trial as a timeline); across runs `scorecard
+  <client>` (`--svg` for the radar, `--family` for a lineage line), `curve <family>`, `variance
+  --client <c>` (agreement per instance under each temperature, `--over-time` per run), `trend`,
+  `regressions` (`--out`, `--webhook`, `--fail` for CI), `cost <run>`, `anchors <client>`, `models
+  --graph`, `compare`; `replay <run>` runs the same instances again as a run parented to it,
+  `rescore <run> | --all` applies today's scorers to saved rows in place, `gate <run> --gates
+  gates/nightly.json` gives a verdict with an exit code (`suite nightly` runs and gates in one go).
+  `probe <endpoint>` lists what a host serves, `probe <endpoint:model>` says whether it is ready
+  for a harness run, `list` shows every provider live. Every table ever quoted is in
+  docs/results.md; the "Measured" sections of the changelog carry the conclusions.
 - **Conventions.** This file holds open work only; an item moves to the changelog the day it
   lands, its numbers to docs/results.md; every claim is tied to a test or a saved run; zero
   runtime dependencies; the JSON run files are the source of truth and the index is rebuildable;
   a schema for a task that needs thinking has a `work` field before the answer; a treatment is
   a client variant (`<client>@<kind>[:<how>]`) paired against its base by `summarize`; a family's
   base rendering never changes once its seeds are in saved runs (perturbations re-render from
-  recorded structure).
-- **Next.** Nothing on the original roadmap is left to build without a decision or an external
-  channel; the review below says what each remaining item needs. The price-table upkeep in [51]
-  is the user's; nine of [48]'s follow-ups landed on 2026-09-15/19 (abstention and perturbation
-  for the tool and extraction families; the plausible-neighbour variants for `follow` and
-  `extract2`; typos as the fourth perturbation; the rules and the user's turns rewritten for
-  `restock` and `dialogue`; the `convert`, `lineup` and `toolpick` families and `convert4`;
-  requirements stated once across a dialogue and a sentence-count family), the rest wait for a
-  tier to saturate; [27] shipped on 2026-09-21 with decision 2 taken (a child Node process under
-  the permission model), together with keyed endpoints on the network, the served-from record and
-  the reactive dialogue user (`clarify2/3`).
-- **Environment notes.** Ollama 0.33 on :11434 serves `ornith-1.5:9b` (a 9 B thinking model, at
-  ceiling on the easy tool tasks, 4/4 on paged3 where gpt-4o-mini is 1/4; its reasoning switches
-  off only through `reasoning: { effort: "none" }` on the OpenAI route — `think: false`,
-  `reasoning_effort` and `/no_think` do nothing there, and the graded levels change nothing);
-  `qwen3.5` is parked on its thinking output. llama.cpp is installed as the unified `llama` binary (`~/.local/bin/llama`, build 10679;
-  `llama serve`, jinja on by default, `reasoning_effort` honoured per request) and serves ornith's
-  GGUF straight from Ollama's blob store; the bench reached it over the laptop's LAN address, which
-  is the path a desktop host will take — the user's target is model hosts elsewhere on the network. The arms need their own logins (`codex login`,
+  recorded structure); every new task or treatment is run on the local models as well as the
+  hosted ones (a laptop is steadier one request at a time, and nothing in the bench limits a local
+  run either way — the rows record the machine's thermal state instead).
+- **In flight.** A background queue started on 2026-09-21 is running the five Ollama models
+  (`ornith-1.5:9b`, `gemma4:12b-mlx`, `qwen3.5:9b-mlx`, `qwen3.8:27b-mlx`, `gemma4:31b-mlx`) on
+  the families they had never run — `restock3/6/12`, `fanout4/8`, `follow3/6`, `norelevant`,
+  `paged6`, `typed`, `needle8k/32k`, `dialogue2/3/4`, and `logicgrid3/4` / `extract3/4` for the
+  four mlx models — then `code1/2/3` and `clarify2/3` on each (seed 2026, four trials per cell,
+  one at a time; the two smaller models with `--effort none`, which they need to finish). Each
+  job saves a normal run, so the results are in `results/runs/` whether or not the queue is still
+  alive. What is owed when they land: the local columns on `cli curve code`, `cli curve clarify`
+  and the other families, and a table per family in docs/results.md beside the hosted ones (the
+  hosted `code` and `clarify` tables are there already); replay any cell the daemon dropped
+  (`--replay <id> --task …`), and treat a burst of timeouts as the laptop's heat (the rows say).
+- **Next.** Nothing is left to build without a decision or an external channel; the review below
+  says what each remaining item needs. The price-table upkeep in [51] is the user's. [48]'s
+  follow-ups wait for a tier to saturate — and the local runs above are what will show which
+  tier does.
+- **Environment notes.** Ollama 0.33 on :11434 serves the five models above (`ornith-1.5:9b` is a
+  9 B thinking model whose reasoning switches off only through `reasoning: { effort: "none" }` on
+  the OpenAI route — `think: false`, `reasoning_effort` and `/no_think` do nothing there; the two
+  9–12 B mlx models time out with thinking on and finish with `--effort none`). llama.cpp is
+  installed as the unified `llama` binary (`~/.local/bin/llama`, build 10679: `llama serve`, jinja
+  on by default, `reasoning_effort` honoured per request, `--api-key`, a router mode over a models
+  directory) and serves ornith's GGUF straight from Ollama's blob store; the bench reached it over
+  the laptop's LAN address with a key, which is the path a desktop host will take — the user's
+  target is model hosts elsewhere on the network. The arms need their own logins (`codex login`,
   Claude Code, Pi); Thoth runs on the arch host (README, "Thoth"); Pi has no MCP flag, so it stays
   bring-your-own. The webserver keeps scenarios, logs and documents in memory, so restarting it
   mid-run loses them — and the desktop app stops preview servers on its own, which once turned 96
-  server-backed trials into error rows (replay the affected tasks with `--replay <id> --task …`).
-  `models/prices.json` holds four prices as of 2026-09-11 that the bench cannot verify; a model
-  without an entry runs unpriced and the cost view says so.
+  server-backed trials into error rows (hence the private copy above; replay the affected tasks
+  with `--replay <id> --task …`). On this laptop a second request in flight doubles the heat and
+  macOS lowers the clocks; a desktop holds them. `models/prices.json` holds four prices as of
+  2026-09-11 that the bench cannot verify; a model without an entry runs unpriced and the cost
+  view says so.
 
 ## Purpose (restated 2026-09-07)
 
@@ -79,24 +95,29 @@ rebuildable. Learned on 2026-09-07: a structured schema for a task that needs th
 Learned since: the harness delta changes sign with difficulty (the calculator costs gpt-4o-mini 14
 points on GSM8K and lifts it 38 on the bench's own arithmetic); with a tool in hand the models
 fabricate answers to unanswerable problems they abstain on in prose; a stated confidence from
-gpt-4o-mini is 1.0 whatever the outcome; agreement is only meaningful per instance.
+gpt-4o-mini is 1.0 whatever the outcome; agreement is only meaningful per instance; a JSON box
+with no room to think costs code as it costs sums; a test tool runs what the model asks it to
+run, so passing examples say nothing about the edges; asking which item is meant is not the hard
+part, keeping the state straight afterwards is; the weights decide the answers, not the runtime
+that serves them.
 
-## Where we stand (2026-09-15)
+## Where we stand (2026-09-21)
 
 | Dimension | What exists today |
 |---|---|
-| Tasks | 55: `health`, `hello`, `reason`, `lookup`, `regex`, `chain`, `transform`, `explain` (judged), `restock3/6/12/30` (stateful, end-state scored), the generated `wordmath2/4/6`, `convert1/2/3/4`, `datecalc1/3`, `logicgrid3/4`, `lineup4/6`, `tally20/60`, the scenario-backed `fanout4/8`, `follow3/6`, `toolpick6/13`, `norelevant`, `nearmiss`, `paged3/6`, `typed`, the long-context `needle8k/32k/100k` and `needlehop8k/32k/100k`, the extraction `extract1/2/3/4`, the multi-turn `dialogue2/3/4`, and the public anchors `gsm8k`, `ifeval`, `bfclsimple`, `bfclmultiple` (`source: public`, never pooled with the rest) — everything but the anchors minted per trial from the run's instance seed; every family with a knob carries `family` and `level`; wordmath, tally, datecalc, fanout and follow (tool modes), extract1 and extract2 mint unanswerable variants, and those plus logicgrid, extract3/4, restock and dialogue mint perturbations; every scenario-backed family, restock included, is minted from the trial seed |
+| Tasks | 60: `health`, `hello`, `reason`, `lookup`, `regex`, `chain`, `transform`, `explain` (judged), `restock3/6/12/30` (stateful, end-state scored), the generated `wordmath2/4/6`, `convert1/2/3/4`, `datecalc1/3`, `logicgrid3/4`, `lineup4/6`, `tally20/60`, `code1/2/3` (hidden tests in a sandbox), the scenario-backed `fanout4/8`, `follow3/6`, `toolpick6/13`, `norelevant`, `nearmiss`, `paged3/6`, `typed`, the long-context `needle8k/32k/100k` and `needlehop8k/32k/100k`, the extraction `extract1/2/3/4`, the multi-turn `dialogue2/3/4` (a scripted user) and `clarify2/3` (a user who reacts), and the public anchors `gsm8k`, `ifeval`, `bfclsimple`, `bfclmultiple` (`source: public`, never pooled with the rest) — everything but the anchors minted per trial from the run's instance seed; every family with a knob carries `family` and `level`; wordmath, tally, datecalc, fanout and follow (tool modes), extract1 and extract2 mint unanswerable variants, and those plus logicgrid, extract3/4, restock and dialogue mint perturbations; every scenario-backed family is minted from the trial seed |
 | Modes | `noHarness`, `harness`, `schemaOnly`, `toolOnly` — the tools × schema 2×2 |
-| Models | OpenAI, Anthropic, Groq, DeepSeek, Gemini, Mistral, xAI (the last three probed from their routes when keyed; untested here), Ollama (live-probed), any named OpenAI-compatible endpoint (`LOCAL_ENDPOINTS`); real-harness arms Thoth, Claude Code, Pi, Codex bring-your-own, and `claude-code-mcp` / `codex-mcp` on the bench's tools over the MCP bridge (judged like any client); lineage per client from `models/lineage.json`; prices from `models/prices.json` |
+| Models | OpenAI, Anthropic, Groq, DeepSeek, Gemini, Mistral, xAI (the last three probed from their routes when keyed; untested here), Ollama (live-probed), any named OpenAI-compatible endpoint on any host (`LOCAL_ENDPOINTS`, a key per endpoint from `<NAME>_API_KEY`, probed on its own address, recorded on every run as `config.endpoints`); real-harness arms Thoth, Claude Code, Pi, Codex bring-your-own, and `claude-code-mcp` / `codex-mcp` on the bench's tools over the MCP bridge (judged like any client); lineage per client from `models/lineage.json`; prices from `models/prices.json` |
 | Treatments | client variants paired against their base: `@skill:preload/ondemand/native` (on demand reaches the MCP arms), `@agents:available/required` (Claude Code's Agent tool with a worker carrying the bench's tools), `@stress:flaky/budget/haystack/distractors/injected`, `@constraints:light/medium/heavy`, `@format:nowork/work`, `@effort:none…high` (translated per provider; reasoning characters recorded), `@confidence` (Brier, ECE, the gap), `@abstain` (half the instances unanswerable: abstained / fabricated / refused), `@perturb:paraphrase/order/format/typos` (consistency beside the delta); `--effort` as a run-level knob |
-| Scoring | deterministic scorers per task; truth from the trial (tool results) or the server's end state; tool-use verdicts (also for arms on shared tools); hijack verdicts from the op log; the abstention verdict; one judged task; the IFEval and BFCL checks reimplemented for the anchors, with the approximate parts marked |
+| Scoring | deterministic scorers per task; truth from the trial (tool results), the server's end state, or hidden tests run in the sandbox; tool-use verdicts (also for arms on shared tools); hijack verdicts from the op log; the abstention verdict; the conduct verdict of the reactive user (asked before writing); one judged task; the IFEval and BFCL checks reimplemented for the anchors, with the approximate parts marked |
+| Sandbox | `src/sandbox.js`: a child Node process under the permission model (no file system, child processes, workers, addons or network), heap and clock capped, the candidate in a bare realm no host object enters; a verdict in about 25 ms; zero dependencies |
 | Statistics | Fisher exact with the "inconclusive" floor, Wilson bands, 2×2 decomposition, per-arm and per-variant deltas with consistency, McNemar + bootstrap on paired instances, power guidance, Bonferroni over cells, stability per instance (agreement, flaky instances, variance by setting and over time), calibration (Brier, ECE), a capability scorecard per run and over the index (and per lineage family), difficulty curves with breaking points and the depth sweep, regression flags over the index delivered to a file or a webhook, gates with exit codes |
-| Cost | tokens, latency, TTFT/TTFA, dollars per trial and per correct answer from the price table, the correctness × cost × latency view |
-| Throughput | parallel trials (arms run alone), 48 trials in 8 s on a hosted model; a 90-minute time box on the nightly suite |
-| Data | one JSON per run, SQLite index (`index`, `query`, `--sql`, `compact`; `source`, `cost_usd`, `effort`, `depth`, lineage per trial), CSV and JSONL export, versions and lineage on every run, cross-run cell history, suite presets `smoke|standard|full|nightly`; every row keeps the model's turns (or an arm's raw transcript) beside its calls and results; `replay` and `rescore`; the anchor cache with provenance |
-| UI | Ledger design, a setup panel with every treatment and the A/B convention, live grid, headline with a column per treatment, tools × schema 2×2, cost, calibration and abstention blocks, capability scorecard with radars, sparklines and regression lines, lineage graph, difficulty curves with the depth sweep, paired comparison block, dumbbell matrix, trial drawer with transcript, dialogue turns and children, replay button, history filter |
-| SUT | the webserver: hello/health, the `/api/recent` log, inventory scenarios with tickets, confirm rules, stress profiles, pagination, strict types and an op log, text logs with grep and count, documents |
-| Tests | 412, none needing a model; the webserver runs in-process |
+| Cost | tokens, latency, TTFT/TTFA, dollars per trial and per correct answer from the price table, the correctness × cost × latency view; the machine's thermal state on every local row |
+| Throughput | parallel trials (arms run alone), 48 trials in 8 s on a hosted model; a 90-minute time box on the nightly suite; a one-at-a-time queue for local runs (a shell loop over bench commands — nothing in the bench) |
+| Data | one JSON per run, SQLite index (`index`, `query`, `--sql`, `compact`; `source`, `cost_usd`, `effort`, `depth`, lineage per trial), CSV and JSONL export, versions, lineage and serving hosts on every run, cross-run cell history, suite presets `smoke|standard|full|nightly`; every row keeps the model's turns (or an arm's raw transcript) beside its calls and results; `replay` and `rescore`; the anchor cache with provenance |
+| UI | Ledger design, a setup panel with every treatment and the A/B convention, live grid, headline with a column per treatment, tools × schema 2×2, cost, calibration and abstention blocks, capability scorecard with radars, sparklines and regression lines, lineage graph, difficulty curves with the depth sweep, paired comparison block, dumbbell matrix, trial drawer with transcript, dialogue turns and children, replay button, history filter (restart `serve` to pick up new task families) |
+| SUT | the webserver: hello/health, the `/api/recent` log, inventory scenarios with tickets, confirm rules (refused while anything is low), stress profiles, pagination, strict types, a dead-end pointer and an op log, text logs with grep and count, documents |
+| Tests | 433, none needing a model; the webserver runs in-process; the sandbox tests spawn child Node processes |
 
 ## What the field measures that we do not
 
@@ -120,29 +141,28 @@ priority for the stated purpose:
 | Capability area | What the field runs | What we have | Gap | Priority |
 |---|---|---|---|---|
 | Tool use / function calling | BFCL v4 (AST + executable checks, parallel calls, irrelevance detection, multi-turn), τ²-bench, MCP-Bench | six tool tasks, decoys, restock, stress profiles, `fanout`, `follow`, `toolpick` (near-duplicate tools), `norelevant` and `nearmiss`, `paged`, `typed`, the `injected` profile, `dialogue`, the BFCL anchors, arms on shared tools with verdicts | a harder `typed` once a model trips the current one ([48]) | low |
-| Agentic multi-step | SWE-bench Verified, Terminal-Bench, GAIA, BrowseComp, OSWorld | restock family (3–30 steps), four real arms, two of them on the bench's tools | other domains (files, terminal, scheduling), longer horizons; the sandboxed code family ([27]) | **high**, gated by decision 2 |
+| Agentic multi-step | SWE-bench Verified, Terminal-Bench, GAIA, BrowseComp, OSWorld | restock family (3–30 steps), the `dialogue` and `clarify` families, four real arms, two of them on the bench's tools, the `code` family's test-and-fix loop | other domains (files, terminal, scheduling), longer horizons | medium |
 | Reasoning / math | GPQA Diamond, HLE, ARC-AGI-2, FrontierMath, LiveBench math | `reason`, the generated `wordmath`, `convert`, `datecalc`, `logicgrid`, `lineup`, `tally` families with a tool or the structured mode as the harness axis, GSM8K as the anchor | harder tiers as models saturate ([48]) | medium |
 | Instruction following | IFEval, LiveBench IF | `@constraints` (twelve families, stated once across a dialogue), `@format`, IFEval itself as the anchor | a language family ([48]) | low |
 | Long context | RULER at 4 k–1 M | `needle8k/32k/100k`, `needlehop8k/32k/100k`, the depth sweep | sizes past 100 k for models that take them ([48]) | medium |
 | Structured extraction | LiveBench data analysis, enterprise extraction evals | `transform`, the `extract` family with four tiers and injection through the document | other document kinds, OCR-like noise, multi-page tables ([48]) | low |
 | Statistics & reproducibility | HELM CIs, Inspect logs, lm-eval fixed prompts | everything in the table above | nothing until the house checkpoints arrive | — |
-| Own-model workflow | lm-eval backends; W&B / MLflow; per-checkpoint scoreboards | named endpoints, `docs/serving.md`, lineage, `models` / `suite` / `compare --parent` / `regressions` / `gate`, the family scorecard and the lineage graph | contamination policy ([38]); the first real checkpoint | medium |
-| Coding | HumanEval → LiveCodeBench → SWE-bench | none | sandboxed execution of generated specs with hidden tests ([27]) | medium (decision 2) |
+| Own-model workflow | lm-eval backends; W&B / MLflow; per-checkpoint scoreboards | named endpoints on any host, with a key, probed and recorded on every run; `docs/serving.md` (llama.cpp exercised over the LAN); lineage, `models` / `suite` / `compare --parent` / `regressions` / `gate`, the family scorecard and the lineage graph | contamination policy ([38]); the first real checkpoint | medium |
+| Coding | HumanEval → LiveCodeBench → SWE-bench | the `code` family: twelve seeded kinds over three levels, hidden tests in a sandbox (a child Node process under the permission model), `run_tests` as the harness axis | a fourth level once a model clears the third (both hosted models sit at 3/4); repository-scale tasks would need a container | low |
 | Calibration & abstention | HELM calibration; answer-or-abstain splits | `@confidence` (Brier, ECE, gap), `@abstain` on six families (three generated; fanout and follow in the tool modes; extract1 and extract2), `norelevant` / `nearmiss` | unanswerable variants for the join and the statement (`extract3/4`), `restock` ([48]) | low |
 | Robustness / consistency | HELM perturbations; paraphrase suites | agreement per instance, variance by setting, `@perturb` (paraphrase, order, format, typos) on nine families with consistency | — | low |
-| Multi-turn & user simulation | τ²-bench user simulator, MT-Bench | the `dialogue` family with a scripted user and policy verdicts | a reactive user, longer scripts, arms through their session channels ([48], [42]) | low |
+| Multi-turn & user simulation | τ²-bench user simulator, MT-Bench | the `dialogue` family with a scripted user and policy verdicts; the `clarify` family with a user who reacts to what the model did | longer scripts, a user who reacts across more turns, arms through their session channels ([42]) | low |
 | Safety for agents | AgentDojo, over-refusal suites | the `injected` profile (two payloads, hijack verdicts), injection through a document | over-refusal on benign borderline tasks (decision 3) | medium |
 | Preference / open-ended | LMArena, Arena-Hard-Auto (pairwise, Bradley-Terry) | one absolute judge score | position-swapped pairwise judging, ratings, judge calibration against human labels ([30]) | low |
 | Knowledge / factuality | MMLU-Pro, SimpleQA, HLE | none, by design | open-book only — closed-book knowledge is the most contaminated axis and the least ours | low |
 | Multimodal | MMMU and successors | none | out of scope unless the trained models are multimodal | low |
 | Public anchors | lm-eval / Inspect on the standard sets | GSM8K, IFEval, BFCL simple and multiple run natively with provenance and the caveat | MATH, GPQA Diamond, RULER through a log import ([40]) | low |
 
-## Open work, reviewed (2026-09-14)
+## Open work, reviewed (2026-09-21)
 
-Numbers are stable across this file, the changelog and the results: [1]–[26], [28], [29],
-[31]–[37], [39], [41], [43], [45]–[47], [49] and [50] have shipped and are described in the
-changelog.
-What follows is everything left, each with what it needs and a recommendation.
+Numbers are stable across this file, the changelog and the results: [1]–[29], [31]–[37], [39],
+[41], [43], [45]–[47], [49] and [50] have shipped and are described in the changelog. What
+follows is everything left, each with what it needs and a recommendation.
 
 ### Gated by a decision
 
@@ -178,19 +198,26 @@ What follows is everything left, each with what it needs and a recommendation.
 
 ### Follow-ups as the current tiers saturate ([48])
 
-Haiku 4.5 sits at ceiling on most families; gpt-4o-mini and the local 9 B model still separate
-on several. Each of these is small unless marked, and each earns its place only when a model in
-use stops separating on the tier it extends:
+Haiku 4.5 sits at ceiling on most families; gpt-4o-mini and the local models still separate on
+several, and the local runs in flight will say where the mlx models stand on the rest. Each of
+these is small unless marked, and each earns its place only when a model in use stops separating
+on the tier it extends:
 
-- generators: harder `extract` and `dialogue` tiers (small); `logicgrid5` and `lineup8` (small);
+- generators: `logicgrid5` and `lineup8` (qwen3.8:27b and gemma4:31b clear `lineup6` with the
+  schema, Haiku is 6/8); harder `extract` and `dialogue` tiers (not yet: `extract4` and
+  `dialogue2` still separate the hosted models); a `code4` once a model clears `code3` (both
+  hosted models sit at 3/4); a `clarify` with more candidates or a second vague turn, once a model
+  clears the stale-total miss (all small);
 - constraints: a language family, if a detector without a dependency is worth its approximation
   and the word-answer families are kept out of its way (small);
-- long context: 200 k and 500 k needles for models that take them (small; model-dependent);
+- long context: 200 k and 500 k needles for models that take them (small; model-dependent; on
+  this laptop a local model would take an hour per trial);
 - tool breadth: a harder `typed` with nested arguments and enums once a model trips the current
-  one (small); a `toolpick` tier with tools whose descriptions, not names, differ (small);
-- abstention beyond what landed on 2026-09-15/16: unanswerable variants for the join and the
-  statement (`extract3/4`) and for `restock` (small each); every family with a rewrite now has
-  its perturbations;
+  one (nobody has; the four mlx models get their first try in the queue); a `toolpick` tier with
+  tools whose descriptions, not names, differ (the hosted models and every local model that
+  has run `toolpick13` are at or near ceiling with the tools; small);
+- abstention: unanswerable variants for the join and the statement (`extract3/4`) and for
+  `restock` (small each); every family with a rewrite has its perturbations;
 - an over-refusal suite of benign borderline tasks, if decision 3 says so (medium).
 
 ### Upkeep
@@ -203,19 +230,20 @@ use stops separating on the tier it extends:
 
 ## Decisions needed
 
-1. **Order.** Recommendation: [51] first (minutes, and the cost view starts telling the truth
-   for every model in use); then [48]'s follow-ups as tiers saturate; [38] the week the first
-   checkpoint is served; [40] when a MATH or GPQA anchor is wanted.
-2. **Code sandbox — taken (2026-09-21).** A child Node process under the permission model (no
-   file system, processes, workers, addons or network; heap and clock capped; a bare realm) runs
-   the code family with zero dependencies. Docker only if repository-scale tasks are ever wanted.
+1. **Order.** Recommendation: the local tables from the queue first (they are measurements owed,
+   not code); [51] (minutes, and the cost view starts telling the truth for every model in use);
+   then [48]'s follow-ups as tiers saturate; [38] the week the first checkpoint is served; [40]
+   when a MATH or GPQA anchor is wanted.
+2. **Code sandbox — taken on 2026-09-21** (a child Node process under the permission model; the
+   changelog has the reasoning). Docker only if repository-scale tasks are ever wanted.
 3. **Scope of knowledge and safety.** Exclude closed-book knowledge as an axis (the recommendation:
    yes, it stays open-book)? Add over-refusal on benign borderline tasks? (Injection through tool
    output and through documents is built.)
-4. **Serving stack for trained checkpoints** (vLLM, llama.cpp, MLX) — decides which endpoint the
-   suite presets default to. llama.cpp's recipe is the one exercised (the same weights on llama.cpp
-   and Ollama agree on the same instances; docs/results.md); vLLM has no Metal backend on this
-   laptop, and MLX needs weights outside Ollama's store.
+4. **Serving stack for trained checkpoints** — which endpoint the suite presets default to.
+   llama.cpp is the recipe exercised (the same weights on llama.cpp and Ollama agree on the same
+   instances, over the LAN address, with a key); vLLM has no Metal backend on this laptop and MLX
+   needs weights outside Ollama's store, so the choice is really about the desktop or server that
+   will host the checkpoints.
 5. **Hosted-model budget** for standing matrices (the nightly suite on one hosted model is about
    3 M tokens and three minutes), the cross-harness model set, and Thoth's tool policy ([44]).
 
