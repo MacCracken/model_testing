@@ -478,7 +478,7 @@ export function planMatrix({ tasks, modes, clients, count = 1 }) {
  * Run the full tasks x modes x clients matrix, `count` trials per cell.
  * `onEvent` receives { type: "start" | "trial" | "done", ... } as work completes.
  */
-export async function runMatrix({ tasks, modes, clients, count = 1, parallel = 1, instanceSeed = null, onEvent, signal, maxRounds, judge = null, pricing = null }) {
+export async function runMatrix({ tasks, modes, clients, count = 1, parallel = 1, instanceSeed = null, onEvent, signal, maxRounds, judge = null, pricing = null, sampleEnv = null }) {
   const { cells, skipped, total } = planMatrix({ tasks, modes, clients, count });
   const limit = Math.max(1, Math.floor(Number(parallel)) || 1);
   // One seed per run mints every generated instance; recorded so a run can be replayed exactly.
@@ -511,8 +511,13 @@ export async function runMatrix({ tasks, modes, clients, count = 1, parallel = 1
   const running = new Set();
   const start = (item) => {
     onEvent?.({ type: "trial-start", task: item.task.name, mode: item.mode, client: item.client.name, index: item.index, total });
+    // The environment at the trial's start (the machine's thermal state, on macOS) — sampled by
+    // the Node entry point, since this module is served to the browser — lands on the row as `env`.
+    let env = null;
+    if (typeof sampleEnv === "function") { try { env = sampleEnv() ?? null; } catch { env = null; } }
     const p = runTrial({ ...item, seed: seedFor(runSeed, item.task.name, item.index), signal, maxRounds, judge, pricing })
       .then((row) => {
+        row.env = env;
         rows.push(row);
         completed += 1;
         onEvent?.({ type: "trial", completed, total, result: row });
@@ -1189,6 +1194,10 @@ export function summarize(rows, { capabilitiesOf = null, levelsOf = null } = {})
   const formatD = variantDeltas(rows, "format");
   const effortD = variantDeltas(rows, "effort");
   const confidenceD = variantDeltas(rows, "confidence");
+  // The machine's thermal state over the trials that sampled it (macOS, local runs): a slow row
+  // under a lowered CPU clock is the laptop's doing, not the model's.
+  const thermalRows = rows.map((r) => r?.env?.thermal).filter((t) => t && typeof t.speedLimitPct === "number");
+  const thermal = thermalRows.length ? { sampled: thermalRows.length, underPressure: thermalRows.filter((t) => t.pressure).length, minSpeedLimitPct: Math.min(...thermalRows.map((t) => t.speedLimitPct)), minSchedulerLimitPct: Math.min(...thermalRows.map((t) => t.schedulerLimitPct ?? 100)) } : null;
   const abstainD = variantDeltas(rows, "abstain");
   const perturbD = variantDeltas(rows, "perturb");
 
@@ -1207,6 +1216,7 @@ export function summarize(rows, { capabilitiesOf = null, levelsOf = null } = {})
     curves: levelsOf && Object.keys(levelsOf).length ? curves(rows, levelsOf) : {},
     depths: depthSweep(rows),
     multiple: multipleComparisons(byTaskClient),
+    thermal,
     delta: {
       overall: deltaFor(rows),
       byTask,

@@ -149,6 +149,7 @@ can be compacted (prompts and transcripts stripped, every scalar kept) without l
 ```bash
 node src/cli.js list                    # tasks (with the modes each declares) and providers, with key status
 node src/cli.js probe local:ornith-1.5:9b   # is the endpoint ready for the bench: listed, answers, calls a tool and takes its result, JSON, the reasoning knob
+node src/bench.js --task convert4,lineup6 --clients local:qwen3.8:27b-mlx --count 4 --parallel 1   # a local model; on a laptop one request at a time keeps the timings steady, and every row records the thermal state
 node src/cli.js show                    # recent saved runs
 node src/cli.js show <run-id> --table   # one saved run: per-mode stats, deltas with significance, a task × mode table
 node src/cli.js export <run-id>         # every trial as CSV (--cells for the task × model × mode cells, --out file.csv)

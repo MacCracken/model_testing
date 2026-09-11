@@ -7,7 +7,7 @@ the last built item of the original roadmap landed, and refreshed on 2026-09-15.
 
 ## Start here (handoff, 2026-09-15)
 
-- **Run it.** `npm test` (408 tests; no model or server needed), then `node src/cli.js serve` for
+- **Run it.** `npm test` (412 tests; no model or server needed), then `node src/cli.js serve` for
   the UI on :4000 and `node webserver/server.js` for the system under test on :3000 (`SUT_PORT`).
   Keys and `LOCAL_ENDPOINTS` live in `.env`; runs land in `results/runs/`, the SQLite index beside
   them (`node src/cli.js index --full` rebuilds it); `node src/cli.js anchors fetch all` pulls the
@@ -91,7 +91,7 @@ gpt-4o-mini is 1.0 whatever the outcome; agreement is only meaningful per instan
 | Data | one JSON per run, SQLite index (`index`, `query`, `--sql`, `compact`; `source`, `cost_usd`, `effort`, `depth`, lineage per trial), CSV and JSONL export, versions and lineage on every run, cross-run cell history, suite presets `smoke|standard|full|nightly`; every row keeps the model's turns (or an arm's raw transcript) beside its calls and results; `replay` and `rescore`; the anchor cache with provenance |
 | UI | Ledger design, a setup panel with every treatment and the A/B convention, live grid, headline with a column per treatment, tools × schema 2×2, cost, calibration and abstention blocks, capability scorecard with radars, sparklines and regression lines, lineage graph, difficulty curves with the depth sweep, paired comparison block, dumbbell matrix, trial drawer with transcript, dialogue turns and children, replay button, history filter |
 | SUT | the webserver: hello/health, the `/api/recent` log, inventory scenarios with tickets, confirm rules, stress profiles, pagination, strict types and an op log, text logs with grep and count, documents |
-| Tests | 408, none needing a model; the webserver runs in-process |
+| Tests | 412, none needing a model; the webserver runs in-process |
 
 ## What the field measures that we do not
 

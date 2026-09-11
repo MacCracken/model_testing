@@ -20,6 +20,7 @@ import { newRunId, saveRun, loadRun } from "./results.js";
 import { pricingFor } from "./prices.js";
 import { parseArgs } from "./args.js";
 import { benchVersions } from "./version.js";
+import { thermalState, sampleEnvironment } from "./thermal.js";
 import { makeJudge } from "./judge.js";
 import { envValue } from "./util.js";
 import { gatesFromArgs, gateNames, gateRun, describeRunGates } from "./gates.js";
@@ -182,7 +183,9 @@ async function main() {
   if (clients.some((c) => (c.provider === "openai" || String(c.name).startsWith("openai:")) && (c.effort || modelParams.effort)) && modelParams.temperature !== undefined) {
     console.error("note: OpenAI's reasoning models refuse a temperature with reasoning_effort (and function tools with any effort but none); those rows will carry the refusal");
   }
+  const thermalStart = thermalState();
   const { rows, summary, skipped, instanceSeed } = await runMatrix({
+    sampleEnv: sampleEnvironment,
     pricing: pricingFor(),
     tasks: taskList,
     modes: modeList,
@@ -227,6 +230,7 @@ async function main() {
       lineage: lineageOf(clients.map((c) => c.name)),
     },
     versions: benchVersions(),
+    env: thermalStart ? { thermal: { start: thermalStart, end: thermalState() } } : null,
     warnings: [...describeSkipped(skipped), ...(timeBoxHit ? [`time box of ${args.timeBox} min reached: ${completed} of ${plan.total} trials completed`] : [])],
     progress: { completed: rows.length, total: rows.length },
     summary,

@@ -13,6 +13,7 @@ import { lineageOf } from "./lineage.js";
 import { resolveClients } from "./providers/index.js";
 import { resolveTasks, resolveModes, describeSkipped, modelParamsFrom, resolveJudge } from "./bench.js";
 import { benchVersions } from "./version.js";
+import { thermalState, sampleEnvironment } from "./thermal.js";
 import { runMatrix, planMatrix } from "./runner.js";
 import { printSummary } from "./report.js";
 import { newRunId, saveRun } from "./results.js";
@@ -39,7 +40,9 @@ export async function main() {
   const label = `${taskList.length} task(s) x ${modeList.length} mode(s) x ${clients.length} client(s) x ${count}`;
   console.log(`running ${label} = ${plan.total} trials\n`);
 
+  const thermalStart = thermalState();
   const { rows, summary, skipped, instanceSeed } = await runMatrix({
+    sampleEnv: sampleEnvironment,
     tasks: taskList,
     modes: modeList,
     clients,
@@ -71,6 +74,7 @@ export async function main() {
     source: "aggregate",
     config: { tasks: taskList.map((t) => t.name), modes: modeList, clients: clients.map((c) => c.name), count, parallel, instanceSeed, modelParams, judge: judge?.name ?? null, lineage: lineageOf(clients.map((c) => c.name)) },
     versions: benchVersions(),
+    env: thermalStart ? { thermal: { start: thermalStart, end: thermalState() } } : null,
     warnings: describeSkipped(skipped),
     progress: { completed: rows.length, total: rows.length },
     summary,

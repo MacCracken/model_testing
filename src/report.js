@@ -26,6 +26,7 @@ export function printSummary(summary, { log = console.log } = {}) {
     if (summary.stability?.[mode]?.repeated) log(`   stability:    ${describeStability(summary.stability[mode])}`);
   }
 
+  if (summary.thermal?.underPressure) log(`\n-- thermal: ${summary.thermal.underPressure} of ${summary.thermal.sampled} trials started under thermal pressure (CPU speed limit down to ${summary.thermal.minSpeedLimitPct} %) — a slow local row may be the laptop's doing`);
   log("\n-- per task x mode x client");
   for (const cell of summary.cells) {
     log(`   ${cell.task.padEnd(8)} ${cell.mode.padEnd(10)} ${cell.client.padEnd(28)} ${cell.correct}/${cell.runs} (${cell.correctPct.toFixed(0)}%)  ${cell.avgLatencyMs}ms`);

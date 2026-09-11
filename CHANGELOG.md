@@ -4,6 +4,24 @@ What shipped, by date. Full measurement tables live in [docs/results.md](docs/re
 forward roadmap is [plan.md](plan.md). Dates are the commit dates; item numbers ([1]–[49]) are the
 roadmap's, stable across the plan, this file and the results.
 
+## 2026-09-21 — the laptop's heat, on the row
+
+### Added
+- **The thermal state travels with a run** (`src/thermal.js`): on macOS every trial's row records
+  the CPU speed and scheduler limits the system was imposing when the trial started
+  (`row.env.thermal`, read from `pmset -g therm` without privileges), the run records the state at
+  its start and end (`run.env.thermal`), `summarize` pools it (`summary.thermal`) and the report
+  prints a line when any trial ran under pressure. The local runs of 2026-09-20 showed why: the
+  same model taking twelve seconds on one trial and five minutes on the next, the daemon going
+  quiet for a minute mid-run, eight to forty timeouts in a run — a laptop serving a 27 B model
+  gets hot and macOS lowers the clocks, and nothing in the rows said so. Now it does. It records
+  and never limits: parallelism and timeouts for a local endpoint stay the operator's choice; the
+  serving guide notes that a laptop is steadier one request at a time and a desktop holds its
+  clocks.
+- Tests: 412 (+4: the pmset parser under pressure and without a record, the state off macOS and
+  through an injected reader, the pooled summary and its phrasing, the runner stamping every row
+  from the hook and the report line).
+
 ## 2026-09-20 — is the endpoint ready? (`cli probe`)
 
 ### Added

@@ -268,6 +268,13 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
   parent's config); `GET /api/runs?parent=` lists a run's replays. The scorecard block draws a
   radar per client (the run filled, `/api/scorecard?client=` dashed behind it) and a sparkline per
   cell from `/api/trend`; the lineage block draws `/api/lineage` through `charts.js`.
+- `src/thermal.js` — the machine's thermal state with a run: `thermalState()` reads `pmset -g therm`
+  on macOS (the CPU speed and scheduler limits; null elsewhere), the entry points record it at a
+  run's start and end (`run.env.thermal`) and hand `sampleEnvironment` to `runMatrix`, which stamps
+  every trial's start state on its row (`row.env.thermal`); `summarize` pools it as
+  `summary.thermal` and the report prints a line when trials ran under pressure. It records; it
+  never limits a run — parallelism and timeouts for local endpoints are the operator's choice (a
+  laptop is steadier one request at a time, a desktop holds its clocks).
 - `src/probe.js` — `probeClient(client, { listModels, effort })`: an endpoint's readiness for the
   bench through the bench's own client — listed, answers (with streamed usage), calls a tool and
   takes its result, returns JSON, accepts the reasoning parameter — with `ready` the verdict a

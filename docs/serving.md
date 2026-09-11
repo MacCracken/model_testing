@@ -34,7 +34,15 @@ Notes that matter for this bench:
   sets either, and the runtime's own reasoning-effort knob (`--effort none`) is the better lever
   than `--model-param`.
 - Requests under `--parallel` queue at the server; latency columns then include queueing. Compare
-  latencies serial-to-serial.
+  latencies serial-to-serial. On a laptop, one request at a time (`--parallel 1`) is the setting
+  that keeps the numbers steady: a second request in flight doubles the heat, macOS answers by
+  lowering the clocks, and the same model then takes twelve seconds on one trial and five minutes
+  on the next while the daemon may stop answering for a minute. A desktop or a server holds its
+  clocks and takes whatever parallelism the runtime serves well. Nothing in the bench limits a
+  local run either way; the rows just record what the machine was doing. Every trial's row records the thermal state
+  at its start (`row.env.thermal`, from `pmset -g therm`), the run records it at start and end
+  (`run.env.thermal`), and the report prints a line when any trial ran under pressure, so a slow
+  local row is the laptop's doing and can be seen to be.
 
 ## 2. Name the endpoint
 

@@ -31,6 +31,7 @@ import { describeSkipped, resolveJudge } from "../bench.js";
 import { newRunId, saveRun, loadRun, listRuns, deleteRun, runHeader } from "../results.js";
 import { pricingFor } from "../prices.js";
 import { benchVersions } from "../version.js";
+import { thermalState, sampleEnvironment } from "../thermal.js";
 import { rowsToCsv, cellsToCsv } from "../export.js";
 import { summarize } from "../runner.js";
 
@@ -107,6 +108,7 @@ function startRun({ tasks, modes, clients, count, parallel = 1, instanceSeed = n
     parent,
     config: { tasks, modes, clients: clientObjs.map((c) => c.name), count, parallel, instanceSeed, modelParams, judge: judge?.name ?? null, lineage: lineageOf(clientObjs.map((c) => c.name)) },
     versions: benchVersions(),
+    env: (() => { const t = thermalState(); return t ? { thermal: { start: t, end: null } } : null; })(),
     warnings: missing.length ? [`skipped (no API key or unknown provider): ${missing.join(", ")}`] : [],
     // The real total arrives with the runner's "start" event, once undeclared (task, mode) pairs
     // are dropped from the plan.
@@ -121,6 +123,7 @@ function startRun({ tasks, modes, clients, count, parallel = 1, instanceSeed = n
   (async () => {
     try {
       await runMatrix({
+        sampleEnv: sampleEnvironment,
         pricing: pricingFor(),
         tasks: taskObjs,
         modes,
@@ -154,6 +157,7 @@ function startRun({ tasks, modes, clients, count, parallel = 1, instanceSeed = n
       run.error = err?.message ?? String(err);
     } finally {
       run.finishedAt = new Date().toISOString();
+      if (run.env?.thermal) run.env.thermal.end = thermalState();
       if (run.status === "running") run.status = "done";
       saveRun(run);
       broadcast(run.id, { type: "done", run: runHeader(run) });
