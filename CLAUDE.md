@@ -107,8 +107,9 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
   message): a user who reacts, still deterministic for the seed.
 - `src/preflight.js` + the dead-endpoint stop in `runMatrix` — runs that can be left alone.
   `preflight({ clients, tasks })` asks every distinct endpoint (`pingClient` in probe.js: listed when
-  the route lists, and a plain request comes back within a minute; a variant is its base client's
-  endpoint, an arm is not pinged) and the webserver when a selected task has `server: true`; bench.js
+  the route lists, and a plain request comes back — within a minute on a hosted route, three on a
+  local endpoint that may have to load the model first (`PING_TIMEOUT_MS`); a variant is its base
+  client's endpoint, an arm is not pinged) and the webserver when a selected task has `server: true`; bench.js
   and the web launcher refuse to start on a no (exit 2, no run file; `--no-preflight`). The same
   checks go to `runMatrix` as `checkClient` / `checkServer`: after three transport errors in a row from
   one client, or from the webserver, it checks at once and after each of `ENDPOINT_WAITS_MS`
@@ -357,7 +358,10 @@ export const task = {
     scoreHarness,   // (structuredOutput, ground, { judge, mode }) => { correct, reason, judge? }
     scoreNoHarness, // (freeText, ground, { judge, mode })         => { correct, reason, judge? }
     toolUse,        // optional: ({ toolCalls, toolResults, ctx, rounds }) => { ok, reason } — right tool, right args
-                    //   (rounds lets a verdict tell parallel calls from sequential ones)
+                    //   (rounds lets a verdict tell parallel calls from sequential ones). A tool result is
+                    //   { id, name, ok, arguments, content } — `content` is the JSON string the model was sent,
+                    //   so a verdict that reads a reply parses it (and its test uses that shape: `code`'s read a
+                    //   `result` field no row has, and said nothing about the last test run for a week)
     needsJudge,     // optional: true when the scorers grade through the judge (explain)
     abstained,      // optional: (answer, { structured, text, ctx, generic }) => bool — the family's own reading of an
                     //   abstention under @abstain (the missing thing reported as missing); `generic` is the shared one

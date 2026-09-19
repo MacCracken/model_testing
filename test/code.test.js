@@ -168,6 +168,12 @@ test("run_tests runs the examples only and reports the failures; the verdict wan
   assert.match(v.reason, /passed them all/);
   const w = task.eval.toolUse({ toolCalls: [{ name: "run_tests", arguments: { code: "x" } }], toolResults: [{ name: "run_tests", ok: true, result: { passed: 1, total: 3 } }] });
   assert.match(w.reason, /did not pass \(1\/3\)/);
+  // A saved row keeps the tool's reply as `content`, the JSON string the model saw — not `result`.
+  const call = { name: "run_tests", arguments: { code: "x" } };
+  const saved = (reply) => task.eval.toolUse({ toolCalls: [call, call], toolResults: [{ id: "a", name: "run_tests", ok: true, arguments: {}, content: JSON.stringify({ passed: 1, total: 3 }) }, { id: "b", name: "run_tests", ok: true, arguments: {}, content: reply }] });
+  assert.match(saved(JSON.stringify({ passed: 3, total: 3, failures: [] })).reason, /ran the examples 2 time\(s\); the last run passed them all/);
+  assert.match(saved(JSON.stringify({ passed: 2, total: 3, failures: [{}] })).reason, /the last run did not pass \(2\/3\) and the code went out anyway/);
+  assert.equal(saved('{"passed": 3, "total": 3, "failu…').reason, "ran the examples 2 time(s)", "a capped reply says only that it ran");
 });
 
 test("code1/2/3 are registered with the four modes, the family knob and the code capability", () => {

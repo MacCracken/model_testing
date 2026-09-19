@@ -268,8 +268,11 @@ function makeCode(level) {
       toolUse: ({ toolCalls, toolResults }) => {
         const runs = toolCalls.filter((c) => c.name === "run_tests");
         if (!runs.length) return { ok: false, reason: "run_tests was never called — the code went out untested" };
+        // A row records a tool's reply as `content`, the JSON string the model was sent; a live
+        // result object is read too. (The verdict read `result` alone and never saw a saved row's.)
         const last = [...toolResults].reverse().find((r) => r.name === "run_tests");
-        const res = last && typeof last.result === "object" ? last.result : null;
+        let res = last && last.result && typeof last.result === "object" ? last.result : null;
+        if (!res && typeof last?.content === "string") { try { const parsed = JSON.parse(last.content); if (parsed && typeof parsed === "object") res = parsed; } catch { /* capped or not JSON */ } }
         if (!res) return { ok: true, reason: `ran the examples ${runs.length} time(s)` };
         const clean = res.total > 0 && res.passed === res.total;
         return { ok: true, reason: clean ? `ran the examples ${runs.length} time(s); the last run passed them all` : `ran the examples ${runs.length} time(s); the last run did not pass (${res.error ?? `${res.passed}/${res.total}`}) and the code went out anyway` };

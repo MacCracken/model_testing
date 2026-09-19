@@ -9,6 +9,46 @@ A note on the dates: the entries dated 2026-09-15 to 2026-09-21 were written on 
 run finished). From the entries of 2026-09-19 on, dates are calendar dates — so they are the
 newest, and they sit on top.
 
+## 2026-09-19 (evening) — the holes, filled
+
+The first unattended use of [53]–[55]: ten fills as a detached queue, 3 h 24 min, every one to
+the end on its first pass.
+
+### Measured (docs/results.md, "The holes, filled" — the local tables complete)
+- **223 trials, 215 scored**; the 8 that are not timed out again at 300 s — one `code3` instance
+  `ornith-1.5:9b` cannot stop thinking about (three modes), one `code3` trial of the 12 B, and
+  `needle32k` read inline by the 9–12 B models. The three all-error parents were deleted once
+  filled (decision 2); `gemma4:31b-mlx`'s cannot be filled while the model is out of the store.
+- **`ornith-1.5:9b`**, measured at last on the families the daemon had taken: `dialogue2/3/4`
+  **12/12** (with the 12 B, Haiku and the 27 B; the GPT minis 7/24 and 8/12), `clarify` 12/16 in
+  the tool modes (Haiku 10/16) with the summary read again every time — its misses are writes
+  before asking, all three with the schema — and `code` 39/45: free-form 11/12, tool-only 11/11,
+  and both harness misses code that had just passed its tests and then never arrived as JSON.
+- **`qwen3.8:27b-mlx` has every cell and clears them**: 93/96 in harness mode, `code` 48/48,
+  `clarify` 16/16, `dialogue` 12/12 — and **`extract4` 8/8, 4/4 of it read inline**, the first
+  model in the index to get the statement's column sums right without a calculator (Haiku 0/4
+  inline). The tier nobody cleared has been cleared.
+- **For both small models the schema competes with "ask first"** on `clarify`: ornith 7/8
+  tool-only against 5/8 with the schema, the 12 B 8/8 against 4/8. Eight trials each — a lead.
+- **The 27 B ran 4.5 times faster than a week ago** (38.7 output tokens a second against 8.5);
+  the small models gained 15–25 %, and `gemma4:31b-mlx` made 32 a second then — the 27 B was
+  starved in the first queue, not slow. The standard suite on it is about seven hours, not twenty.
+- **`muse-glimmer:30b-mlx` probes ready** (it thinks; the effort knob is accepted). No rows yet.
+
+### Fixed
+- **The `code` family's tool-use verdict read a field saved rows do not have.** A row keeps a
+  tool's reply as `content` (the JSON string the model saw), the verdict read `result`, so it
+  only ever said "ran the examples n time(s)" — never whether the last run had passed. It reads
+  both now (the unit test had used a row shape no run produces). Re-scored: 144 reasons
+  updated over seven runs, no verdict flipped. What it shows: Haiku, `ornith-1.5:9b` and the 27 B
+  always test and always send code whose last run passed; gpt-4o-mini sent failing code 3 times
+  of 24, `qwen3.5:9b-mlx` twice; the two gemmas often do not test at all (13 of 23, 8 of 24).
+
+### Changed
+- **A local endpoint gets three minutes to answer the preflight** (`PING_TIMEOUT_MS`), a hosted
+  route one: an 18 GB model loading from cold takes most of a minute, and a refusal there would
+  have stalled a queue.
+
 ## 2026-09-19 (later) — runs that can be left alone
 
 The review below found a third of the local queue's rows to be the bench recording its own

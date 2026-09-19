@@ -9,7 +9,7 @@
 // only: the runner is served to the browser and takes these as functions.
 
 import { pingClient } from "./probe.js";
-import { resolveClients, probeLocalModels } from "./providers/index.js";
+import { resolveClients, probeLocalModels, PROVIDERS } from "./providers/index.js";
 import { BASE } from "./tasks/util.js";
 
 const listModels = (provider) => probeLocalModels({ provider, timeoutMs: 3000 });
@@ -17,13 +17,18 @@ const listModels = (provider) => probeLocalModels({ provider, timeoutMs: 3000 })
 // The check for one of a run's clients. A variant (`<client>@abstain`) is its base client's
 // endpoint, and a ping goes out plain: the treatment is not what is being asked about. An arm is a
 // program on this machine with its own login, not an endpoint — it is not pinged.
-export function checkClientWith({ ping = pingClient, resolve = resolveClients, timeoutMs = 60_000 } = {}) {
+// A hosted route answers a ping in a second or two; a local endpoint may have to load the model
+// first (an 18 GB model from cold takes the better part of a minute), so it gets three.
+export const PING_TIMEOUT_MS = { hosted: 60_000, local: 180_000 };
+
+export function checkClientWith({ ping = pingClient, resolve = resolveClients, timeoutMs = null, isLocal = (provider) => !!PROVIDERS[provider]?.local } = {}) {
   return async (client) => {
     if (client?.structuredOnly) return { ok: true, note: "a harness arm (not pinged)" };
     const name = client?.baseName ?? client?.name;
     let base = null;
     try { base = resolve(name)[0] ?? null; } catch { base = null; }
-    return ping(base ?? client, { listModels, timeoutMs });
+    const provider = String(name ?? "").split(":")[0];
+    return ping(base ?? client, { listModels, timeoutMs: timeoutMs ?? (isLocal(provider) ? PING_TIMEOUT_MS.local : PING_TIMEOUT_MS.hosted) });
   };
 }
 

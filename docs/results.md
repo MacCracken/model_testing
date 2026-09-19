@@ -2292,3 +2292,149 @@ what the same weights score through Ollama.
 
 A third run — the fill asked a second time before the closed-hole check existed, against the
 webserver copy already killed — held nothing but three transport rows and was deleted.
+
+## The holes, filled (2026-09-19, the same seeds as the local queue, four trials per cell)
+
+Ten fills, one per saved run of the local queue that had holes and a model still in the store,
+run as a detached queue (`results/fills/run-fills.sh`: one fill at a time, a private webserver
+copy on :3001, each model warmed first) in 3 h 24 min. Each is `bench --replay <run> --holes`: the
+parent's missing trials and nothing else, on the seeds the parent gave them, with its knobs
+(`--effort none` for `gemma4:12b-mlx` and `qwen3.5:9b-mlx`). Every fill ran to the end on its
+first pass — no refusal, no partial run, no dropped daemon (Ollama 0.34.2; the queue of
+2026-09-11/12 ran on 0.33). The 27 B's three were given ten minutes a request instead of five and
+did not need them: its longest trial took 215 s.
+
+| Model | fill of | run | holes | scored | right |
+|---|---|---|---|---|---|
+| ornith-1.5:9b | `code` (`…183456-b6a6`, all 48 lost) | `20260919T190905-4934` | 48 | 45 | 39 |
+| ornith-1.5:9b | `clarify` (`…190501-b808`, all 24 lost) | `20260919T193106-8c57` | 24 | 24 | 12 |
+| ornith-1.5:9b | the batch (`…180452-b4dc`: `dialogue2/3/4`, one timeout) | `20260919T201644-5441` | 25 | 24 | 12 |
+| gemma4:12b-mlx | `code` (`…193506-4b85`, all 48 lost) | `20260919T202801-51b1` | 48 | 47 | 41 |
+| gemma4:12b-mlx | `clarify` (`…201451-a581`, 3 timeouts) | `20260919T203012-2406` | 3 | 3 | 1 |
+| gemma4:12b-mlx | the batch (`…210750-edb6`, 2 timeouts) | `20260919T203531-16fc` | 2 | 1 | 1 |
+| qwen3.5:9b-mlx | the batch (`…220205-122b`, 3 timeouts) | `20260919T204624-d72d` | 3 | 1 | 0 |
+| qwen3.8:27b-mlx | the batch the five-hour box cut (`…070841-e068`) | `20260919T213727-ce18` | 60 | 60 | 49 |
+| qwen3.8:27b-mlx | `code` (`…231220-0b61`, 3 timeouts) | `20260919T214302-e3cd` | 3 | 3 | 3 |
+| qwen3.8:27b-mlx | `clarify` (`…010516-8371`, 4 timeouts) | `20260919T214505-4854` | 4 | 4 | 4 |
+
+223 trials, 215 scored. The 8 that are not timed out again at 300 s, and they are two things: one
+`code3` instance `ornith-1.5:9b` cannot stop thinking about (trial 3 in harness, schema-only and
+tool-only mode; free-form it answers), one `code3` tool-only trial of `gemma4:12b-mlx`, and
+`needle32k` read inline — 32 k tokens of prompt on a 9–12 B model on this laptop (one trial of
+ornith's, one of the 12 B's, two of `qwen3.5:9b-mlx`'s). No trial of any fill started under a
+thermal limit (220 rows sampled). The three all-error parents (`…183456-b6a6`, `…190501-b808`,
+`…193506-4b85`; 120 rows of `fetch failed`) were deleted once filled, as decided; their fills
+hold every one of their trials.
+
+**The tables of "The local queue", complete** — each instance counted once, scored row over error
+row, parent and fill together (`◦` marks a cell with trials from a fill; `gemma4:31b-mlx` is out
+of the store and keeps what it had).
+
+Harness mode (tools and the schema):
+
+| task | ornith-1.5:9b | gemma4:12b-mlx | qwen3.5:9b-mlx | qwen3.8:27b-mlx |
+|---|---|---|---|---|
+| `restock3` | 3/4 | 4/4 | 2/4 | 4/4 ◦ |
+| `restock6` | 3/4 | 1/4 | 2/4 | 4/4 ◦ |
+| `restock12` | 4/4 | 4/4 | 1/4 | 4/4 |
+| `fanout4` | 4/4 | 4/4 | 4/4 | 3/4 |
+| `fanout8` | 3/4 | 4/4 | 4/4 | 4/4 |
+| `follow3` | 2/4 | 4/4 | 0/4 | 4/4 ◦ |
+| `follow6` | 4/4 | 3/4 | 0/4 | 3/4 ◦ |
+| `norelevant` | 3/4 | 3/4 | 4/4 | 4/4 |
+| `paged6` | 4/4 | 1/4 | 0/4 | 4/4 |
+| `typed` | 4/4 | 4/4 | 4/4 | 4/4 |
+| `needle8k` | 3/4 | 4/4 | 4/4 | 4/4 |
+| `needle32k` | 3/4 | 4/4 | 4/4 | 4/4 |
+| `dialogue2` | 4/4 ◦ | 4/4 | 1/4 | 4/4 ◦ |
+| `dialogue3` | 4/4 ◦ | 4/4 | 0/4 | 4/4 |
+| `dialogue4` | 4/4 ◦ | 4/4 | 0/4 | 4/4 ◦ |
+| `logicgrid3` | — | 4/4 | 2/4 | 3/4 ◦ |
+| `logicgrid4` | — | 4/4 | 4/4 | 4/4 ◦ |
+| `extract3` | — | 4/4 ◦ | 1/4 | 4/4 ◦ |
+| `extract4` | — | 0/4 | 0/4 ◦ | 4/4 ◦ |
+| `code1` | 2/4 ◦ | 4/4 ◦ | 4/4 | 4/4 |
+| `code2` | 4/4 ◦ | 3/4 ◦ | 3/4 | 4/4 |
+| `code3` | 3/3 (1 timed out) ◦ | 3/4 ◦ | 2/4 | 4/4 ◦ |
+| `clarify2` | 4/4 ◦ | 2/4 | 0/4 | 4/4 ◦ |
+| `clarify3` | 1/4 ◦ | 2/4 ◦ | 2/4 | 4/4 |
+| **scored** | 66/79 | 78/96 | 48/96 | 93/96 |
+
+(`needle8k` for `qwen3.5:9b-mlx` reads 4/4 where the first table said 3/4: the re-score of this
+morning, the joined hosts.)
+
+Free-form, the rows that say something (the server-backed families are 0 for every model by
+design, the fills' new rows included):
+
+| task | ornith-1.5:9b | gemma4:12b-mlx | qwen3.5:9b-mlx | qwen3.8:27b-mlx |
+|---|---|---|---|---|
+| `norelevant` | 3/4 | 3/4 | 3/4 | 3/4 ◦ |
+| `needle8k` | 3/4 | 2/4 | 4/4 | 4/4 ◦ |
+| `needle32k` | 2/3 (1 timed out) | 1/3 (1 timed out) | 0/2 (2 timed out) | 3/4 |
+| `logicgrid3` | — | 4/4 | 4/4 | 4/4 ◦ |
+| `logicgrid4` | — | 4/4 | 3/4 | 4/4 ◦ |
+| `extract3` | — | 3/4 | 1/4 | 4/4 ◦ |
+| `extract4` | — | 0/4 | 0/4 | 4/4 ◦ |
+| `code1` | 4/4 ◦ | 4/4 ◦ | 4/4 | 4/4 |
+| `code2` | 4/4 ◦ | 4/4 ◦ | 3/4 | 4/4 |
+| `code3` | 3/4 ◦ | 3/4 ◦ | 2/4 | 4/4 ◦ |
+
+The decomposition modes:
+
+| task | mode | ornith-1.5:9b | gemma4:12b-mlx | qwen3.5:9b-mlx | qwen3.8:27b-mlx |
+|---|---|---|---|---|---|
+| `code1` | toolOnly / schemaOnly | 4/4 · 4/4 ◦ | 4/4 · 4/4 ◦ | 4/4 · 4/4 | 4/4 · 4/4 |
+| `code2` | toolOnly / schemaOnly | 4/4 · 3/4 ◦ | 4/4 · 4/4 ◦ | 3/4 · 3/4 | 4/4 · 4/4 |
+| `code3` | toolOnly / schemaOnly | 3/3 · 1/3 (1 timed out each) ◦ | 1/3 (1 timed out) · 3/4 ◦ | 3/4 · 2/4 | 4/4 · 4/4 |
+| `clarify2` | toolOnly | 3/4 ◦ | 4/4 | 0/4 | 4/4 ◦ |
+| `clarify3` | toolOnly | 4/4 ◦ | 4/4 | 0/4 | 4/4 |
+
+What the new rows say:
+
+- **`ornith-1.5:9b` holds a conversation: `dialogue2/3/4` 12/12** — with `gemma4:12b-mlx`,
+  Haiku and the 27 B, and ahead of both GPT minis (7/24 and 8/12 over the index) — at a median of
+  88 s a trial. On `clarify` it is 12/16 in the tool modes (Haiku 10/16, gpt-4o-mini 6/16): it
+  read the summary again after the update in all sixteen, so the stale total that costs the
+  hosted models never appears; its misses are conduct — it wrote before asking three times, all
+  on `clarify3` with the schema (once to an id it made up, `SKU-NEEDS_CLARIFICATION`), and one
+  report listed two ids. Tool-only it is 7/8; with the schema 5/8. The 12 B shows the same split
+  (tool-only 8/8, with the schema 4/8: never asked, four times now): for both small models a
+  JSON-only instruction competes with "ask first" — eight trials each, a lead worth a larger
+  sample.
+- **`ornith-1.5:9b` on `code`: 39 of 45**, the knowledge all there — free-form 11/12, tool-only
+  11/11 — and the losses in delivery: `code1` 2/4 with tools and the schema, both misses code
+  that had just passed `run_tests` and then never arrived as JSON; schema-only 8/11 (two wrong,
+  one not JSON). It tested every one of its 22 tool-mode answers, and every last run passed. One
+  `code3` instance sends it thinking past 300 s in three modes.
+- **`gemma4:12b-mlx`, thinking off, on `code`: 41 of 47** at 8 s a trial. It skips the test tool
+  more often than not — `run_tests` never called in 13 of 23 tool-mode trials, 10 of those 13
+  right anyway — and it too loses two harness trials to answers that are not JSON.
+- **`qwen3.8:27b-mlx` now has every cell, and clears them: 93 of 96 in harness mode**, the
+  misses one `fanout4` and one `logicgrid3` answer that never arrived as JSON and one `follow6`
+  landing. `code` 48/48 over four modes, `clarify` 16/16 in the tool modes, `dialogue` 12/12,
+  `restock` 12/12. And **`extract4` 8/8 — 4/4 read inline**, with 5 000 to 9 500 characters of
+  reasoning a trial: the first model in the index to get the statement's column sums right
+  without a calculator (Haiku is 0/4 inline and 3/4 with the tools; every other model 0/4 inline).
+  `extract4` was the tier nobody cleared; it no longer is.
+- **Was the code tested before it went out?** The `code` family's tool-use verdict had been
+  reading a field saved rows do not have (`result`; a row keeps the tool's reply as `content`), so
+  it only ever said "ran the examples n time(s)". Read properly, over every tool-mode `code`
+  trial in the index: Haiku, `ornith-1.5:9b` and the 27 B always test and always send code whose
+  last run passed; gpt-4o-mini sent code whose last run had failed 3 times of 24, and
+  `qwen3.5:9b-mlx` twice; `gemma4:12b-mlx` and `gemma4:31b-mlx` often do not test at all (13 of
+  23, 8 of 24). Passing the examples and failing the hidden edges: `qwen3.5:9b-mlx` 3,
+  gpt-4o-mini 1.
+- **The 27 B ran four and a half times faster than a week ago**: 38.7 output tokens a second over
+  the fills against 8.5 over its queue runs (52 s a trial against 126). The small models gained
+  15 to 25 % (`ornith-1.5:9b` 35.6 → 45.0, the 12 B 47.6 → 54.9), and `gemma4:31b-mlx` made 32
+  tokens a second a week ago on the same machine — so the 27 B was starved then (memory, or a
+  second model resident) rather than slow, and the Ollama upgrade is the smaller part. Latencies
+  of parent and fill rows are not comparable; verdicts are. At today's speed the standard suite
+  is about seven hours on the 27 B, not twenty.
+- **`muse-glimmer:30b-mlx` is ready** (`cli probe`: listed, answers with a first token in 4.2 s,
+  calls a tool and takes its result, returns JSON, accepts the effort knob; it thinks — 344
+  characters of reasoning for "OK"). It has no rows yet.
+
+Open after this: the 8 repeated timeouts above, the older runs' one-off timeouts, the two
+thinking-on runs the `--effort none` runs replaced, and `gemma4:31b-mlx`'s 175 lost rows, which
+cannot be filled while the model is out of the store (`cli holes` lists them all).

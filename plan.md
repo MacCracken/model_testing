@@ -5,7 +5,8 @@ table is in [docs/results.md](docs/results.md). This file says what the project 
 stands, what the field measures that it does not, and what is left — reviewed on 2026-09-19 (a
 calendar date; see "Dates" under Conventions), a week after the local queue landed. The review
 read the index, wrote the queue's tables into docs/results.md and re-ordered the open work around
-what those runs showed; [52]–[55] shipped the same day and are in the changelog.
+what those runs showed; [52]–[55] shipped the same day, and the local holes were filled that
+evening (M1) — both are in the changelog.
 
 ## Start here (handoff, 2026-09-19)
 
@@ -55,22 +56,34 @@ what those runs showed; [52]–[55] shipped the same day and are in the changelo
   endpoints first, gives up on one that stays down (`partial`, exit 2), runs breadth first, and
   `replay <run> --holes` fills what is missing — `node src/cli.js holes --fill` lists the 23 saved
   runs with holes and the commands for them.
-  Still never measured: `ornith-1.5:9b` on `code`, `clarify`, `dialogue` and `extract4`;
-  `gemma4:12b-mlx` on `code`; the 27 B's tail; anything at all on `muse-glimmer:30b-mlx`, which
-  is in the store where `gemma4:31b-mlx` was.
-- **Next.** Fill the holes (M1, M2) — Ollama has to be up; `cli holes --fill` prints the
-  commands — then delete the four all-error runs (decided: once their holes are filled); then the
-  gauging work, [57] first. The order and the reasons are under "Decisions needed".
-- **Environment notes.** Ollama 0.33 on :11434 (down at the time of this review) holds
+  Still never measured: `ornith-1.5:9b` on `logicgrid`, `extract3/4`, the two-hop needles and
+  the anchors; anything at all on `muse-glimmer:30b-mlx`, which is in the store where
+  `gemma4:31b-mlx` was.
+- **The holes are filled (M1, 2026-09-19).** Ten fills as a detached queue
+  (`results/fills/run-fills.sh` — gitignored; a template for the next one until [56] exists), 3 h
+  24 min, every fill to the end on its first pass: 223 trials, 215 scored, the rest timed out
+  again (one `code3` instance `ornith-1.5:9b` overthinks, `needle32k` read inline by the small
+  models). The local tables in docs/results.md ("The holes, filled") are complete for the four
+  models in the store; the three all-error parents are deleted. What `cli holes` still lists is
+  old or unfillable: one-off timeouts, the two thinking-on runs the `--effort none` runs replaced,
+  and `gemma4:31b-mlx`'s 175 lost rows (the model is out of the store — decision 2).
+- **Next.** M2 (`muse-glimmer:30b-mlx` probes ready; it has no rows), M3 (no treatment has met a
+  local model), then the gauging work, [57] first — the fills moved two tiers from "nobody clears
+  it" to cleared (`extract4`, `clarify`, both by the 27 B), which is the case for a knob over a
+  hand-built tier. The order and the reasons are under "Decisions needed".
+- **Environment notes.** Ollama 0.34.2 on :11434 (0.33 when the queue of 2026-09-11/12 ran) holds
   `ornith-1.5:9b`, `gemma4:12b-mlx`, `qwen3.5:9b-mlx`, `qwen3.8:27b-mlx` and
   `muse-glimmer:30b-mlx`; `gemma4:31b-mlx` is gone and its 103 scored rows stay in the index as
   history. `ornith-1.5:9b` is a 9 B thinking model whose reasoning switches off only through
   `reasoning: { effort: "none" }` on the OpenAI route — `think: false`, `reasoning_effort` and
   `/no_think` do nothing there; the two 9–12 B mlx models time out with thinking on and finish
-  with `--effort none`. Seconds per trial on this laptop, from the queue: `gemma4:12b-mlx` 11 and
-  `qwen3.5:9b-mlx` 21 (thinking off), `ornith-1.5:9b` 24, `gemma4:31b-mlx` 58 on `code`,
-  `qwen3.8:27b-mlx` 88 on `code`, 158 on the batch and 282 on `clarify` — the standard suite
-  (about 470 trials) is an hour and a half on the 12 B and about twenty hours on the 27 B.
+  with `--effort none`. Seconds per trial on this laptop: `gemma4:12b-mlx` 8–11 and
+  `qwen3.5:9b-mlx` 21 (thinking off), `ornith-1.5:9b` 24 on single-turn tool work, 43 on `code`
+  and 88 on a `dialogue`, `qwen3.8:27b-mlx` 52 over the fills (38.7 output tokens a second) —
+  a week earlier it made 8.5 tokens a second and 126 s a trial while `gemma4:31b-mlx` made 32, so
+  it was starved then (memory, or a second model resident), not slow. The standard suite (about
+  470 trials) is an hour and a half on the 12 B and about seven hours on the 27 B at today's
+  speed; one model loaded at a time is what keeps it there.
   llama.cpp is installed as the unified `llama` binary (`~/.local/bin/llama`, build 10679: `llama
   serve`, jinja on by default, `reasoning_effort` honoured per request, `--api-key`, a router mode
   over a models directory) and serves ornith's GGUF straight from Ollama's blob store; the bench
@@ -140,23 +153,29 @@ fault from a wrong value, with a different cure, and the bench does not yet tell
 ### Where the models stand (harness mode, pooled over the index; `cli scorecard <client>`)
 
 - **The bench separates the gpt-4o-mini / 9–12 B band and nothing above it.** Haiku 4.5 is at
-  96–100 % on 23 of the 30 capabilities it has harness rows for and `qwen3.8:27b-mlx` on 21 of
-  22 (88/89 on tool use).
+  96–100 % on 23 of the 30 capabilities it has harness rows for, and `qwen3.8:27b-mlx`, with
+  every cell filled, is at 100 % on 18 of 23 and 95–98 % on three more (106/108 on tool use; its
+  low marks are 7/8 on parallel and on dependent calls).
   What still catches them: `clarify` for Haiku (4/8; the 27 B clears it 12/12), `lineup6` (Haiku
   6/8), `code3` without tools (Haiku 3/4 free-form; with tools it and the 27 B clear the family
-  since the re-score of 2026-09-19), `extract4`
-  (Haiku 3/4 with tools; 0/4 inline for every model), `restock30` (Haiku 2/3), and long inputs
-  read without tools. No frontier-class model has rows worth the name (gpt-6-astra: 16 scored),
+  since the re-score of 2026-09-19), `extract4` for Haiku (3/4 with tools, 0/4 inline — the 27 B
+  is 8/8, four of them read inline: no tier is left that nobody clears), `restock30` (Haiku 2/3;
+  no local model has run it), and long inputs read without tools. No frontier-class model has rows worth the name (gpt-6-astra: 16 scored),
   so where the bench's ceiling sits for them is unknown (M6).
-- **`ornith-1.5:9b`** (921 scored trials): tool use 89 % against gpt-4o-mini's 80 %, planning and
-  state 88 % against 24–26 % (`restock12` 4/4 against 0/20); its room is extraction (78 %),
-  dependent calls and long context (75 %), tool selection (85 %), `lookup` (15/25), and delivery
-  — a quarter of its structured-mode misses are answers that never arrived as JSON. It has never
-  run `dialogue`, `clarify`, `code`, `extract4`, the two-hop needles, the anchors, or any
-  treatment but constraints and a preloaded skill.
-- **`gemma4:12b-mlx`** (thinking off, 11 s a trial): `dialogue` 12/12 and `clarify` 8/8 tool-only
-  — better than both GPT minis — and weak on scans and sums (`paged6` 1/4, `restock6` 1/4,
-  `extract4` 0/8). The structured mode costs it on puzzles (`lineup6` 3/6 against 6/6 free-form).
+- **`ornith-1.5:9b`** (1 014 scored trials): tool use 88 % against gpt-4o-mini's 80 %, planning
+  88 % and state 86 % against 24–26 % (`restock12` 4/4 against 0/20), `dialogue` 12/12 where the
+  GPT minis are 7/24 and 8/12, `clarify` 12/16 in the tool modes (Haiku 10/16). Its room is
+  clarification with the schema (5/8: it writes before asking), extraction (78 %), dependent
+  calls and long context (75 %), `code` with the schema (9/11 and 8/11 against 11/12 free-form
+  and 11/11 tool-only), and delivery everywhere — its `code` misses with tools are answers that
+  passed their tests and never arrived as JSON, and one `code3` instance sends it thinking past
+  five minutes. It has never run `logicgrid` or `extract3/4` in the queue's setting, the two-hop
+  needles, the anchors, or any treatment but constraints and a preloaded skill.
+- **`gemma4:12b-mlx`** (thinking off, 8–11 s a trial): `dialogue` 12/12 and `clarify` 8/8
+  tool-only — better than both GPT minis — `code` 41/47, and weak on scans and sums (`paged6`
+  1/4, `restock6` 1/4, `extract4` 0/8). The structured mode costs it: `clarify` 4/8 with the
+  schema (it answers without asking), `lineup6` 3/6 against 6/6 free-form. It skips `run_tests`
+  in 13 of 23 tool-mode `code` trials.
 - **`qwen3.5:9b-mlx`** (thinking off): single-step tool work at ceiling, state across steps
   broken — `follow` 0/8, `dialogue` 1/12, `clarify` 2/16, `restock` 5/12 — and the harness costs
   it on reasoning (unit conversion −22 pp, p < 0.05; deduction −31 pp, ordering −50 pp on few
@@ -202,7 +221,7 @@ priority for the stated purpose:
 | Multi-turn & user simulation | τ²-bench user simulator, MT-Bench | the `dialogue` family with a scripted user and policy verdicts; the `clarify` family with a user who reacts to what the model did | the 27 B clears `clarify` (12/12) and the 12 B `dialogue` (12/12): more candidates ([57]), longer scripts, a second vague turn; arms through their session channels ([42]) | medium |
 | Tool use / function calling | BFCL v4 (AST + executable checks, parallel calls, irrelevance detection, multi-turn), τ²-bench, MCP-Bench | six tool tasks, decoys, restock, stress profiles, `fanout`, `follow`, `toolpick` (near-duplicate tools), `norelevant` and `nearmiss`, `paged`, `typed`, the `injected` profile, `dialogue`, the BFCL anchors, arms on shared tools with verdicts | `typed` still trips nobody (16/16 on four local models): a harder one only when a model does ([48]) | low |
 | Instruction following | IFEval, LiveBench IF | `@constraints` (twelve families, stated once across a dialogue), `@format`, IFEval itself as the anchor | a language family ([48]) | low |
-| Structured extraction | LiveBench data analysis, enterprise extraction evals | `transform`, the `extract` family with four tiers and injection through the document | none pressing: `extract4` is 0–3 of 4 for every model | low |
+| Structured extraction | LiveBench data analysis, enterprise extraction evals | `transform`, the `extract` family with four tiers and injection through the document | a fifth tier: the 27 B clears `extract4` 8/8, four of them inline (everyone else 0–3 of 4) | low |
 | Preference / open-ended | LMArena, Arena-Hard-Auto (pairwise, Bradley-Terry) | one absolute judge score | position-swapped pairwise judging, ratings, judge calibration against human labels ([30]) | low |
 | Knowledge / factuality | MMLU-Pro, SimpleQA, HLE | none, by design | open-book only — closed-book knowledge is the most contaminated axis and the least ours | low |
 | Multimodal | MMMU and successors | none | out of scope unless the trained models are multimodal | low |
@@ -278,17 +297,15 @@ the theme:
 
 ### Measurements owed (no code)
 
-- **M1. The holes.** `ornith-1.5:9b` on `code1/2/3`, `clarify2/3`, `dialogue2/3/4` and
-  `extract4`; `gemma4:12b-mlx` on `code`; the 27 B's `dialogue4`, `logicgrid3/4`, `extract3/4`,
-  `follow6` and its cut `restock` cells. `node src/cli.js holes --fill` prints one `replay <run>
-  --holes` line per saved run with holes (23 of them, 491 holes, 67 of those timeouts that may
-  time out again; the 152 of `gemma4:31b-mlx`'s lost batch cannot be filled while the model is
-  out of the store — the preflight will say so).
-  One model at a time, the private webserver copy on :3001, `--effort none` comes with the
-  parent's knobs. Then the four all-error runs are deleted (decision 2) and the local tables in
-  docs/results.md get their missing cells.
-- **M2. `muse-glimmer:30b-mlx`.** `cli probe`, then the eight-task set and the queue's batch —
-  it has no rows at all.
+- **M2. `muse-glimmer:30b-mlx`.** It probes ready (2026-09-19: a thinking model, first token in
+  4 s, tools, JSON and the effort knob all pass) and has no rows at all: the eight-task set, then
+  the queue's batch, `code` and `clarify` — `results/fills/run-fills.sh` is the template for the
+  queue, with `bench` lines in place of the fills.
+- **M2b. "Ask first" against the schema.** On `clarify`, both small models ask less with the
+  schema than without it (`ornith-1.5:9b` 5/8 against 7/8 tool-only, `gemma4:12b-mlx` 4/8 against
+  8/8) — eight trials each. Sixteen trials a cell of `clarify2/3` in both tool modes on the two
+  of them (`--count 16`, about forty minutes) says whether it is real; if it is, the schema
+  instruction's "JSON only" is the thing to look at, as the `work` field once was.
 - **M3. The treatments on a local model.** `@abstain`, `@confidence`, `@perturb:paraphrase` and
   `typos`, `@stress:injected`, `@format:nowork` on `ornith-1.5:9b` first, over the families that
   support them (`wordmath4`, `tally20`, `datecalc1`, `extract1/2`, `fanout4`, `follow3`): about
@@ -344,8 +361,9 @@ tiers become a level to type rather than a task to write; what is left to build:
   27 B and `gemma4:31b-mlx` clear `lineup6`; the 27 B clears `clarify` 12/12). A `code4` — a
   tier, so built by hand — now that `gemma4:31b-mlx` cleared `code3` 16/16 and, with tools, so do
   Haiku and the 27 B. A second vague turn for `clarify`, longer scripts for `dialogue` (the
-  12 B and the 27 B clear all three levels; the GPT minis and `qwen3.5:9b-mlx` do not). Not
-  needed: a harder `extract` (`extract4` is 0–3 of 4 for every model);
+  12 B and the 27 B clear all three levels; the GPT minis and `qwen3.5:9b-mlx` do not). A harder
+  `extract` tier is no longer "not needed": the 27 B clears `extract4` 8/8 (every other model is
+  0–3 of 4), so the family has no headroom for that class;
 - constraints: a language family, if a detector without a dependency is worth its approximation
   and the word-answer families are kept out of its way (small);
 - long context: sizes past 100 k through [57] for models that take them (on this laptop a local
@@ -368,18 +386,18 @@ tiers become a level to type rather than a task to write; what is left to build:
 
 ## Decisions needed
 
-1. **Order.** Recommendation: M1 and M2 first (measurements owed, and the first unattended use
-   of [53]–[55]); then [57] and [58] (the gauge is the piece that makes a slow host affordable
+1. **Order.** Recommendation: M2 and M2b first (a night's queue between them; M1 is done); then
+   [57] and [58] (the gauge is the piece that makes a slow host affordable
    and a checkpoint line comparable); [59] as the classifier version alongside; [60] once [58]
    and [59] have something to show; [56] before the next multi-job local session; M3–M5 in the
    background through it; [61] last. [38] the week the first checkpoint is served; [40] when a
    MATH or GPQA anchor is wanted.
-2. **The four runs that are nothing but error rows — decided 2026-09-19: delete them once their
-   holes are filled** (`20260911T183456-b6a6`, `20260911T190501-b808`, `20260911T193506-4b85`,
-   `20260912T070845-4831`; 272 rows). Until then they are the record of what is missing, and what
-   `replay <run> --holes` reads its list from. The last one is `gemma4:31b-mlx`'s, which cannot be
-   filled while the model is out of the store: delete it with the others, or pull the model again
-   first — the user's call when M1 is done.
+2. **The runs that are nothing but error rows — decided 2026-09-19: delete them once their holes
+   are filled.** Three were, and are gone (`20260911T183456-b6a6`, `20260911T190501-b808`,
+   `20260911T193506-4b85`). The fourth, `20260912T070845-4831`, is `gemma4:31b-mlx`'s batch — 152
+   rows of `model not found` — and cannot be filled while the model is out of the store: delete it
+   too (and `20260912T020801-e94b`, its `clarify` run with one scored row of 24), or pull the
+   model again and fill them. Open: the user's call.
 3. **`csvRow`'s quote after a space — decided 2026-09-19: dropped** from what an answer is graded
    on unless the prompt shows it as an example ([52], shipped).
 4. **Scope of knowledge and safety.** Exclude closed-book knowledge as an axis (the recommendation:

@@ -195,6 +195,12 @@ test("preflight asks each endpoint once and the webserver only when a selected t
   const check = checkClientWith({ ping: async (c) => { pinged.push(c.name); return { ok: true, note: "" }; }, resolve: (name) => [{ name, model: name.split(":")[1] }] });
   await check({ name: "local:m@perturb:typos", baseName: "local:m" });
   assert.deepEqual(pinged, ["local:m"]);
+  // A local endpoint may have to load the model before it answers: it gets three minutes, a hosted route one.
+  const given = [];
+  const timed = checkClientWith({ ping: async (c, o) => { given.push([c.name, o.timeoutMs]); return { ok: true, note: "" }; }, resolve: (name) => [{ name }] });
+  await timed({ name: "local:qwen3.8:27b-mlx" });
+  await timed({ name: "openai:gpt-4o-mini" });
+  assert.deepEqual(given, [["local:qwen3.8:27b-mlx", 180_000], ["openai:gpt-4o-mini", 60_000]]);
   assert.match((await check({ name: "codex:x", structuredOnly: true })).note, /not pinged/);
 });
 
