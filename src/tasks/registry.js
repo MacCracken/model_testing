@@ -78,5 +78,6 @@ export function listTasks() {
     caveat: t.caveat ?? null,
     generated: typeof t.setup === "function" && !!t.seeded,
     multiTurn: !!t.multiTurn, // the user's later turns are scripted; arms are skipped
+    server: !!t.server, // runs against the webserver: a run checks it is up before it starts
   }));
 }

@@ -11,11 +11,13 @@
 // the rows to stdout, --no-save skips persistence.
 
 import "./env.js";
-import "./store.js";
+import { scoredInstances, instanceKey } from "./store.js";
 import { lineageOf } from "./lineage.js";
 import { getTask, tasks as allTasks } from "./tasks/registry.js";
 import { endpointsFor, resolveClients } from "./providers/index.js";
-import { runMatrix, planMatrix, isStructuredMode, describeSignificance, compareRows, describePaired, MODE_NAMES, DEFAULT_MODES } from "./runner.js";
+import { runMatrix, planMatrix, isStructuredMode, describeSignificance, compareRows, describePaired, errorKindOf, MODE_NAMES, DEFAULT_MODES } from "./runner.js";
+import { preflight, checkClientWith, checkServer } from "./preflight.js";
+import { holesOf, stillOpen, describeHoles, describeFill } from "./holes.js";
 import { newRunId, saveRun, loadRun } from "./results.js";
 import { pricingFor } from "./prices.js";
 import { parseArgs } from "./args.js";
@@ -84,9 +86,19 @@ export function modelParamsFrom({ temperature, seed, modelParam, effort } = {}) 
 
 // Human-readable note for each (task, mode) pair a run skips because the task has no such spec.
 export function describeSkipped(skipped) {
-  return skipped.map((s) => (s.client
-    ? `${s.task}/${s.mode} skipped for ${s.client}: ${s.why === "multi-turn" ? "a harness arm cannot take a user's scripted turns" : "a harness arm runs structured modes only"}`
-    : `${s.task}/${s.mode} skipped: the task declares no ${s.mode} spec`));
+  return skipped.map((s) => (s.why === "endpoint down"
+    ? `${s.task}/${s.mode} for ${s.client}: ${s.trials} trial${s.trials === 1 ? "" : "s"} not run — ${s.endpoint === s.client ? "its endpoint" : s.endpoint} stopped answering`
+    : s.client
+      ? `${s.task}/${s.mode} skipped for ${s.client}: ${s.why === "multi-turn" ? "a harness arm cannot take a user's scripted turns" : "a harness arm runs structured modes only"}`
+      : `${s.task}/${s.mode} skipped: the task declares no ${s.mode} spec`));
+}
+
+// What a run's error rows were, by whose failure: "12 transport, 3 timeout". Rows from before the
+// kind was recorded are read from their message.
+export function describeErrors(rows) {
+  const by = {};
+  for (const r of rows) if (r.error) { const k = r.errorKind ?? errorKindOf(r.error) ?? "bench"; by[k] = (by[k] ?? 0) + 1; }
+  return Object.entries(by).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${n} ${k}`).join(", ");
 }
 
 // A replay takes the saved run's tasks, modes, clients, count, parallelism, instance seed and
@@ -173,6 +185,25 @@ async function main() {
 
   const quiet = !!args.json;
   const plan = planMatrix({ tasks: taskList, modes: modeList, clients, count });
+
+  // --replay <run> --holes: only what that run was asked for and has no scored row for — the rows
+  // that errored and the trials that never started — on the same seeds, as a run parented to it.
+  let holes = null;
+  if (args.holes) {
+    if (!parentRun) fail("--holes fills a saved run: node src/bench.js --replay <run-id> --holes");
+    holes = holesOf(parentRun, { cells: plan.cells, count });
+    // A hole another run has since scored — an earlier fill, a replay of those tasks — is closed.
+    // The index is a convenience here, never a dependency: without it every hole of the run counts.
+    const all = holes.length;
+    try { holes = stillOpen(holes, parentRun, scoredInstances({ clients: clients.map((c) => c.name) }), instanceKey); } catch { /* no index */ }
+    if (!quiet && holes.length < all) console.log(`fill  ${all - holes.length} of ${all} hole(s) in ${parentRun.id} were closed by other runs since`);
+    if (!holes.length) {
+      if (args.json) console.log(JSON.stringify({ status: "nothing-to-fill", parent: parentRun.id }));
+      else console.log(`${parentRun.id} has no holes: every planned trial has a scored row (or a refusal that would repeat)`);
+      return;
+    }
+    if (!quiet) console.log(`fill  ${holes.length} hole(s) in ${parentRun.id}: ${describeHoles(holes)}`);
+  }
   if (!quiet) {
     for (const note of describeSkipped(plan.skipped)) console.log(`skip  ${note}`);
     if (!plan.total) fail("nothing to run — no selected task declares any of the selected modes");
@@ -183,9 +214,28 @@ async function main() {
   if (clients.some((c) => (c.provider === "openai" || String(c.name).startsWith("openai:")) && (c.effort || modelParams.effort)) && modelParams.temperature !== undefined) {
     console.error("note: OpenAI's reasoning models refuse a temperature with reasoning_effort (and function tools with any effort but none); those rows will carry the refusal");
   }
+  // Ask before writing anything: every model's endpoint, and the webserver when a selected task runs
+  // against it. A no ends the run here with exit code 2 (not judged) — not as a file of error rows.
+  const checkClient = checkClientWith();
+  if (!args.noPreflight) {
+    const pre = await preflight({ clients, tasks: taskList }, { checkClient });
+    if (!pre.ok) {
+      const lines = ["not started — something this run needs is not answering:", ...pre.problems.map((p) => `  ${p}`), "(--no-preflight runs anyway)"];
+      if (args.json) console.log(JSON.stringify({ status: "not-started", problems: pre.problems, checked: pre.checked }, null, 2));
+      else console.error(lines.join("\n"));
+      process.exit(2);
+    }
+    if (!quiet) for (const c of pre.checked) console.log(`ready  ${c.what}: ${c.note}`);
+  }
+
   const thermalStart = thermalState();
-  const { rows, summary, skipped, instanceSeed } = await runMatrix({
+  const { rows, summary, skipped, instanceSeed, partial, down } = await runMatrix({
     sampleEnv: sampleEnvironment,
+    // The same checks mid-run: an endpoint that stops answering is waited on, then given up on.
+    checkClient,
+    checkServer,
+    breaker: args.endpointWaits?.length ? { waitsMs: args.endpointWaits.map((s) => Math.round(s * 1000)) } : {},
+    only: holes ? holes.map((h) => h.key) : null,
     pricing: pricingFor(),
     tasks: taskList,
     modes: modeList,
@@ -196,6 +246,10 @@ async function main() {
     judge,
     signal: controller.signal,
     onEvent: quiet ? undefined : (ev) => {
+      if (ev.type === "endpoint") {
+        console.log(ev.state === "checking" ? `wait  ${ev.key} stopped answering (${ev.note}); checking, then again after each wait` : ev.state === "up" ? `back  ${ev.key}: ${ev.note}` : `down  ${ev.key}: ${ev.note} — its remaining trials are skipped`);
+        return;
+      }
       if (ev.type !== "trial") return;
       const r = ev.result;
       const mark = r.correct ? "PASS" : "FAIL";
@@ -209,13 +263,19 @@ async function main() {
 
   if (timer) clearTimeout(timer);
   const completed = rows.filter((r) => !(r.error && r.reason === "cancelled")).length;
+  // Error rows that are the bench's outage, not the model's doing, and how to fill them.
+  const lost = rows.filter((r) => r.error && (r.errorKind === "transport" || r.errorKind === "timeout")).length;
+  const notRun = skipped.filter((s) => s.why === "endpoint down").reduce((n, s) => n + s.trials, 0);
+  const id = newRunId();
   const run = {
-    id: newRunId(),
+    id,
     createdAt: rows[0]?.startedAt ?? new Date().toISOString(),
     finishedAt: new Date().toISOString(),
-    status: timeBoxHit ? "timeout" : "done",
+    // "partial": an endpoint stopped answering and the trials that needed it were not run.
+    status: timeBoxHit ? "timeout" : partial ? "partial" : "done",
     source: "cli",
-    parent: parentRun ? { id: parentRun.id, kind: "replay" } : null,
+    // A fill is the parent's missing trials, not a second measurement of the ones it has.
+    parent: parentRun ? { id: parentRun.id, kind: holes ? "fill" : "replay" } : null,
     config: {
       tasks: taskList.map((t) => t.name),
       modes: modeList,
@@ -223,6 +283,7 @@ async function main() {
       count,
       parallel,
       instanceSeed,
+      ...(holes ? { only: holes.map((h) => h.key) } : {}),
       modelParams,
       judge: judge?.name ?? null,
       suite: process.env.BENCH_SUITE ?? null,
@@ -232,7 +293,12 @@ async function main() {
     },
     versions: benchVersions(),
     env: thermalStart ? { thermal: { start: thermalStart, end: thermalState() } } : null,
-    warnings: [...describeSkipped(skipped), ...(timeBoxHit ? [`time box of ${args.timeBox} min reached: ${completed} of ${plan.total} trials completed`] : [])],
+    warnings: [
+      ...describeSkipped(skipped),
+      ...(timeBoxHit ? [`time box of ${args.timeBox} min reached: ${completed} of ${plan.total} trials completed`] : []),
+      ...down.map((d) => `${d.key} stopped answering and did not come back (${d.note}): ${notRun} trial${notRun === 1 ? "" : "s"} not run`),
+      ...(lost ? [`${describeErrors(rows)} error row(s) are not the model's doing — run them again with: node src/bench.js --replay ${id} --holes`] : []),
+    ],
     progress: { completed: rows.length, total: rows.length },
     summary,
     rows,
@@ -246,6 +312,8 @@ async function main() {
     if (!args.noSave) saveRun(run);
     process.exitCode = run.gates.exitCode;
   }
+  // A partial run was not judged in full: exit 2, unless a gate already said something worse.
+  if (partial && !process.exitCode) process.exitCode = 2;
 
   if (args.json) {
     console.log(JSON.stringify(run, null, 2));
@@ -264,7 +332,9 @@ async function main() {
   }
   if (!args.noSave) console.log(`\nsaved: results/runs/${run.id}.json`);
   if (timeBoxHit) console.log(`\ntime box: ${args.timeBox} min reached — ${completed} of ${plan.total} trials completed; the run is saved as "timeout"`);
-  if (parentRun) console.log(`\n${describeReplay(parentRun, run)}`);
+  if (partial) console.log(`\npartial: ${down.map((d) => d.key).join(", ")} stopped answering — ${notRun} trial(s) were not run; the run is saved as "partial"`);
+  if (lost) console.log(`\n${describeErrors(rows)} error row(s) are not the model's doing — run them again with: node src/bench.js --replay ${id} --holes`);
+  if (parentRun) console.log(`\n${holes ? describeFill(parentRun, run, holes) : describeReplay(parentRun, run)}`);
   if (run.gates) console.log(`\n${describeRunGates(run.gates)}`);
 }
 

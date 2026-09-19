@@ -653,7 +653,7 @@ async function refreshHistory() {
     const when = new Date(r.createdAt).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
     const tasks = r.config?.tasks ?? [];
     const clients = r.config?.clients ?? [];
-    const label = `${when} · ${tasks.join(" ") || "?"} · ${plural(clients.length, "model")} · ${plural(r.rowCount ?? 0, "trial")}${r.status === "done" ? "" : ` · ${r.status ?? "?"}`}${r.parent ? ` · replay of ${r.parent.id}` : ""}`;
+    const label = `${when} · ${tasks.join(" ") || "?"} · ${plural(clients.length, "model")} · ${plural(r.rowCount ?? 0, "trial")}${r.status === "done" ? "" : ` · ${r.status ?? "?"}`}${r.parent ? ` · ${r.parent.kind === "fill" ? "fill" : "replay"} of ${r.parent.id}` : ""}`;
     sel.append(el("option", { value: r.id }, label));
   }
   if (current) sel.value = current;
@@ -706,7 +706,7 @@ function renderHeadline(s) {
     ...Object.entries(run.config?.modelParams ?? {}).map(([k, v]) => `${k} ${v}`),
     (run.config?.parallel ?? 1) > 1 ? `${run.config.parallel} in parallel` : "",
     run.config?.instanceSeed !== undefined && run.config?.instanceSeed !== null ? `instances #${run.config.instanceSeed}` : "",
-    run.parent ? `replay of ${run.parent.id}` : "",
+    run.parent ? `${run.parent.kind === "fill" ? "fill" : "replay"} of ${run.parent.id}` : "",
     run.rescored?.length ? `re-scored ${String(run.rescored.at(-1).at).slice(0, 10)}` : "",
   ].filter(Boolean).join(" · ");
   const progress = (run.status === "running" ? `${done} of ${total} trials · running` : `${plural(done, "trial")} · ${run.status}`) + (knobs ? ` · ${knobs}` : "");

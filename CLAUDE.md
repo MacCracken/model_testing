@@ -94,17 +94,40 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
   they can't disagree — the web server serves it to the browser as `/lib/runner.js`, so it must
   stay free of Node-specific imports. `runMatrix` draws one `instanceSeed` per run (or takes
   `--instance-seed`) and gives every trial `seedFor(instanceSeed, task, index)` — the same instance for
-  every mode and client, so comparisons are paired and a run can be re-minted. It runs up to `parallel` trials at once; a
+  every mode and client, so comparisons are paired and a run can be re-minted. Trials run **breadth first** (trial 1 of every cell in plan order, then trial 2 …), so a time box, a cancel or an outage costs every cell its last trials rather than the last families all of theirs; `only` (a list of `trialKey`s) narrows the matrix to named trials — what a fill runs. It runs up to `parallel` trials at once; a
   `structuredOnly` client (a real-harness arm) always runs alone, because arms are scored from the
   webserver's time-windowed log and a concurrent trial would pollute it. `scoreRecord` is the one
   scoring function (schema validity, correctness, canon, judge, the tool-use verdict) that both
-  `runTrial` and `rescore` go through; a row keeps `turns` (the loop's rounds: text, call ids, time)
+  `runTrial` and `rescore` go through — a re-score rebuilds the schema a treatment asked for (format, confidence, abstain, in that order) from what the row recorded, so an abstention's `"answer": null` stays valid; a row keeps `turns` (the loop's rounds: text, call ids, time)
   and `transcript` (an arm's raw output, capped) beside its calls and results. A spec with `turns`
   runs a scripted dialogue (`runDialogue`): each user turn continues the same conversation — the
   synthetic client takes `history` and returns `messages` — and the row keeps `dialogue` (one entry
   per user turn) with every call, result and loop turn tagged by its `turn`. A scripted turn may be
   a function of the model's previous turn (`{ turn, answer, structured, calls, results }` → the
   message): a user who reacts, still deterministic for the seed.
+- `src/preflight.js` + the dead-endpoint stop in `runMatrix` — runs that can be left alone.
+  `preflight({ clients, tasks })` asks every distinct endpoint (`pingClient` in probe.js: listed when
+  the route lists, and a plain request comes back within a minute; a variant is its base client's
+  endpoint, an arm is not pinged) and the webserver when a selected task has `server: true`; bench.js
+  and the web launcher refuse to start on a no (exit 2, no run file; `--no-preflight`). The same
+  checks go to `runMatrix` as `checkClient` / `checkServer`: after three transport errors in a row from
+  one client, or from the webserver, it checks at once and after each of `ENDPOINT_WAITS_MS`
+  (30 s, 2 min, 5 min; `--endpoint-waits`); back up it goes on, still down the trials that needed it
+  are skipped (`skipped` entries with `why: "endpoint down"`, never error rows), the result says
+  `partial`, the run is saved with that status and the exit code is 2. A timeout never trips it (a
+  model that thinks too long is not an outage) and nothing here slows a healthy run. Every error row
+  carries `errorKind` (`errorKindOf`: transport / timeout / cancelled / request / bench) and, for the
+  first two, `errorSource` (endpoint or server); the index has `error_kind`, read from the message
+  for rows saved before. The client names itself in a stream cut off mid-answer as it does in a
+  failed connect, so a bare "terminated" no longer reaches a row.
+- `src/holes.js` — what a run was asked for and does not have. `holesOf(run, { cells })`: the planned
+  trials with no scored row — error rows of a kind worth running again (`FILLABLE`; a refused
+  request would only repeat) and trials that never started; `stillOpen` drops the ones some other
+  indexed run has scored since (`scoredInstances` in the store: task, mode, client, trial seed and
+  model knobs). `bench --replay <run> --holes` (alias `--errors`) runs exactly those on the same
+  seeds as a run with `parent.kind: "fill"` and `config.only`; `cli holes [--client a,b] [--min 4]
+  [--fill]` prints coverage over the index (scored / lost / never run per task × client) and the
+  commands that close the gaps.
 - `src/results.js` — run persistence (`results/runs/<id>.json`); `onRunSaved` lets the store index
   every save without the saver knowing about it. A run may carry `parent` (`{ id, kind: "replay" }`,
   set by `bench --replay` / `POST /api/runs { replayOf }`) and `rescored` (one note per re-score).
@@ -131,7 +154,7 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
   by every entry point and by `providers/index.js`.
 - `src/bench.js` — CLI over `runMatrix`; `--json` for machine-readable output; `--replay <run>`
   (`replayArgs`) takes a saved run's configuration wherever the command line is silent, parents the
-  new run to it and prints `describeReplay`, the paired comparison; `--gate` / `--gates` gate the run
+  new run to it and prints `describeReplay`, the paired comparison (`--holes` makes it a fill: only the parent's holes, `describeFill`); the preflight runs first (`--no-preflight`); `--gate` / `--gates` gate the run
   (exit code) and `--time-box <minutes>` cuts it (status `timeout`, the completed trials kept).
 - `src/aggregate.js` — the same matrix with a comparative report.
 - `src/report.js` — the one text report over a summary, used by `aggregate` and `cli show`;
@@ -296,7 +319,11 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
   kinds of pure function across three levels, each rendered with parameters from the seed (the
   divisor, the separator, the tie rule, the delimiter, the unit set …) so the classic exercise is
   a different function every trial; the reference implementation is rendered from the same
-  parameters and is the truth, three examples are the visible tests in the prompt, eight random
+  parameters and is the truth (a kind may name hidden cases as `unstated` — a predicate over a
+  test's arguments for a case whose expected value follows a reading the rules never spell out:
+  `askedOf` keeps such a case out of what an answer is graded on unless the prompt showed it as an
+  example, in the generator and in the scorer alike, so saved rows are re-scored the same way; it
+  stays among `edges`, because the example drawn for a saved seed must not move), three examples are the visible tests in the prompt, eight random
   cases plus the edge cases are the hidden tests every mode is scored on. The harness axis is
   `run_tests` (the sandbox on the examples, failures reported back); the tool-use verdict says
   whether the code was tested before it went out. Capability tag `code`.
@@ -307,7 +334,7 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
   when not ready).
 - `src/cli.js` — entry point (`probe` / `list` / `show` / `export` / `index` / `query` / `scorecard` /
   `compare` / `curve` / `trend` / `regressions` / `models` / `suite` / `compact` / `serve` /
-  `replay` / `rescore` / `gate` / `bench` / `aggregate`).
+  `replay` / `holes` / `rescore` / `gate` / `bench` / `aggregate`).
 - `test/` — `npm test` (node:test, no deps). Scorers are tested with synthetic ground values, the
   runner with a fake client; nothing in the suite needs a model or the webserver.
 
@@ -317,6 +344,8 @@ says "call the X tool and return JSON", so a derived spec would contradict itsel
 export const task = {
   name: "health",
   category: "api-call",
+  server: true,           // optional: the task runs against the webserver — a run checks it is up first and
+                          //   skips the task if it goes down for good (a test holds the flag to the module's imports)
   description: "…",       // shown in the UI and `cli list`
   model: labelModel,
   goal: "…",               // the job in plain words, for real-harness arms that bring their own tools
@@ -456,6 +485,8 @@ node src/cli.js export <run-id> --cells     # CSV of the cells (or of every tria
 node src/cli.js query cell --task chain --client openai:gpt-4o-mini   # one cell across every run (index, query, compact: see README)
 node src/cli.js show <run-id> --rows | --trial 3      # the rows numbered, or one trial as a timeline (export --jsonl for the event log)
 node src/cli.js replay <run-id> [--clients …]        # the same instances again as a new run parented to this one, paired against it
+node src/cli.js replay <run-id> --holes               # only that run's holes (rows that errored, trials that never started), same seeds
+node src/cli.js holes [--client a,b] [--min 4] [--fill]   # coverage over the index per task × model, and the commands that close the gaps
 node src/cli.js rescore <run-id> | --all [--yes]     # today's scorers over saved rows; dry run unless --yes
 node src/cli.js gate <run-id> --gates gates/nightly.json   # thresholds over a saved run: exit 0 pass, 1 fail, 2 incomplete
 node src/cli.js suite nightly --clients vllm:ckpt --judge openai:gpt-4o-mini   # standard suite, 90-min time box, gated

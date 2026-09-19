@@ -90,10 +90,18 @@ function recordedCtx(task, ctx) {
 export async function scoreRecord(task, record, { judge = null, ctx = record.ctx ?? null, hasTools = null, schema = undefined } = {}) {
   const mode = record.mode;
   const base = task[mode] ?? {};
-  // A format variant changed the schema the model was asked for; validity is judged against that.
-  const treated = schema === undefined && record.format?.applied ? applyFormat(base, record.format.how, { structured: isStructuredMode(mode) }).spec : null;
-  const spec = schema !== undefined ? { ...base, schema } : treated ?? base;
   const structured = isStructuredMode(mode);
+  // A treatment changed the schema the model was asked for, and validity is judged against that. A
+  // live trial hands the treated schema in; a re-score builds it again from what the row recorded,
+  // in the order the runner applied them (format, confidence, abstain) — without the last two an
+  // abstention's `"answer": null` read as invalid against the untreated schema.
+  let spec = base;
+  if (schema !== undefined) spec = { ...base, schema };
+  else {
+    if (record.format?.applied) spec = applyFormat(spec, record.format.how, { structured }).spec;
+    if (record.confidence?.applied) spec = applyConfidence(spec, { structured }).spec;
+    if (record.abstain?.applied) spec = applyAbstain(spec, { structured }).spec;
+  }
   if (hasTools === null) {
     const tools = typeof spec.tools === "function" ? spec.tools(ctx ?? {}) : spec.tools;
     hasTools = (tools ?? []).length > 0;
@@ -292,11 +300,16 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
     reasoningChars: null,
     reasoningTokens: null,
     error: null,
+    // On an error row: whose failure it was (`errorKindOf`), and for a transport error or a timeout
+    // whether it was the model's endpoint or the webserver the task runs against.
+    errorKind: null,
+    errorSource: null,
   };
 
   if (!spec) {
     record.reason = "unsupported mode";
     record.error = `task "${task.name}" has no "${mode}" spec`;
+    record.errorKind = "bench";
     return record;
   }
 
@@ -444,10 +457,44 @@ export async function runTrial({ task, mode, client, index = 1, signal, maxRound
     record.reason = cancelled ? "cancelled" : "exception";
     // A raw "This operation was aborted" reads like a defect; say what actually happened.
     record.error = cancelled ? "cancelled before completing" : (err?.message ?? String(err));
+    // Whose failure it was: a dead endpoint is not the model's miss (and `runMatrix` stops on one).
+    record.errorKind = errorKindOf(record.error, { cancelled });
+    record.errorSource = record.errorKind === "transport" || record.errorKind === "timeout" ? errorSourceOf(record.error, client.name) : null;
   }
 
   record.latencyMs = Math.round(performance.now() - t0);
   return record;
+}
+
+// ---- whose failure an error row records ------------------------------------------------------
+//
+// An error row is a trial that produced no answer to score. `errorKind` says why, so a model is not
+// charged with the bench's outage: "transport" — the endpoint (or the webserver a task runs
+// against) could not be reached, refused the key, did not know the model, was rate-limited or died
+// mid-request; "timeout" — the request ran out of time, which a model that thinks too long and a
+// hung server both look like; "cancelled" — a time box or the user; "request" — the route refused
+// the request itself (a 400: a parameter it does not take); "bench" — anything else, a task's
+// setup or a scorer that threw. `errorSource` is "endpoint" for the model's route and "server" for
+// anything else a trial touches (the client names itself in its errors; a task's fetch does not).
+export function errorKindOf(message, { cancelled = false } = {}) {
+  const m = String(message ?? "");
+  if (!m) return null;
+  if (cancelled || /^cancelled\b/i.test(m)) return "cancelled";
+  if (/timed out|ETIMEDOUT/i.test(m)) return "timeout";
+  const http = m.match(/^HTTP (\d{3}) from /);
+  if (http) {
+    const status = Number(http[1]);
+    return [401, 403, 404, 408, 429].includes(status) || status >= 500 ? "transport" : "request";
+  }
+  if (/fetch failed|ECONNREFUSED|ECONNRESET|ENOTFOUND|EAI_AGAIN|EHOSTUNREACH|ENETUNREACH|EPIPE|socket hang up|other side closed|^terminated$|: terminated\b/i.test(m)) return "transport";
+  return "bench";
+}
+
+export function errorSourceOf(message, clientName = "") {
+  const m = String(message ?? "");
+  if (!m) return null;
+  // A bare "terminated" is a model's stream cut off mid-answer, from before the client named itself there.
+  return /^HTTP \d{3} from /.test(m) || /^terminated$/.test(m) || (clientName && m.startsWith(`${clientName}:`)) ? "endpoint" : "server";
 }
 
 /**
@@ -484,12 +531,33 @@ export function planMatrix({ tasks, modes, clients, count = 1 }) {
   return { cells, skipped, total: cells.length * count };
 }
 
+// One trial of a matrix, by name: what a fill lists and what a row answers to.
+export const trialKey = ({ task, mode, client, index }) => `${task}|${mode}|${client}|${index}`;
+
+// How long a matrix waits on an endpoint that stopped answering before it gives up on it: a check
+// at once, then after each of these. Seven and a half minutes covers a daemon restarting or a model
+// loading again; an outage of an hour is for the next run (`--replay <run> --errors`).
+export const ENDPOINT_WAITS_MS = [30_000, 120_000, 300_000];
+
 /**
  * Run the full tasks x modes x clients matrix, `count` trials per cell.
- * `onEvent` receives { type: "start" | "trial" | "done", ... } as work completes.
+ * `onEvent` receives { type: "start" | "trial" | "endpoint" | "done", ... } as work completes.
+ *
+ * A dead endpoint: `checkClient(client)` and `checkServer()` (async → { ok, note }; handed in by the
+ * Node entry points, which own the probe) let the matrix tell an outage from a model's failures.
+ * After `breaker.after` transport errors in a row from one client — or from the webserver the
+ * server-backed tasks run against — it checks again at once and after each of `breaker.waitsMs`;
+ * back up, the matrix goes on; still down, that client's remaining trials (or the server-backed
+ * tasks') are skipped — reported in `skipped` with `why: "endpoint down"`, never written as error
+ * rows — and the result says `partial`. Nothing here slows a healthy run down.
  */
-export async function runMatrix({ tasks, modes, clients, count = 1, parallel = 1, instanceSeed = null, onEvent, signal, maxRounds, judge = null, pricing = null, sampleEnv = null }) {
-  const { cells, skipped, total } = planMatrix({ tasks, modes, clients, count });
+export async function runMatrix({ tasks, modes, clients, count = 1, parallel = 1, instanceSeed = null, onEvent, signal, maxRounds, judge = null, pricing = null, sampleEnv = null, checkClient = null, checkServer = null, breaker = {}, only = null }) {
+  const { cells, skipped: planSkipped, total: planned } = planMatrix({ tasks, modes, clients, count });
+  const skipped = [...planSkipped];
+  // `only`: the trials to run, as `trialKey`s — a fill runs a saved run's holes and nothing else, on
+  // the same seeds (a trial's seed comes from the run seed, the task and the index, not its position).
+  const wanted = only ? new Set(only) : null;
+  const total = wanted ? cells.reduce((n, c) => n + Array.from({ length: count }, (_, i) => trialKey({ task: c.task.name, mode: c.mode, client: c.client.name, index: i + 1 })).filter((k) => wanted.has(k)).length, 0) : planned;
   const limit = Math.max(1, Math.floor(Number(parallel)) || 1);
   // One seed per run mints every generated instance; recorded so a run can be replayed exactly.
   const runSeed = Number.isInteger(Number(instanceSeed)) && instanceSeed !== null ? Number(instanceSeed) >>> 0 : Math.floor(Math.random() * 2 ** 31);
@@ -508,15 +576,88 @@ export async function runMatrix({ tasks, modes, clients, count = 1, parallel = 1
     instanceSeed: runSeed,
   });
 
-  // Trials in plan order (task → mode → client → index). Up to `limit` are in flight at once,
-  // with one exception: a real-harness arm is scored against the webserver's time-windowed log of
-  // what it served, so an arm trial runs alone — nothing else touches the server while it runs.
-  // Rows are collected in completion order, which is plan order when `limit` is 1.
+  // Trials breadth first: trial 1 of every cell in plan order (task → mode → client), then trial 2,
+  // and so on — so a time box, a cancel or an endpoint that dies costs every cell its last trials
+  // rather than the last families all of theirs (a five-hour box once took `dialogue4`, `logicgrid`
+  // and `extract` whole from a 27 B while `restock` had its four). Rows pair on task, index and
+  // seed, never on position. Up to `limit` are in flight at once, with one exception: a
+  // real-harness arm is scored against the webserver's time-windowed log of what it served, so an
+  // arm trial runs alone — nothing else touches the server while it runs. Rows are collected in
+  // completion order, which is this order when `limit` is 1.
   const items = [];
-  for (const { task, mode, client } of cells) {
-    for (let i = 0; i < count; i++) items.push({ task, mode, client, index: i + 1 });
+  for (let i = 0; i < count; i++) {
+    for (const { task, mode, client } of cells) {
+      if (wanted && !wanted.has(trialKey({ task: task.name, mode, client: client.name, index: i + 1 }))) continue;
+      items.push({ task, mode, client, index: i + 1 });
+    }
   }
   const alone = (client) => !!client.structuredOnly;
+
+  // ---- a dead endpoint (see the doc comment) -------------------------------------------------
+  const after = Math.max(1, Math.floor(Number(breaker.after ?? 3)) || 3);
+  const waitsMs = Array.isArray(breaker.waitsMs) ? breaker.waitsMs : ENDPOINT_WAITS_MS;
+  // A wait ends early when the run is cancelled or has nothing left to start (`draining`), so a
+  // check begun on the last trials never holds the process open.
+  let draining = false;
+  const wakers = new Set();
+  const sleep = typeof breaker.sleep === "function" ? breaker.sleep : (ms) => new Promise((resolve) => {
+    const wake = () => { clearTimeout(timer); wakers.delete(wake); resolve(); };
+    const timer = setTimeout(wake, ms);
+    wakers.add(wake);
+    signal?.addEventListener?.("abort", wake, { once: true });
+  });
+  const SERVER = "the webserver";
+  const health = new Map(); // a client's name, or SERVER → { streak, state: "up" | "checking" | "down", checking, note }
+  const healthOf = (key) => { if (!health.has(key)) health.set(key, { streak: 0, state: "up", checking: null, note: "" }); return health.get(key); };
+  const down = []; // what was given up on, for the result
+
+  const recover = async (key, h, check) => {
+    onEvent?.({ type: "endpoint", key, state: "checking", note: `${h.streak} transport errors in a row` });
+    for (const wait of [0, ...waitsMs]) {
+      if (wait) await sleep(wait);
+      if (signal?.aborted || draining) break;
+      let verdict = null;
+      try { verdict = await check(); } catch (err) { verdict = { ok: false, note: String(err?.message ?? err) }; }
+      h.note = verdict?.note ?? "";
+      if (verdict?.ok) { h.state = "up"; h.streak = 0; h.checking = null; onEvent?.({ type: "endpoint", key, state: "up", note: h.note }); return; }
+    }
+    // A cancelled run is not an outage, and neither is a check nothing was left waiting on.
+    if (signal?.aborted || draining) { h.state = "up"; h.checking = null; return; }
+    h.state = "down";
+    h.checking = null;
+    down.push({ key, note: h.note });
+    onEvent?.({ type: "endpoint", key, state: "down", note: h.note });
+  };
+
+  // What a finished trial says about the endpoints it touched. An answer proves them up; a transport
+  // error counts towards the streak of the one it names; a timeout, a cancel or a task's own error
+  // says nothing either way.
+  const observe = (item, row) => {
+    const mine = healthOf(item.client.name);
+    if (!row.error) { mine.streak = 0; if (item.task.server) healthOf(SERVER).streak = 0; return; }
+    if (row.errorKind !== "transport") return;
+    const server = row.errorSource === "server";
+    const h = server ? healthOf(SERVER) : mine;
+    const check = server ? checkServer : checkClient && (() => checkClient(item.client));
+    h.streak += 1;
+    if (h.streak >= after && h.state === "up" && typeof check === "function") { h.state = "checking"; h.checking = recover(server ? SERVER : item.client.name, h, check); }
+  };
+
+  // May this trial start? It waits out a check in progress on an endpoint it needs, and is refused
+  // once that endpoint was given up on.
+  const admit = async (item) => {
+    for (const key of [item.client.name, ...(item.task.server ? [SERVER] : [])]) {
+      const h = health.get(key);
+      if (h?.checking) await h.checking;
+      if (h?.state === "down") return key;
+    }
+    return null;
+  };
+  const skipDown = (item, key) => {
+    const cell = skipped.find((s) => s.why === "endpoint down" && s.task === item.task.name && s.mode === item.mode && s.client === item.client.name);
+    if (cell) cell.trials += 1;
+    else skipped.push({ task: item.task.name, mode: item.mode, client: item.client.name, why: "endpoint down", endpoint: key, trials: 1 });
+  };
 
   const running = new Set();
   const start = (item) => {
@@ -530,6 +671,7 @@ export async function runMatrix({ tasks, modes, clients, count = 1, parallel = 1
         row.env = env;
         rows.push(row);
         completed += 1;
+        observe(item, row);
         onEvent?.({ type: "trial", completed, total, result: row });
       })
       .finally(() => running.delete(p));
@@ -539,23 +681,30 @@ export async function runMatrix({ tasks, modes, clients, count = 1, parallel = 1
 
   for (const item of items) {
     if (signal?.aborted) break;
-    if (alone(item.client)) {
-      await Promise.all(running);
-      if (signal?.aborted) break;
-      await start(item);
-    } else {
-      while (running.size >= limit) await Promise.race(running);
-      start(item);
-    }
+    // A free slot first, so the trials before this one have reported (and tripped a check, if they
+    // were the third failure in a row) by the time this one asks to start.
+    if (alone(item.client)) await Promise.all(running);
+    else while (running.size >= limit) await Promise.race(running);
+    if (signal?.aborted) break;
+    const gone = await admit(item);
+    if (signal?.aborted) break;
+    if (gone) { skipDown(item, gone); continue; }
+    if (alone(item.client)) await start(item);
+    else start(item);
   }
   await Promise.all(running);
+  // Nothing is left to start: a check still waiting (the last trials tripped it) is let go.
+  draining = true;
+  for (const wake of [...wakers]) wake();
+  await Promise.all([...health.values()].map((h) => h.checking).filter(Boolean));
 
   const summary = summarize(rows, {
     capabilitiesOf: Object.fromEntries(tasks.map((t) => [t.name, t.capabilities ?? []])),
     levelsOf: Object.fromEntries(tasks.filter((t) => t.family).map((t) => [t.name, { family: t.family, level: t.level }])),
   });
-  onEvent?.({ type: "done", completed, total, summary, skipped, cancelled: !!signal?.aborted, instanceSeed: runSeed });
-  return { rows, summary, skipped, instanceSeed: runSeed };
+  const partial = skipped.some((s) => s.why === "endpoint down");
+  onEvent?.({ type: "done", completed, total, summary, skipped, cancelled: !!signal?.aborted, partial, down, instanceSeed: runSeed });
+  return { rows, summary, skipped, instanceSeed: runSeed, partial, down };
 }
 
 // ---- statistical significance --------------------------------------------------------------

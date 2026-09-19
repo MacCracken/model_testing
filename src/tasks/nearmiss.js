@@ -56,6 +56,7 @@ function judge(available, answer, ground) {
 export const task = {
   name: "nearmiss",
   category: "tool-reasoning",
+  server: true, // runs against the webserver: a run checks it is up first
   capabilities: ["tool-use", "irrelevance-detection", "abstention"],
   seeded: true,
   description: "Questions that echo a field which exists — half ask for it in other words, half for something that sounds like it and is not exposed (a maximum level, a target date, units on order); answer or say not available, never take the nearest field. Minted per trial.",

@@ -28,6 +28,7 @@ import { listTasks, getTask } from "../tasks/registry.js";
 import { endpointsFor, describeProviders, resolveClients } from "../providers/index.js";
 import { runMatrix, MODE_NAMES, DEFAULT_MODES } from "../runner.js";
 import { describeSkipped, resolveJudge } from "../bench.js";
+import { preflight, checkClientWith, checkServer } from "../preflight.js";
 import { newRunId, saveRun, loadRun, listRuns, deleteRun, runHeader } from "../results.js";
 import { pricingFor } from "../prices.js";
 import { benchVersions } from "../version.js";
@@ -122,7 +123,15 @@ function startRun({ tasks, modes, clients, count, parallel = 1, instanceSeed = n
 
   (async () => {
     try {
+      // Ask before writing anything: the models' endpoints, and the webserver when a selected task
+      // runs against it. A no ends the launch here instead of as a run of error rows.
+      const checkClient = checkClientWith();
+      const pre = await preflight({ clients: clientObjs, tasks: taskObjs }, { checkClient });
+      if (!pre.ok) throw new Error(`not started — not answering: ${pre.problems.join("; ")}`);
       await runMatrix({
+        // The same checks mid-run: an endpoint that stops answering is waited on, then given up on.
+        checkClient,
+        checkServer,
         sampleEnv: sampleEnvironment,
         pricing: pricingFor(),
         tasks: taskObjs,
@@ -146,9 +155,13 @@ function startRun({ tasks, modes, clients, count, parallel = 1, instanceSeed = n
             run.progress = { completed: ev.completed, total: ev.total };
             saveRun(run);
             broadcast(run.id, { type: "trial", completed: ev.completed, total: ev.total, result: ev.result });
+          } else if (ev.type === "endpoint") {
+            broadcast(run.id, { type: "endpoint", key: ev.key, state: ev.state, note: ev.note });
           } else if (ev.type === "done") {
             run.summary = ev.summary;
-            run.status = ev.cancelled ? "cancelled" : "done";
+            // "partial": an endpoint stopped answering and the trials that needed it were not run.
+            run.status = ev.cancelled ? "cancelled" : ev.partial ? "partial" : "done";
+            run.warnings.push(...describeSkipped(ev.skipped.filter((k) => k.why === "endpoint down")), ...(ev.down ?? []).map((d) => `${d.key} stopped answering and did not come back (${d.note})`));
           }
         },
       });

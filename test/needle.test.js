@@ -46,6 +46,14 @@ test("scorers and verdicts per question kind", () => {
   assert.equal(t.eval.scoreNoHarness("answer: host-8, host-29, host-30", multi).correct, true);
   assert.match(t.eval.scoreNoHarness("answer: host-8, host-29", multi).reason, /missing host-30/);
   assert.match(t.eval.scoreHarness({ answer: ["host-8", "host-29", "host-30", "host-1"] }, multi).reason, /extra host-1/);
+  // The hosts joined into one string inside the array are the same three hosts (a saved
+  // qwen3.5:9b row answered ["host-16, host-8, host-31"] and was told all three were missing and extra).
+  assert.equal(t.eval.scoreHarness({ answer: ["host-8, host-29, host-30"] }, multi).correct, true, "one joined element");
+  assert.equal(t.eval.scoreHarness({ answer: ["host-8 and host-29", "Host-30."] }, multi).correct, true, "hosts are read out of each element");
+  assert.equal(t.eval.scoreHarness({ answer: "host-8, host-29, host-30" }, multi).correct, true, "a bare string where the list belongs");
+  assert.match(t.eval.scoreHarness({ answer: ["host-8, host-29"] }, multi).reason, /missing host-30/, "a joined element can still be short");
+  assert.match(t.eval.scoreHarness({ answer: ["host-8, host-29, host-30", "the gateway"] }, multi).reason, /extra the gateway/, "an element with no host in it is still an extra");
+  assert.equal(t.eval.canon({ answer: ["host-8, host-29, host-30"] }, { structured: true }), t.eval.canon({ answer: ["host-30", "host-29", "host-8"] }, { structured: true }), "joined and listed answers agree");
   const agg = { kind: "agg", answer: 5 };
   assert.equal(t.eval.scoreHarness({ answer: 5 }, agg).correct, true);
   assert.equal(t.eval.scoreNoHarness("I count 5 such lines.\nanswer: 5", agg).correct, true);

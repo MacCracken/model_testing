@@ -102,6 +102,31 @@ export async function probeClient(client, { provider = client?.provider ?? Strin
   return { client: client.name, model, provider, checks, ready };
 }
 
+// The short form a run asks before it starts, and again when an endpoint stops answering mid-run:
+// is the model listed (when the route lists at all), and does a plain request come back — within
+// `timeoutMs`, so a hung server reads as down instead of holding the run. It costs a local endpoint
+// nothing and a hosted one a handful of tokens. → { ok, note }.
+export async function pingClient(client, { provider = client?.provider ?? String(client?.name ?? "").split(":")[0], listModels = null, timeoutMs = 60_000 } = {}) {
+  if (typeof listModels === "function") {
+    try {
+      const ids = await listModels(provider);
+      if (Array.isArray(ids) && ids.length && !ids.includes(client.model)) return { ok: false, note: `the route does not list "${client.model}" (it lists ${ids.slice(0, 6).join(", ")}${ids.length > 6 ? ", …" : ""})` };
+    } catch { /* a route that cannot be listed is judged by whether it answers */ }
+  }
+  const t0 = performance.now();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(new Error(`no answer within ${Math.round(timeoutMs / 1000)} s`)), timeoutMs);
+  try {
+    const r = await client.chat([{ role: "user", content: "Reply with exactly: OK" }], undefined, { signal: controller.signal });
+    const answered = String(r.text ?? "").trim().length > 0 || (r.reasoningChars ?? 0) > 0;
+    return { ok: answered, note: answered ? `answered in ${(ms(t0) / 1000).toFixed(1)} s` : "came back empty" };
+  } catch (err) {
+    return { ok: false, note: String(err?.message ?? err).slice(0, 200) };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 const MARK = { true: "✓", false: "✗", null: "·" };
 export function describeProbe(p) {
   const lines = [`${p.client} — readiness for the bench`];

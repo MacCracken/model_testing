@@ -102,6 +102,7 @@ function makeFollow(hops) {
     family: "follow",
     level: hops,
     category: "tool-reasoning",
+    server: true, // runs against the webserver: a run checks it is up first
     capabilities: ["tool-use", "multi-step", "dependent-calls"],
     seeded: true,
     description: `Follow a chain of ${hops} dependent reads (each item names the next) and report where it lands. Minted per trial.`,

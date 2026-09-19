@@ -153,6 +153,7 @@ function makeClarify(k) {
     family: "clarify",
     level: k,
     category: "multi-turn",
+    server: true, // runs against the webserver: a run checks it is up first
     capabilities: ["clarification", "multi-turn", "tool-use", "state"],
     multiTurn: true,
     seeded: true,

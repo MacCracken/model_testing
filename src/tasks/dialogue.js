@@ -171,6 +171,7 @@ function makeDialogue(level) {
     family: "dialogue",
     level,
     category: "multi-turn",
+    server: true, // runs against the webserver: a run checks it is up first
     capabilities: ["multi-turn", "multi-step", "tool-use", "policy", "state"],
     multiTurn: true,
     seeded: true,

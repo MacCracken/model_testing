@@ -71,6 +71,7 @@ function messageOf(entry) {
 export const task = {
   name: "hello",
   category: "api-call",
+  server: true, // runs against the webserver: a run checks it is up first
   capabilities: ["tool-use","extraction"],
   description: "Fetch the real greeting for three names and report them verbatim.",
   model: labelModel,

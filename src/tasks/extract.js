@@ -755,6 +755,7 @@ function makeExtract(level) {
     family: "extract",
     level,
     category: "extraction",
+    server: true, // runs against the webserver: a run checks it is up first
     capabilities: level >= 3 ? ["extraction", "cross-document", "arithmetic"] : ["extraction"],
     seeded: true,
     description: level === 1

@@ -4,6 +4,119 @@ What shipped, by date. Full measurement tables live in [docs/results.md](docs/re
 forward roadmap is [plan.md](plan.md). Dates are the commit dates; item numbers ([1]–[49]) are the
 roadmap's, stable across the plan, this file and the results.
 
+A note on the dates: the entries dated 2026-09-15 to 2026-09-21 were written on 2026-09-09 to
+2026-09-12 by the calendar (the dating moved a day per step; a run id carries the real time its
+run finished). From the entries of 2026-09-19 on, dates are calendar dates — so they are the
+newest, and they sit on top.
+
+## 2026-09-19 (later) — runs that can be left alone
+
+The review below found a third of the local queue's rows to be the bench recording its own
+outage, and two scorers marking right answers wrong. [52]–[55], with both of the user's decisions
+taken: the `csvRow` case is dropped, and the four all-error runs go once their holes are filled.
+
+### Fixed
+- **[52] Two scorers, and the re-score itself.** `needle`'s multi-host reader reads the hosts out
+  of each array element (`["host-16, host-8, host-31"]` is three hosts; an element with no host in
+  it is still an extra). `code3`'s `csvRow` names its quote-after-a-space case as `unstated`:
+  `askedOf` keeps it out of what an answer is graded on unless the prompt drew it as an example —
+  in the generator and the scorer alike, so saved rows re-score the same way — and it stays among
+  the edges, so every saved seed renders byte for byte as it did (the fingerprint of 1 800
+  rendered instances is unchanged). And a bug the dry run caught before it bit: a re-score judged
+  validity against the *untreated* schema for `@abstain` and `@confidence` rows, so an
+  abstention's `"answer": null` would have turned seven valid rows invalid; `scoreRecord` now
+  rebuilds all three treated schemas (format, confidence, abstain) from the row.
+
+### Added
+- **[53] A preflight and a stop on a dead endpoint** (`src/preflight.js`, `pingClient` in probe.js,
+  `runMatrix`). Before it writes anything a run asks each model's endpoint (listed, and a plain
+  request comes back within a minute) and the webserver when a selected task runs against it
+  (`server: true`, now on the 36 tasks of 60 that do; a test holds the flag to each module's imports).
+  A no ends the run there: exit 2, no file (`--no-preflight` runs anyway); the web launcher does
+  the same. Mid-run, three transport errors in a row from one client — or from the webserver —
+  make the matrix check again at once and after 30 s, 2 min and 5 min (`--endpoint-waits`); back
+  up, it goes on; still down, the trials that needed it are skipped instead of written as error
+  rows, the run is saved as `partial` and the exit code is 2. A timeout never trips it — a model
+  that thinks too long is not an outage — and a healthy run is not slowed by any of it.
+- **Whose failure an error row records.** `errorKind` on every error row (`errorKindOf`:
+  transport, timeout, cancelled, request, bench) and `errorSource` (endpoint or server);
+  `error_kind` in the index, read from the message for the rows saved before. The client names
+  itself in a stream cut off mid-answer, as it already did in a failed connect.
+- **[55] Breadth-first trials.** Trial 1 of every cell, then trial 2, and so on: a time box, a
+  cancel or an outage costs every cell its last trials rather than the last families all of
+  theirs. Rows pair on task, index and seed, never on position; arms still run alone.
+- **[54] Holes** (`src/holes.js`). A run's holes are its planned trials with no scored row — rows
+  that errored for a reason worth trying again (a refused request would only repeat) and trials
+  that never started. `bench --replay <run> --holes` (`cli replay <run> --holes`; `--errors` is
+  an alias) runs exactly those on the same seeds as a run parented to the first (`fill of …`, with
+  `config.only`), and leaves out any hole another indexed run has scored since — the same task,
+  mode, client, trial seed and model knobs. `cli holes [--client a,b] [--min 4] [--fill]` prints
+  the coverage over the index per task × model (right/scored, error rows beside them, cells lost
+  or never run), lists the saved runs that still have holes, and with `--fill` the commands that
+  close the gaps. `runMatrix({ only })` is the mechanism.
+
+### Measured (docs/results.md, "A re-score, and two staged outages")
+- **The re-score:** 10 983 rows over 147 runs, 5 flipped, all fail → pass — Haiku's `code3` in
+  harness and tool-only mode, the 27 B's in schema-only and tool-only mode, `qwen3.5:9b-mlx`'s
+  `needle8k`. With tools Haiku and the 27 B now clear `code3` (4/4, 3/3); gpt-4o-mini stays at
+  3/4. 1 102 canonical answers were filled in for families that gained `canon` after their rows
+  were saved. A second pass changes nothing.
+- **The index by whose failure:** 624 error rows — 503 transport, 75 timeout, 27 refused
+  requests, 10 cancelled, 9 the bench's own.
+- **A staged outage, hosted** (`20260919T180040-992f`, gpt-4o-mini, the webserver copy killed
+  after five trials): three transport rows, the check, the webserver given up on after the waits,
+  5 server-backed trials skipped while `wordmath4` ran all six of its own; `partial`, exit 2. The
+  fill (`…180106-78f5`) ran the 8 holes on the same seeds and scored 8 of 8; asked again, the
+  parent says all 8 are closed and starts nothing.
+- **The same on a local endpoint** (`20260919T181023-7c0b`, `ornith-1.5:9b` on llama.cpp, the
+  server killed after five trials): the dying stream is named and counted, the endpoint is given
+  up on, 4 trials skipped; the fill (`…181125-d899`) scored 7 of 7 with the parent's `--effort
+  none`. And with nothing running at all, the preflight refuses: exit 2, no run file.
+
+451 tests (was 433).
+
+## 2026-09-19 — the local queue, read; the roadmap reviewed
+
+Nothing built: a review of the index a week after the queue landed.
+
+### Measured (fifteen runs of 2026-09-11/12, five Ollama models, seed 2026, four trials per cell — docs/results.md, "The local queue")
+- **A third of the rows are the bench recording its own outage.** 357 of 1 050: 163 `fetch failed`
+  (the Ollama daemon unreachable for ninety minutes, three whole runs gone), 152 `model not found`
+  (`gemma4:31b-mlx` had left the store; 152 trials "ran" in three seconds and the run was saved as
+  `done`), 32 timeouts at 300 s, 6 deaths of the MLX runner under the 27 B. The 27 B's batch hit a
+  five-hour box at 114 of 152, and because trials run task by task the box took whole families.
+  The thermal record is clean on every row — this was not heat. `ornith-1.5:9b` has still never
+  run `code`, `clarify` or `dialogue`.
+- **`qwen3.8:27b-mlx` is at the bench's ceiling** — 59 of 60 scored harness trials, and the first
+  model, hosted ones included, to clear `clarify` in the tool modes (12/12, the summary read again
+  after the update every time) — at 88 to 282 s a trial. **`gemma4:31b-mlx` cleared `code3`
+  16/16**, the first to. **`gemma4:12b-mlx`, thinking off, holds a conversation better than the
+  GPT minis** (`dialogue` 12/12, `clarify` 8/8 tool-only) and misses scans and sums (`paged6`
+  1/4, `restock6` 1/4, `extract4` 0/8). **`qwen3.5:9b-mlx`, thinking off, cannot keep state
+  across steps** (`follow` 0/8, `dialogue` 1/12, `clarify` 2/16) while single-step tool work is at
+  ceiling. `typed` still trips nobody (16/16).
+- **Delivery is a fault of its own on small models.** Over the index, about a quarter of
+  `ornith-1.5:9b`'s structured-mode misses are answers that never arrived as JSON or timed out
+  (23 of 99), a sixth of `qwen3.5:9b-mlx`'s, 3 of 348 for gpt-4o-mini. Nothing pools this yet.
+- **Two scorers marked right answers wrong.** `needle`'s multi-host reader takes
+  `["host-16, host-8, host-31"]` as one host (one row); `code3`'s `csvRow` has a hidden case — a
+  quote after a space — whose expected value follows a rule the prompt never states, and 4 of the
+  19 scored `code3` misses in the index (Haiku ×2, the 27 B ×2) fail it alone. Both are [52].
+- **No treatment has met a local model** beyond constraints, a preloaded skill and eight effort
+  rows: 104 local treatment rows against 2 043 hosted. Abstention, calibration, perturbations and
+  injection are unmeasured on every model the bench is ultimately for.
+
+### Changed
+- **docs/results.md** gained the queue's tables (harness, free-form, the decomposition modes for
+  `code` and `clarify`), the loss accounting and the findings above.
+- **plan.md** re-ordered around them: [52] the two scoring fixes; [53]–[56] runs that can be left
+  alone (a preflight and a dead-endpoint stop, `--replay --errors` and `cli holes`, breadth-first
+  trial order, a queue in the bench); [57]–[61] gauging rather than only scoring (open levels
+  from the families' factories, `cli gauge` — an adaptive search for the level where a model
+  breaks — failure kinds, the checkpoint card, a suite sized by power); M1–M6 the measurements
+  owed (the holes, `muse-glimmer:30b-mlx`, the treatments and the anchors on local models, what
+  thinking buys, one ceiling probe). A "where the models stand" section; the dates note.
+
 ## 2026-09-21 (later) — code, run in a box; endpoints on the network
 
 ### Added

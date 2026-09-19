@@ -2095,3 +2095,200 @@ while looking in turn one, restocked in turn two, and reported the number it rem
 reading again (one Haiku trial read the summary in the same round as the update, so it saw the
 old total). One report was simply wrong. The control mode cannot change the server, so its rows
 are wrong by design; it shows the asking, not the doing. Cost: 231 k tokens for 48 trials.
+
+## The local queue: five Ollama models on the families they had never run (runs of 2026-09-11/12, seed 2026, four trials per cell, one request at a time)
+
+Fifteen runs, one per model and batch, written up on 2026-09-19 from the index. The tool and
+multi-turn batch (`restock3/6/12`, `fanout4/8`, `follow3/6`, `norelevant`, `paged6`, `typed`,
+`needle8k/32k`, `dialogue2/3/4`, plus `logicgrid3/4` and `extract3/4` for the mlx models) in the two
+headline modes, then `code1/2/3` in four modes and `clarify2/3` in three. `gemma4:12b-mlx` and
+`qwen3.5:9b-mlx` ran with `--effort none`, the other three with thinking on.
+
+| Model | batch | code | clarify |
+|---|---|---|---|
+| ornith-1.5:9b | `20260911T180452-b4dc` | `20260911T183456-b6a6` (lost) | `20260911T190501-b808` (lost) |
+| gemma4:12b-mlx | `20260911T210750-edb6` | `20260911T193506-4b85` (lost) | `20260911T201451-a581` |
+| qwen3.5:9b-mlx | `20260911T220205-122b` | `20260911T203713-5ee2` | `20260911T204055-120e` |
+| qwen3.8:27b-mlx | `20260912T070841-e068` (cut at five hours) | `20260911T231220-0b61` | `20260912T010516-8371` |
+| gemma4:31b-mlx | `20260912T070845-4831` (lost) | `20260912T015155-1336` | `20260912T020801-e94b` (lost) |
+
+**What was lost.** 357 of the 1 050 rows are error rows, none of them the models' doing: 163
+`fetch failed` (the Ollama daemon was unreachable twice — from 18:04 to 19:35 UTC on 2026-09-11,
+which took the last 23 rows of ornith's batch and three whole runs, and for a moment at 02:08
+UTC, which took 20 rows of the 31 B's clarify), 152 `model 'gemma4:31b-mlx' not found` (the model had left Ollama's store
+before its batch started; the run took three seconds and was saved as `done`), 32 request
+timeouts at 300 s (21 of them the 27 B's), 6 `HTTP 500 … EOF` (the MLX runner behind Ollama died
+under the 27 B), 4 cut or cancelled. The 27 B's batch hit its five-hour box at 114 of 152 trials,
+and since trials run task by task the box took whole families: `dialogue4` (harness),
+`logicgrid3/4` and `extract3/4` never started. The thermal record is clean throughout — all
+1 050 rows carry a sample, none started under a CPU or scheduler limit and `pmset` had nothing
+recorded at any of them — so, as far as that record can see, the 27 B's timeouts are long
+generations (median 137 s per clarify trial, the longest 896 s over its turns), not heat. A cell
+marked *lost* below has no scored trial; `+n lost` counts error rows beside scored ones.
+
+**Harness mode** (tools and the schema):
+
+| task | ornith-1.5:9b | gemma4:12b-mlx | qwen3.5:9b-mlx | qwen3.8:27b-mlx | gemma4:31b-mlx |
+|---|---|---|---|---|---|
+| `restock3` | 3/4 | 4/4 | 2/4 | 1/1 (+3 lost) | lost |
+| `restock6` | 3/4 | 1/4 | 2/4 | 1/1 (+3 lost) | lost |
+| `restock12` | 4/4 | 4/4 | 1/4 | 4/4 | lost |
+| `fanout4` | 4/4 | 4/4 | 4/4 | 3/4 | lost |
+| `fanout8` | 3/4 | 4/4 | 4/4 | 4/4 | lost |
+| `follow3` | 2/4 | 4/4 | 0/4 | 3/3 (+1 lost) | lost |
+| `follow6` | 4/4 | 3/4 | 0/4 | lost | lost |
+| `norelevant` | 3/4 | 3/4 | 4/4 | 4/4 | lost |
+| `paged6` | 4/4 | 1/4 | 0/4 | 4/4 | lost |
+| `typed` | 4/4 | 4/4 | 4/4 | 4/4 | lost |
+| `needle8k` | 3/4 | 4/4 | 3/4 | 4/4 | lost |
+| `needle32k` | 3/4 | 4/4 | 4/4 | 4/4 | lost |
+| `dialogue2` | lost | 4/4 | 1/4 | 3/3 (+1 lost) | lost |
+| `dialogue3` | lost | 4/4 | 0/4 | 4/4 | lost |
+| `dialogue4` | lost | 4/4 | 0/4 | — | lost |
+| `logicgrid3` | — | 4/4 | 2/4 | — | lost |
+| `logicgrid4` | — | 4/4 | 4/4 | — | lost |
+| `extract3` | — | 3/3 (+1 lost) | 1/4 | — | lost |
+| `extract4` | — | 0/4 | 0/3 (+1 lost) | — | lost |
+| `code1` | lost | lost | 4/4 | 4/4 | 4/4 |
+| `code2` | lost | lost | 3/4 | 4/4 | 4/4 |
+| `code3` | lost | lost | 2/4 | 3/3 (+1 lost) | 4/4 |
+| `clarify2` | lost | 2/4 | 0/4 | 1/1 (+3 lost) | lost |
+| `clarify3` | lost | 1/1 (+3 lost) | 2/4 | 4/4 | lost |
+| **scored** | 40/48 | 66/80 | 47/95 | 59/60 | 12/12 |
+
+**Free-form** (no tools, no schema). The server-backed families are 0 for every model by design
+(nothing to read the inventory with); the rows that say something:
+
+| task | ornith-1.5:9b | gemma4:12b-mlx | qwen3.5:9b-mlx | qwen3.8:27b-mlx | gemma4:31b-mlx |
+|---|---|---|---|---|---|
+| `norelevant` | 3/4 | 3/4 | 3/4 | 1/2 (+2 lost) | lost |
+| `needle8k` | 3/4 | 2/4 | 4/4 | 3/3 (+1 lost) | lost |
+| `needle32k` | 2/3 (+1 lost) | 1/3 (+1 lost) | 0/2 (+2 lost) | 3/4 | lost |
+| `logicgrid3` | — | 4/4 | 4/4 | — | lost |
+| `logicgrid4` | — | 4/4 | 3/4 | — | lost |
+| `extract3` | — | 3/4 | 1/4 | — | lost |
+| `extract4` | — | 0/4 | 0/4 | — | lost |
+| `code1` | lost | lost | 4/4 | 4/4 | 4/4 |
+| `code2` | lost | lost | 3/4 | 4/4 | 4/4 |
+| `code3` | lost | lost | 2/4 | 2/2 (+2 lost) | 4/4 |
+
+**The decomposition modes** the two families declare:
+
+| task | mode | gemma4:12b-mlx | qwen3.5:9b-mlx | qwen3.8:27b-mlx | gemma4:31b-mlx |
+|---|---|---|---|---|---|
+| `code1` | toolOnly / schemaOnly | lost | 4/4 · 4/4 | 4/4 · 4/4 | 4/4 · 4/4 |
+| `code2` | toolOnly / schemaOnly | lost | 3/4 · 3/4 | 4/4 · 4/4 | 4/4 · 4/4 |
+| `code3` | toolOnly / schemaOnly | lost | 3/4 · 2/4 | 3/4 · 3/4 | 4/4 · 4/4 |
+| `clarify2` | toolOnly | 4/4 | 0/4 | 3/3 (+1 lost) | lost |
+| `clarify3` | toolOnly | 4/4 | 0/4 | 4/4 | lost |
+
+What the rows say:
+
+- **`qwen3.8:27b-mlx` is at the bench's ceiling**: 59 of 60 scored harness trials, the one miss a
+  `fanout4` answer that never arrived as JSON. It is the first model, hosted ones included, to
+  clear `clarify` in the tool modes (12/12; Haiku 10/16, gpt-4o-mini 6/16) — every one of the
+  twelve read the summary again after the update (`ground.reread` "after"), so the stale total
+  never appears. The price is time: about 88 s a trial on `code`, 158 s on the batch, 282 s on
+  `clarify`, which is why five hours did not finish 152 trials.
+- **`gemma4:31b-mlx` cleared `code3` in every mode** (16/16; the hosted models sit at 3/4) — the
+  first model to do so, and the only thing the queue measured on it before it left the store.
+- **`gemma4:12b-mlx` with thinking off holds a conversation better than the two GPT minis**:
+  `dialogue2/3/4` 12/12 (gpt-4o-mini 7/24, gpt-5.4-mini 8/12 over the index), `clarify` 8/8 in
+  tool-only mode with no stale total. Its misses are scans and sums: `paged6` 1/4 (eleven of
+  the twelve low items listed in each miss), `restock6` 1/4 (an item that was not low modified
+  twice, four of six low items wrong once), `extract4` 0/4 in both modes (with the tools the
+  invoices reconcile — 5/5, 5/5, 6/6, 6/7 — and the column totals are wrong, the same weakness
+  the hosted models show). With the schema it answered `clarify` twice "as if it knew" without
+  asking (harness 3/5 against tool-only 8/8): a JSON-only instruction competes with "ask
+  first". Four trials per cell — a lead, not a finding.
+- **`qwen3.5:9b-mlx` with thinking off cannot keep state across steps**: `follow3/6` 0/8 (it
+  lands on an item that is not the chain's end, or on none), `dialogue` 1/12 (scripted changes
+  not on the server, collateral writes, one policy breach), `clarify` 2/16 in the tool modes
+  (wrote before asking five times, the stale total six), `paged6` 0/4, `restock` 5/12.
+  Single-step tool work is fine (`fanout` 8/8, `typed` 4/4, `norelevant` 4/4, `needle` 7/8 with
+  grep).
+- **`ornith-1.5:9b`**: 40 of 48 scored — `restock12` 4/4 where gpt-4o-mini is 0/20 over the
+  index, `follow6` 4/4 but `follow3` 2/4 (the right chain, a wrong quantity), and five of its
+  eight misses are an answer that never arrived as JSON (four *no structured output*, one
+  restock with the server state right and no structured answer) — not wrong values. Its
+  `dialogue`, `code` and `clarify` cells are all lost to the daemon; it has still never run
+  them.
+- **`typed` trips nobody** (16/16 across the four models that ran it, zero refusals by the strict
+  server), so it stays a floor; `paged6` and `follow` are the tool tasks that separate the small
+  models.
+- One scorer false negative surfaced: `needle8k` marked `qwen3.5:9b-mlx` wrong for
+  `"answer": ["host-16, host-8, host-31"]` — the right three hosts as one joined string inside the
+  array (`hosts missing … ; extra …` naming the same three). The multi-host reader takes each
+  array element as one host; it should read the hosts out of each element. One row in the index.
+- And one hidden test that asks more than the spec says: the 27 B's only two `code3` misses fail
+  a single case, `csvRow(' x ; " y " ')` — a quote that follows a space. The reference treats a
+  field as quoted only when the quote is its very first character, so it trims the field and
+  keeps the quote characters (`"\" y \""`); the models trim, see a field wrapped in quotes, and
+  unwrap it. The rules in the prompt never say which. Over the index 4 of the 19 scored `code3`
+  misses fail this case alone (Haiku's harness and tool-only misses, the 27 B's schema-only and
+  tool-only ones); Haiku's other two misses (a quoted field's inner spaces trimmed) and every
+  miss of gpt-4o-mini and `qwen3.5:9b-mlx` are misses under either reading. Until the case is
+  dropped from the hidden tests or the rule is stated, "3/4 on `code3`" overstates the gap for
+  those two models.
+
+Over the index (harness and schema-only rows, transport errors set aside), about a quarter of
+`ornith-1.5:9b`'s misses are delivery failures rather than wrong values — 19 answers with no
+structured output and 4 timeouts among 99 — and a sixth of `qwen3.5:9b-mlx`'s (10 and 2 among
+65); for gpt-4o-mini it is 3 among 348. The scorers' free-text reasons hold this; nothing pools
+it yet.
+
+## A re-score, and two staged outages (2026-09-19)
+
+**The re-score.** Two scorers changed ([52]): `needle`'s multi-host reader reads the hosts out of
+each array element, and `code3`'s `csvRow` no longer holds the quote-after-a-space case against
+an answer unless the prompt showed it as an example. The prompts did not move: the fingerprint of
+everything a model sees over 1 800 instances (600 seeds × 3 levels) is the same before and after,
+and the hidden tests went from 22 899 to 22 777 — the 122 `csvRow` instances of 138 that do not
+show the case. `rescore --all`: 10 983 rows scored over 147 runs, **5 flipped, all fail → pass**
+and none the other way — Haiku's `code3` in harness and tool-only mode
+(`20260911T172519-3ef6`), the 27 B's in schema-only and tool-only mode (`20260911T231220-0b61`),
+and the `qwen3.5:9b-mlx` `needle8k` row (`20260911T220205-122b`); 1 113 other rows had a verdict
+field change — 1 102 canonical answers filled in for families that gained `canon` after their
+rows were saved, 16 `code3` reasons now counting 13 hidden tests instead of 14 on rows that fail
+for other reasons. A second pass changes nothing. The run files were copied aside first;
+`results/` is not under version control.
+
+`code3` after it, harness mode: Haiku 4/4 (was 3/4), `qwen3.8:27b-mlx` 3/3, `gemma4:31b-mlx` 4/4,
+gpt-4o-mini 3/4, `qwen3.5:9b-mlx` 2/4 — with tools Haiku and the 27 B now clear the family, so
+the "both hosted models sit at 3/4" of 2026-09-21 holds for gpt-4o-mini only.
+
+The dry run also showed what it would have broken: 7 `@abstain` rows (`20260910T012433-bb97`,
+`wordmath4` and `tally20`) would have gone from schema-valid to invalid, because a re-score
+judged `"answer": null` against the untreated schema — the runner hands a live trial the schema
+its treatment asked for, and only `@format` was rebuilt on a re-score. `scoreRecord` now rebuilds
+all three (format, confidence, abstain) from the row; the 7 stay valid.
+
+**Error rows by whose failure it was**, over the whole index once `error_kind` was filled in from
+the messages: 624 error rows — 503 transport, 75 timeout, 27 refused requests (a 400: the effort
+parameter on a route that does not take it, a prompt past the context window), 10 cancelled, 9
+the bench's own (two scorer bugs from before the 2026-09-03 audit).
+
+**A staged outage on a hosted model.** Run `20260919T180040-992f`: gpt-4o-mini, `health`, `hello`
+(both run against the webserver) and `wordmath4` (which does not), harness mode, six trials per
+cell, a throwaway copy of the webserver on its own port, `--endpoint-waits 2,3`. The preflight
+passed both checks (the model answered in 1.8 s). Trials ran breadth first — `health` #1,
+`hello` #1, `wordmath4` #1, `health` #2 … — and the webserver copy was killed after five. Three
+transport errors in a row (`health` #3, `hello` #3, `health` #4) tripped the check; after the two
+waits the webserver was given up on, the 5 remaining server-backed trials were skipped, and
+`wordmath4` ran all six of its trials. Saved as `partial` with exit code 2: 13 rows, 3 of them
+transport errors, and 5 trials never started. With the webserver back, `replay 20260919T180040-992f --holes` found 8 holes (5 not run, 3
+transport), ran exactly those on the same seeds and scored 8 of 8 (`20260919T180106-78f5`, a
+`fill`); asked again, the parent reports all 8 closed by another run and starts nothing.
+
+**The same on a local endpoint.** Run `20260919T181023-7c0b`: `ornith-1.5:9b` served by llama.cpp
+from Ollama's blob (`llama serve`, a named endpoint, `--effort none`), `wordmath4`, `convert1`,
+`lineup4`, harness mode, four trials per cell. Preflight: listed and answered in 1.0 s. The server
+was killed after five trials: the trial in flight ended as `terminated — the stream … ended
+early` (the client now names itself there), the next two as `fetch failed`, and after the waits
+the endpoint was given up on with 4 trials skipped — `partial`, exit 2. With the server back the
+fill (`20260919T181125-d899`) ran the 7 holes with the parent's `--effort none` and scored 7 of
+7. Both runs together: `wordmath4` 4/4, `convert1` 4/4, `lineup4` 3/4 (one "no valid answer") —
+what the same weights score through Ollama.
+
+A third run — the fill asked a second time before the closed-hole check existed, against the
+webserver copy already killed — held nothing but three transport rows and was deleted.

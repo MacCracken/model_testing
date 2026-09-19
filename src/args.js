@@ -60,6 +60,15 @@ export function parseArgs(argv) {
       case "--by": args.by = next(); break;
       case "--over-time": args.overTime = true; break;
       case "--reprice": args.reprice = true; break;
+      // A run asks its endpoints first and stops on one that stays down (see preflight.js).
+      case "--no-preflight": args.noPreflight = true; break;
+      case "--endpoint-waits": args.endpointWaits = String(next() ?? "").split(",").map((s) => Number(s.trim())).filter((n) => Number.isFinite(n) && n >= 0); break;
+      // A replay of only a run's holes (the rows that errored and the trials that never started);
+      // the coverage table over the index and the commands that fill it.
+      case "--holes":
+      case "--errors": args.holes = true; break;
+      case "--min": args.min = Number(next()); break;
+      case "--fill": args.fill = true; break;
       default: args._.push(a);
     }
   }

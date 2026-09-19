@@ -75,6 +75,7 @@ function fetched(ground) {
 export const task = {
   name: "lookup",
   category: "api-call",
+  server: true, // runs against the webserver: a run checks it is up first
   capabilities: ["tool-use","extraction"],
   description:
     "Fetch the live server id for three names. The ids are random and only the tool can produce them.",

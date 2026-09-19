@@ -126,6 +126,11 @@ export const KINDS = [
       return [Array.from({ length: d.int(2, 4) }, field).join(D)];
     },
     edges: (p) => [[""], [p.delim], [`"a${p.delim}b"${p.delim}c`], ['"say ""hi"""'], [` x ${p.delim} " y " `], [`a${p.delim}${p.delim}b`]],
+    // A quote that follows a space: the reference calls a field quoted only when the quote is its
+    // very first character, so it trims this one and keeps the quote characters — a rule the prompt
+    // never states (Haiku and qwen3.8:27b both unwrapped it, and failed nothing else). It stays in
+    // `edges`, so the example drawn for a saved seed is the one it always was.
+    unstated: ([line]) => /^ x . " y " $/.test(String(line)),
   },
   {
     name: "compactRanges", level: 3, signature: "compactRanges(nums)", args: "nums is an array of integers in any order, possibly with duplicates",
@@ -140,6 +145,18 @@ export const KINDS = [
 export const LEVELS = [1, 2, 3];
 const roundTrip = (v) => JSON.parse(JSON.stringify(v === undefined ? null : v));
 
+// The hidden tests a model is asked to pass. A kind may name cases as `unstated` (a predicate over a
+// test's arguments): their expected value follows a reading its rules never spell out, so they are
+// not held against an answer — unless the prompt showed that very case as an example, which states
+// it. One function for the generator and the scorer, so a row saved before a case was named is
+// graded like a new one.
+export function askedOf(hidden, { name, visible = [] } = {}) {
+  const kind = KINDS.find((k) => k.name === name);
+  if (typeof kind?.unstated !== "function") return hidden;
+  const shown = new Set((visible ?? []).map((t) => JSON.stringify(t.args)));
+  return hidden.filter((t) => !kind.unstated(t.args) || shown.has(JSON.stringify(t.args)));
+}
+
 // The instance for a seed and level: the kind, its parameters, the spec, the examples (visible
 // tests) and the hidden tests, with the reference source that produced them.
 export function generate(seed, level) {
@@ -153,7 +170,7 @@ export function generate(seed, level) {
   const mk = (args) => ({ args: roundTrip(args), expected: roundTrip(fn(...structuredClone(args))) });
   const edges = kind.edges(params);
   const visible = [mk(kind.gen(params, d)), mk(kind.gen(params, d)), mk(edges[d.int(0, edges.length - 1)])];
-  const hidden = [...Array.from({ length: 8 }, () => mk(kind.gen(params, d))), ...edges.map(mk)];
+  const hidden = askedOf([...Array.from({ length: 8 }, () => mk(kind.gen(params, d))), ...edges.map(mk)], { name: kind.name, visible });
   const rules = kind.rules(params);
   const spec = `Write a JavaScript function \`${kind.signature}\`, where ${kind.args}, that ${rules.map((r, i) => `(${i + 1}) ${r}`).join("; ")}.`;
   const examples = visible.map((t) => `${kind.name}(${t.args.map((a) => JSON.stringify(a)).join(", ")}) → ${JSON.stringify(t.expected)}`);
@@ -191,10 +208,14 @@ export const runTestsTool = (ctx = {}) => ({
   },
 });
 
-async function grade(code, ground) {
+// `ground.hidden` is what the row recorded; `askedOf` reads it with today's list of unstated cases
+// (the row's ctx says which examples the model was shown), so a re-score drops a case a saved row
+// was once failed on.
+async function grade(code, ground, ctx) {
   if (!ground?.hidden) return { correct: false, reason: "no hidden tests recorded" };
   if (!code) return { correct: false, reason: "no code in the answer" };
-  const r = await runInSandbox({ code, name: ground.name, tests: ground.hidden });
+  const tests = askedOf(ground.hidden, { name: ground.name, visible: ctx?.visible });
+  const r = await runInSandbox({ code, name: ground.name, tests });
   return { correct: r.ok, reason: describeSandbox(r, { tests: "hidden test" }) };
 }
 
@@ -253,11 +274,11 @@ function makeCode(level) {
         const clean = res.total > 0 && res.passed === res.total;
         return { ok: true, reason: clean ? `ran the examples ${runs.length} time(s); the last run passed them all` : `ran the examples ${runs.length} time(s); the last run did not pass (${res.error ?? `${res.passed}/${res.total}`}) and the code went out anyway` };
       },
-      scoreHarness: async (out, ground) => {
+      scoreHarness: async (out, ground, { ctx } = {}) => {
         if (!out || typeof out !== "object") return { correct: false, reason: "no structured output" };
-        return grade(codeOf(out, ground?.name), ground);
+        return grade(codeOf(out, ground?.name), ground, ctx);
       },
-      scoreNoHarness: async (out, ground) => grade(codeIn(out, ground?.name), ground),
+      scoreNoHarness: async (out, ground, { ctx } = {}) => grade(codeIn(out, ground?.name), ground, ctx),
     },
   };
 }

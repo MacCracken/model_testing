@@ -99,7 +99,16 @@ export class Client {
                 throw new Error(`HTTP ${res.status} from ${this.name}: ${detail}`);
             }
 
-            if (this.stream) return await this.readStream(res, t0);
+            if (this.stream) {
+                try {
+                    return await this.readStream(res, t0);
+                } catch (err) {
+                    // A stream cut off mid-answer arrives as a bare "terminated"; like a failed
+                    // connect, say whose stream it was. Timeouts and cancellations keep their reason.
+                    if (controller.signal.aborted) throw err;
+                    throw new Error(`${this.name}: ${err?.message ?? err} — the stream from ${this.url} ended early`);
+                }
+            }
 
             const text = await res.text();
             const parsed = JSON.parse(text);

@@ -54,6 +54,7 @@ function makePaged(pages) {
     family: "paged",
     level: pages,
     category: "tool-reasoning",
+    server: true, // runs against the webserver: a run checks it is up first
     capabilities: ["tool-use", "partial-results"],
     seeded: true,
     description: `Which of ${size} items are below their minimum, listed ${PAGE} at a time over ${pages} pages (each page names the next); stopping early misses the low items on later pages. Scored on the exact set and the count. Minted per trial.`,

@@ -105,6 +105,7 @@ function makeFanout(n) {
     family: "fanout",
     level: n,
     category: "tool-reasoning",
+    server: true, // runs against the webserver: a run checks it is up first
     capabilities: ["tool-use", "parallel-calls"],
     seeded: true,
     description: `${n} independent item reads that could be issued in one turn; the verdict says whether they were. Minted per trial.`,

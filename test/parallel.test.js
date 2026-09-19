@@ -53,11 +53,27 @@ test("parallel runs up to N trials at once and still delivers every row and even
   assert.deepEqual(keys, ["noHarness", "harness"].flatMap((m) => [1, 2, 3, 4, 5, 6].map((i) => `${m}#${i}`)).sort());
 });
 
-test("the default is serial, and rows arrive in plan order", async () => {
+test("the default is serial, and rows arrive breadth first: trial 1 of every cell, then trial 2", async () => {
   const gauge = gaugeOf();
   const { rows } = await runMatrix({ tasks: [task], modes: ["noHarness", "harness"], clients: [makeClient("m", gauge)], count: 3 });
   assert.equal(gauge.max, 1);
-  assert.deepEqual(rows.map((r) => `${r.mode}#${r.index}`), ["noHarness#1", "noHarness#2", "noHarness#3", "harness#1", "harness#2", "harness#3"]);
+  assert.deepEqual(rows.map((r) => `${r.mode}#${r.index}`), ["noHarness#1", "harness#1", "noHarness#2", "harness#2", "noHarness#3", "harness#3"]);
+});
+
+test("a run cut short keeps every cell: the cut costs each cell its last trials, not the last cells all of theirs", async () => {
+  // A five-hour box once took three whole families from a run that had given the first ones all four trials.
+  const gauge = gaugeOf();
+  const controller = new AbortController();
+  const tasksTwo = [task, { ...task, name: "other" }];
+  const { rows } = await runMatrix({
+    tasks: tasksTwo, modes: ["noHarness", "harness"], clients: [makeClient("m", gauge)], count: 4, signal: controller.signal,
+    onEvent: (ev) => { if (ev.type === "trial" && ev.completed === 6) controller.abort(); },
+  });
+  const done = rows.filter((r) => !r.error);
+  const perCell = {};
+  for (const r of done) perCell[`${r.task}/${r.mode}`] = (perCell[`${r.task}/${r.mode}`] ?? 0) + 1;
+  assert.equal(Object.keys(perCell).length, 4, "all four cells have rows");
+  assert.ok(Object.values(perCell).every((n) => n >= 1 && n <= 2), JSON.stringify(perCell));
 });
 
 test("a real-harness arm always runs alone, even with parallel > 1", async () => {

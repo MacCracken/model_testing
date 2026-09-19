@@ -31,6 +31,7 @@ const schema = {
 export const task = {
   name: "norelevant",
   category: "tool-reasoning",
+  server: true, // runs against the webserver: a run checks it is up first
   capabilities: ["tool-use", "irrelevance-detection", "abstention"],
   seeded: true,
   description: "Half the questions the tools can answer, half nothing exposes; report a value or that it is not available — never invent one. Minted per trial.",

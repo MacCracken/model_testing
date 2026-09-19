@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { runInSandbox, codeIn, describeSandbox } from "../src/sandbox.js";
-import { generate, KINDS, LEVELS, codeTasks, codeOf, runTestsTool } from "../src/tasks/code.js";
+import { generate, KINDS, LEVELS, codeTasks, codeOf, runTestsTool, askedOf } from "../src/tasks/code.js";
 import { tasks, listTasks } from "../src/tasks/registry.js";
 
 const tests = [{ args: [[1, 2, 3]], expected: 6 }, { args: [[]], expected: 0 }];
@@ -105,6 +105,48 @@ test("the scorers run the hidden tests: the reference passes, a near miss fails 
   assert.match(miss.reason, /failed \d+\/\d+ hidden tests \(e\.g\./);
   assert.deepEqual(await task.eval.scoreNoHarness("I cannot write code.", ground), { correct: false, reason: "no code in the answer" });
   assert.equal((await task.eval.scoreHarness(null, ground)).reason, "no structured output");
+});
+
+test("a hidden case the rules never state is not held against an answer — unless the prompt showed it", async () => {
+  // csvRow's quote after a space: the reference keeps the quote characters, the rules do not say so.
+  const csv = KINDS.find((k) => k.name === "csvRow");
+  for (const delim of [",", ";", "|"]) {
+    const edges = csv.edges({ delim });
+    assert.equal(edges.length, 6, "the example is still drawn from all six edges, so a saved seed renders as it did");
+    assert.deepEqual(edges.filter((e) => csv.unstated(e)), [[` x ${delim} " y " `]], "the one unstated case stays among the edges");
+  }
+  const unshown = generate(2, 3), shown = generate(12, 3); // csvRow both; seed 12 draws the case as its third example
+  assert.deepEqual([unshown.kind, shown.kind], ["csvRow", "csvRow"]);
+  const isCase = (t) => / x . " y " /.test(String(t.args[0]));
+  assert.equal(unshown.visible.some(isCase), false);
+  assert.equal(unshown.hidden.some(isCase), false, "not shown, not asked");
+  assert.equal(unshown.hidden.length, 13, "eight random cases and the five stated edges");
+  assert.equal(shown.visible.some(isCase), true);
+  assert.equal(shown.hidden.some(isCase), true, "shown as an example, so the prompt states it");
+  assert.equal(shown.hidden.length, 14);
+
+  // An answer that reads a quote after a space as opening a quoted field — right on everything else.
+  const unwraps = (ref) => ref.replace(`if (line[i] === '"') { i++;`, `let k = i; while (line[k] === " ") k++; if (line[k] === '"') { i = k + 1;`);
+  const task = codeTasks[2];
+  const answer = (ctx) => `\`\`\`js\n${unwraps(ctx.ref)}\n\`\`\``;
+  assert.notEqual(unwraps(unshown.ref), unshown.ref);
+  const ok = await task.eval.scoreNoHarness(answer(unshown), task.eval.ground({ ctx: unshown }), { ctx: unshown });
+  assert.equal(ok.correct, true, ok.reason);
+  const held = await task.eval.scoreNoHarness(answer(shown), task.eval.ground({ ctx: shown }), { ctx: shown });
+  assert.equal(held.correct, false, "the example said what to do with it");
+  assert.match(held.reason, /failed 1\/14 hidden tests/);
+
+  // A row saved before the case was named recorded it among its hidden tests; the scorer reads the
+  // recorded list with today's rule, with the row's ctx or without one.
+  const saved = { name: "csvRow", hidden: [...unshown.hidden, { args: [` x ${unshown.params.delim} " y " `], expected: ["x", `" y "`] }] };
+  assert.equal(askedOf(saved.hidden, unshown).length, 13);
+  assert.equal(askedOf(saved.hidden, shown).length, 14, "a ctx that showed the case keeps it");
+  const again = await task.eval.scoreHarness({ work: [], code: unwraps(unshown.ref) }, saved, { ctx: unshown });
+  assert.equal(again.correct, true, again.reason);
+  assert.match(again.reason, /passed 13\/13 hidden tests/);
+  assert.equal((await task.eval.scoreNoHarness(answer(unshown), saved)).correct, true, "no ctx: the case is not asked");
+  const other = generate(3, 2);
+  assert.equal(askedOf(other.hidden, other), other.hidden, "a kind with nothing unstated keeps its list as it is");
 });
 
 test("run_tests runs the examples only and reports the failures; the verdict wants it called", async () => {

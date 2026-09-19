@@ -10,7 +10,7 @@ import { DatabaseSync } from "node:sqlite";
 import { statSync, readdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { runsDir, resultsRoot, loadRun, onRunSaved } from "./results.js";
-import { summarize } from "./runner.js";
+import { summarize, errorKindOf } from "./runner.js";
 import { tasks as registeredTasks } from "./tasks/registry.js";
 
 // Rows written before the runner recorded `seeded` get the registry's word, so their agreement is
@@ -66,7 +66,7 @@ export function openStore() {
 // table alone, so each new column is added here when missing; the next `index --full` fills it.
 const LATER_COLUMNS = {
   runs: { parallel: "integer", instance_seed: "integer", lineage: "text", suite: "text", parent_run: "text", parent_kind: "text", gate_verdict: "text" },
-  trials: { canon: "text", skill: "text", base_client: "text", agents: "text", delegations: "integer", stress: "text", seed: "integer", constraints: "text", adherence_pct: "real", family: "text", checkpoint: "text", step: "integer", parent: "text", format: "text", depth: "real", source: "text", cost_usd: "real", effort: "text" },
+  trials: { canon: "text", skill: "text", base_client: "text", agents: "text", delegations: "integer", stress: "text", seed: "integer", constraints: "text", adherence_pct: "real", family: "text", checkpoint: "text", step: "integer", parent: "text", format: "text", depth: "real", source: "text", cost_usd: "real", effort: "text", error_kind: "text" },
   cells: { agreement_pct: "real", distinct_answers: "integer", flaky: "integer", cost_usd: "real" },
 };
 function migrate(d) {
@@ -109,8 +109,8 @@ export function indexRun(run, { mtime = null } = {}) {
     if (run.status !== "running") {
       const ins = d.prepare(`insert into trials
         (run_id, idx, task, mode, client, model, harness, trial_index, correct, reason, error, tool_calls, tool_use_ok, tool_use_reason,
-         schema_valid, judge_score, judge_reason, latency_ms, ttft_ms, ttfa_ms, prompt_tokens, completion_tokens, total_tokens, rounds, finish_reason, started_at, canon, skill, base_client, agents, delegations, stress, seed, constraints, adherence_pct, family, checkpoint, step, parent, format, depth, source, cost_usd, effort)
-        values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+         schema_valid, judge_score, judge_reason, latency_ms, ttft_ms, ttfa_ms, prompt_tokens, completion_tokens, total_tokens, rounds, finish_reason, started_at, canon, skill, base_client, agents, delegations, stress, seed, constraints, adherence_pct, family, checkpoint, step, parent, format, depth, source, cost_usd, effort, error_kind)
+        values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
       const lineageOfRow = (r) => run.config?.lineage?.[r.client] ?? run.config?.lineage?.[String(r.client).replace(/@(skill|agents|stress|constraints|format|effort|confidence|abstain|perturb)(:[a-z]+)?$/, "")] ?? null;
       (run.rows ?? []).forEach((r, i) => ins.run(
         run.id, i, r.task ?? null, r.mode ?? null, r.client ?? null, r.model ?? null, r.harness ?? null,
@@ -123,6 +123,8 @@ export function indexRun(run, { mtime = null } = {}) {
         r.constraints?.how ?? null, r.constraints?.total ? (100 * r.constraints.met) / r.constraints.total : null,
         lineageOfRow(r)?.family ?? null, lineageOfRow(r)?.checkpoint ?? null, num(lineageOfRow(r)?.step), lineageOfRow(r)?.parent ?? null,
         r.format?.how ?? null, num(r.ctx?.depth), r.source ?? null, num(r.cost?.usd), r.effort?.how ?? null,
+        // Whose failure an error row records; a row from before the kind was recorded is read from its message.
+        r.error ? r.errorKind ?? errorKindOf(r.error) : null,
       ));
       const cell = d.prepare(`insert into cells
         (run_id, task, client, mode, runs, correct, correct_pct, tool_use_pct, tool_args_ok_pct, schema_valid_pct, error_pct,
@@ -250,6 +252,16 @@ export function worstCells({ mode = "harness", minTrials = 4, limit = 10 } = {})
 export function rawQuery(sql) {
   const ro = new DatabaseSync(dbPath(), { readOnly: true });
   try { return ro.prepare(sql).all(); } finally { ro.close(); }
+}
+
+// The instances some indexed run has a scored row for — a task, mode and client on a trial seed,
+// under the same model knobs. It is what closes a hole, wherever the hole was left: a fill, a replay
+// of those tasks, a later run on the same instance seed. → a Set of `instanceKey`s.
+export const instanceKey = ({ task, mode, client, seed, modelParams }) => `${task}|${mode}|${client}|${seed}|${typeof modelParams === "string" ? modelParams : JSON.stringify(modelParams ?? {})}`;
+export function scoredInstances({ clients = null } = {}) {
+  const q = (v) => String(v).replace(/'/g, "''");
+  const where = clients?.length ? ` and t.client in (${clients.map((c) => `'${q(c)}'`).join(",")})` : "";
+  return new Set(rawQuery(`select t.task, t.mode, t.client, t.seed, r.model_params as modelParams from trials t join runs r on r.id = t.run_id where t.error is null and t.seed is not null${where}`).map(instanceKey));
 }
 
 // ---- retention -------------------------------------------------------------------------------

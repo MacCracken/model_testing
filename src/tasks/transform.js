@@ -70,6 +70,7 @@ function judge(entries, ground) {
 export const task = {
   name: "transform",
   category: "extract-transform",
+  server: true, // runs against the webserver: a run checks it is up first
   capabilities: ["extraction","tool-use"],
   description:
     "Fetch three greetings, then report each name with the first 8 characters of its id and the greeting in upper case.",

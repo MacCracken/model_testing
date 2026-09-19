@@ -86,6 +86,7 @@ export const REFUSAL = /must be a JSON (integer|string)/i;
 export const task = {
   name: "typed",
   category: "tool-reasoning",
+  server: true, // runs against the webserver: a run checks it is up first
   capabilities: ["tool-use", "argument-types"],
   seeded: true,
   description: "Set three items to counted quantities given in words on a strict server that refuses a quantity sent as a string, a float or a word; recover from any refusal. Scored on the end state and the report. Minted per trial.",

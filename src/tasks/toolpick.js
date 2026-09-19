@@ -146,6 +146,7 @@ function makeToolpick(count) {
     family: "toolpick",
     level: count,
     category: "tool-reasoning",
+    server: true, // runs against the webserver: a run checks it is up first
     capabilities: ["tool-use", "tool-selection"],
     seeded: true,
     description: `One question about an inventory scenario and ${count} read tools that differ by a word — one answers it directly, others with more work, and near-duplicates answer a different question with a number that looks right. Minted per trial.`,

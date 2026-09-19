@@ -150,3 +150,23 @@ test("a re-score reads structured answers again from the recorded text, so a rea
   assert.match(describeRescore(r), /1 flipped, 0 with another verdict changed, 1 structured answer\(s\) re-read/);
   assert.equal(r.run.rescored[0].reparsed, 1);
 });
+
+test("a re-score judges validity against the schema the treatment asked for: an abstention's null answer and a stated confidence stay valid", async () => {
+  // The runner hands a live trial its treated schema; a saved row only says which treatments were
+  // applied. Read against the untreated schema, `"answer": null` was re-scored as invalid — seven
+  // saved @abstain rows would have lost their schemaValid on the next `rescore --all --yes`.
+  const task = makeTask((a, g) => a === g);
+  const abstention = { answerable: false, answer: null };
+  const A = row({ mode: "harness", client: "c@abstain", answerText: JSON.stringify(abstention), structured: abstention, correct: true, reason: "abstained", schemaValid: true, abstain: { how: "half", applied: true, unanswerable: true, missing: "the count", abstention: "abstained" } });
+  const stated = { answer: "alpha", confidence: 0.8 };
+  const C = row({ index: 2, mode: "harness", client: "c@confidence", answerText: JSON.stringify(stated), structured: stated, correct: true, reason: "matches", schemaValid: true, confidence: { applied: true, value: 0.8 } });
+  const r = await rescoreRun(run([A, C]), { taskFor: () => task });
+  assert.deepEqual(r.run.rows.map((x) => [x.schemaValid, x.schemaErrors]), [[true, []], [true, []]]);
+  assert.equal(r.run.rows[0].correct, true);
+  assert.equal(r.run.rows[0].abstain.abstention, "abstained");
+  assert.equal(r.flips.length, 0);
+  // The untreated schema still says no to a null answer — a plain row is judged as before.
+  const plain = await rescoreRun(run([row({ mode: "harness", answerText: JSON.stringify(abstention), structured: abstention, correct: false, reason: "differs", schemaValid: false })]), { taskFor: () => task });
+  assert.equal(plain.run.rows[0].schemaValid, false);
+  assert.match(plain.run.rows[0].schemaErrors.join(" "), /answer/);
+});

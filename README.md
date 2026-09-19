@@ -186,6 +186,8 @@ node src/cli.js regressions --webhook https://hooks.example/bench       # …or 
 node src/cli.js show <run-id> --rows                                    # every trial numbered; --trial <n> prints one as a timeline
 node src/cli.js export <run-id> --jsonl --trial 3                       # a trial as an event log (system, user, assistant, tool_call, tool_result)
 node src/cli.js replay <run-id> [--clients …] [--task …] [--count N]    # the same instances again, as a new run parented to this one, with the paired comparison
+node src/cli.js replay <run-id> --holes                                 # only what that run has no scored row for — rows that errored, trials that never started — on the same seeds
+node src/cli.js holes [--client a,b] [--min 4] [--fill]                 # coverage over the index per task × model: scored, lost, never run — and the commands that close the gaps
 node src/cli.js rescore <run-id> | --all [--yes]                        # today's scorers over saved rows: a dry run lists the flips, --yes writes them back
 node src/cli.js gate <run-id> --gate "tool-use>=80" --gate "errors<=0"    # thresholds over a saved run: exit 0 pass, 1 fail, 2 a gate could not be judged
 node src/cli.js suite nightly --clients vllm:my-ckpt --judge openai:gpt-4o-mini   # the standard suite, time-boxed and gated by gates/nightly.json
@@ -299,6 +301,21 @@ read again) and records the re-score. Every row keeps enough for both: the promp
 and results, the model's turns (what it said each round, which calls it made, when), an arm's raw
 transcript, the parsed answer and the ground truth taken at the time. `show <run> --trial <n>`
 prints a trial as a timeline and `export --jsonl` writes it as an event log.
+
+**Runs that can be left alone.** Before it writes anything a run asks what it needs: each model's
+endpoint (is the model listed, does a plain request come back) and the webserver when a selected
+task runs against it (`server: true` on the task). A no ends it there with exit code 2 and no run
+file; `--no-preflight` runs anyway. Mid-run, three transport errors in a row from one endpoint — or
+from the webserver — make the matrix check again at once and after 30 s, 2 min and 5 min
+(`--endpoint-waits 30,120,300`): back up, it goes on; still down, the trials that needed it are
+skipped rather than written as error rows, the run is saved as `partial` and the exit code is 2. A
+model that times out is not an outage and never trips this. Every error row says whose failure it
+was (`errorKind`: transport, timeout, cancelled, request, bench — also a column in the index).
+Trials run breadth first — trial 1 of every cell, then trial 2 — so a time box or an outage costs
+every cell its last trials rather than the last families all of theirs. What a run is left
+without is a **hole**: `replay <run> --holes` runs exactly those again on the same seeds as a run
+parented to it (`fill of …`), skipping any hole another run has closed since, and `holes` shows
+the coverage over the whole index with the commands that close the gaps.
 
 `--parallel N` runs up to N trials at once (the web UI's "in parallel" setting does the same);
 real-harness arms always run alone because they are scored from the webserver's time-windowed log,

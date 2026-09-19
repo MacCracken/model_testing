@@ -45,6 +45,7 @@ async function grade(text, ground, judge) {
 export const task = {
   name: "explain",
   category: "open-ended",
+  server: true, // runs against the webserver: a run checks it is up first
   capabilities: ["open-ended"],
   description: "Explain the webserver's health and running time to a non-engineer; graded by a judge model against the live facts.",
   model: labelModel,

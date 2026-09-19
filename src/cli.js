@@ -85,7 +85,7 @@ async function main() {
       const id = args._[0];
       if (!id) {
         for (const r of listRuns({ limit: 20 })) {
-          console.log(`${r.id}  ${r.status.padEnd(9)} ${r.source.padEnd(9)} ${r.config.clients.join(",").padEnd(30)} ${r.config.tasks.join(",")} × ${r.config.modes.join(",")} × ${r.config.count}  (${r.rowCount} rows)${r.parent ? `  replay of ${r.parent.id}` : ""}${r.gates ? `  gates: ${r.gates.verdict}` : ""}`);
+          console.log(`${r.id}  ${r.status.padEnd(9)} ${r.source.padEnd(9)} ${r.config.clients.join(",").padEnd(30)} ${r.config.tasks.join(",")} × ${r.config.modes.join(",")} × ${r.config.count}  (${r.rowCount} rows)${r.parent ? `  ${r.parent.kind === "fill" ? "fill" : "replay"} of ${r.parent.id}` : ""}${r.gates ? `  gates: ${r.gates.verdict}` : ""}`);
         }
         break;
       }
@@ -103,7 +103,7 @@ async function main() {
         }
         break;
       }
-      const lineage = run.parent ? ` · replay of ${run.parent.id}` : "";
+      const lineage = run.parent ? ` · ${run.parent.kind === "fill" ? "fill" : "replay"} of ${run.parent.id}` : "";
       const rescored = run.rescored?.length ? ` · re-scored ${String(run.rescored.at(-1).at).slice(0, 10)}` : "";
       const gated = run.gates ? ` · gates ${run.gates.verdict}` : "";
       console.log(`run ${run.id} · ${run.source} · ${run.status} · ${run.config.clients.join(", ")} · ${run.rows.length} rows${lineage}${rescored}${gated}`);
@@ -500,7 +500,7 @@ async function main() {
     // parented to it (any of them overridable), then the paired comparison against the parent.
     case "replay": {
       const id = rest[0];
-      if (!id || id.startsWith("--")) { console.error("usage: node src/cli.js replay <run-id> [--clients c1,c2] [--task t1,t2] [--modes m1,m2] [--count N] [--parallel N] [--judge …] [--no-save] [--json]"); process.exit(1); }
+      if (!id || id.startsWith("--")) { console.error("usage: node src/cli.js replay <run-id> [--holes] [--clients c1,c2] [--task t1,t2] [--modes m1,m2] [--count N] [--parallel N] [--judge …] [--no-save] [--json]"); process.exit(1); }
       await runScript(join(SRC, "bench.js"), ["--replay", id, ...rest.slice(1)]);
       break;
     }
@@ -526,6 +526,75 @@ async function main() {
       }
       if (ids.length > 1) console.log(`\n${totals.runs} run(s): ${totals.scored} rows scored, ${totals.flips} flipped, ${totals.changed} with another verdict changed, ${totals.skipped} skipped`);
       if (!args.yes) console.log("dry run — add --yes to write the new verdicts into the run file(s)");
+      break;
+    }
+
+    // Coverage over the index: per task × client, the scored trials, the error rows beside them and
+    // the cells never run — and, with --fill, the commands that close the gaps. A saved run's own
+    // holes (rows that errored, trials that never started) are filled by replaying just those.
+    case "holes": {
+      const args = parseArgs(rest);
+      const { indexRuns, rawQuery } = await import("./store.js");
+      const { coverage, coverageTable, holesOf, stillOpen, describeHoles } = await import("./holes.js");
+      const { planMatrix, MODE_NAMES } = await import("./runner.js");
+      const { tasks: allTasks } = await import("./tasks/registry.js");
+      const { resolveClients } = await import("./providers/index.js");
+      indexRuns();
+      const q = (s) => String(s).replace(/'/g, "''");
+      const min = Number.isFinite(args.min) && args.min > 0 ? Math.floor(args.min) : 4;
+      const modes = args.mode ? String(args.mode).split(",").map((s) => s.trim()).filter((m) => MODE_NAMES.includes(m)) : ["harness", "noHarness"];
+      // The clients asked for, or every plain client served from a local endpoint — the path this
+      // bench is for. Variants and arms have their own, narrower plans; name one to see it.
+      const known = rawQuery("select distinct client from trials").map((r) => r.client);
+      const clients = args.client
+        ? String(args.client).split(",").map((s) => s.trim()).filter(Boolean)
+        : known.filter((c) => !c.includes("@") && PROVIDERS[c.split(":")[0]]?.local).sort();
+      if (!clients.length) { console.log("no clients to show — name some with --client a,b"); break; }
+      const rows = rawQuery(`select run_id, task, mode, client, correct, error, error_kind from trials where client in (${clients.map((c) => `'${q(c)}'`).join(",")})`);
+      const cells = coverage(rows, { min });
+      const taskNames = (args.task ? String(args.task).split(",").map((s) => s.trim()) : allTasks.filter((t) => t.source !== "public").map((t) => t.name));
+      if (args.json) { console.log(JSON.stringify({ min, clients, cells }, null, 2)); break; }
+      for (const mode of modes) console.log(`${coverageTable(cells, { tasks: taskNames, clients, mode, min })}\n`);
+
+      // What is open: cells never run (a task that declares the mode), cells under `min`, and the
+      // saved runs that still have holes of their own.
+      const declared = (t, mode) => !!allTasks.find((x) => x.name === t)?.[mode];
+      const at = new Map(cells.map((c) => [`${c.task}|${c.mode}|${c.client}`, c]));
+      const never = [], short = [];
+      for (const client of clients) for (const mode of modes) for (const t of taskNames) {
+        if (!declared(t, mode)) continue;
+        const c = at.get(`${t}|${mode}|${client}`);
+        if (!c) never.push({ task: t, mode, client });
+        else if (c.scored < min) short.push(c);
+      }
+      const withHoles = [];
+      const ids = rawQuery(`select distinct t.run_id as id from trials t join runs r on r.id = t.run_id where t.client in (${clients.map((c) => `'${q(c)}'`).join(",")}) and ((t.error is not null and t.error_kind != 'request') or r.status in ('timeout', 'partial', 'cancelled'))${args.since ? ` and r.created_at >= '${q(args.since)}'` : ""} order by id`).map((r) => r.id);
+      // The same instance scored anywhere — a fill, a replay of those tasks, a later run on the same
+      // seed — closes a hole.
+      const { scoredInstances, instanceKey } = await import("./store.js");
+      const scoredAnywhere = scoredInstances({ clients });
+      const filled = new Set(rawQuery("select parent_run from runs where parent_kind = 'fill'").map((r) => r.parent_run));
+      for (const id of ids) {
+        const run = loadRun(id);
+        if (!run?.config) continue;
+        let plan;
+        try {
+          plan = planMatrix({ tasks: run.config.tasks.map((n) => allTasks.find((t) => t.name === n)).filter(Boolean), modes: run.config.modes, clients: resolveClients(run.config.clients.join(","), { modelParams: run.config.modelParams ?? {} }), count: run.config.count ?? 1 });
+        } catch { continue; }
+        const holes = stillOpen(holesOf(run, { cells: plan.cells }).filter((h) => clients.includes(h.client)), run, scoredAnywhere, instanceKey);
+        if (holes.length) withHoles.push({ id, holes, status: run.status, fills: filled.has(id) });
+      }
+      console.log(`open: ${never.length} cell(s) never run, ${short.length} under ${min} scored trials, ${withHoles.length} saved run(s) with holes of their own`);
+      for (const w of withHoles) console.log(`  ${w.id}  ${String(w.status).padEnd(8)} ${String(w.holes.length).padStart(4)} hole(s): ${describeHoles(w.holes)}${w.fills ? "  (a fill of it exists — its holes are counted on the fill)" : ""}`);
+      if (args.fill) {
+        console.log("\n# a saved run's holes, on the same instances:");
+        for (const w of withHoles.filter((x) => !x.fills)) console.log(`node src/bench.js --replay ${w.id} --holes`);
+        const seed = rawQuery("select instance_seed as s, count(*) as n from runs where instance_seed is not null group by instance_seed order by n desc limit 1")[0]?.s ?? 2026;
+        const groups = new Map();
+        for (const n of never) { const k = `${n.client}|${n.mode}`; (groups.get(k) ?? groups.set(k, []).get(k)).push(n.task); }
+        if (groups.size) console.log(`\n# cells never run (instance seed ${seed}, the one most runs share, so the instances pair with theirs):`);
+        for (const [k, ts] of groups) { const [client, mode] = k.split("|"); console.log(`node src/bench.js --task ${ts.join(",")} --modes ${mode} --clients ${client} --count ${min} --instance-seed ${seed}`); }
+      } else if (never.length || withHoles.length) console.log("\n--fill prints the commands that close them");
       break;
     }
 
@@ -614,6 +683,8 @@ async function main() {
       console.log("  node src/cli.js export <run-id> [--cells] [--out file.csv]");
       console.log("  node src/cli.js export <run-id> --jsonl [--trial <n>]   # a trial (or every trial) as an event log");
       console.log("  node src/cli.js replay <run-id> [--clients …]          # the same instances again, as a new run parented to this one, with the paired comparison");
+      console.log("  node src/cli.js replay <run-id> --holes                # only what that run has no scored row for (rows that errored, trials that never started), same seeds");
+      console.log("  node src/cli.js holes [--client a,b] [--min 4] [--fill] # coverage over the index: scored / lost / never run per cell, and the commands that close the gaps");
       console.log("  node src/cli.js rescore <run-id> | --all [--yes]       # today's scorers over saved rows; --yes writes the verdicts back");
       console.log("  node src/cli.js gate <run-id> --gate <spec>… | --gates <file>   # thresholds over a saved run, exit 0 pass / 1 fail / 2 incomplete");
       console.log("  node src/cli.js suite nightly --clients …             # the standard suite, time-boxed and gated by gates/nightly.json (bench: --gate, --gates, --time-box)");

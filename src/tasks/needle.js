@@ -126,11 +126,17 @@ const schema = {
 };
 
 const hostsIn = (text) => [...new Set((String(text ?? "").toLowerCase().match(/host-\d+/g) ?? []))].sort();
+// The hosts an answer names. A list is read element by element, so a model that joins them into one
+// string inside the array (["host-16, host-8, host-31"]) scores like one that lists them; an element
+// with no host in it stays as itself, so junk in the list still counts as an extra.
+const hostList = (got) => (Array.isArray(got)
+  ? [...new Set(got.flatMap((h) => { const hs = hostsIn(h); return hs.length ? hs : [String(h).toLowerCase().trim()]; }))].sort()
+  : hostsIn(got));
 
 function judge(kind, got, ground) {
   if (kind === "multi") {
     const want = ground.answer;
-    const have = Array.isArray(got) ? [...new Set(got.map((h) => String(h).toLowerCase().trim()))].sort() : hostsIn(got);
+    const have = hostList(got);
     const missing = want.filter((h) => !have.includes(h)), extra = have.filter((h) => !want.includes(h));
     return missing.length || extra.length ? { correct: false, reason: `hosts ${[missing.length ? `missing ${missing.join(", ")}` : "", extra.length ? `extra ${extra.join(", ")}` : ""].filter(Boolean).join("; ")}` } : { correct: true, reason: `all ${want.length} hosts — right` };
   }
@@ -147,6 +153,7 @@ function makeNeedle(tokens, label, { hop = false } = {}) {
     family: hop ? "needlehop" : "needle",
     level: tokens,
     category: "long-context",
+    server: true, // runs against the webserver: a run checks it is up first
     capabilities: hop ? ["long-context", "retrieval", "multi-hop"] : ["long-context", "retrieval"],
     seeded: true,
     description: hop
@@ -215,7 +222,7 @@ function makeNeedle(tokens, label, { hop = false } = {}) {
       },
       canon: (answer, { structured }) => {
         const v = structured ? answer?.answer : (String(answer ?? "").match(/answer\s*[:=]?\s*\**\s*(.+)$/im)?.[1] ?? answer);
-        return Array.isArray(v) ? [...v].map((x) => String(x).toLowerCase()).sort().join(",") : String(hostsIn(v).length > 1 ? hostsIn(v).join(",") : numberIn(v));
+        return Array.isArray(v) ? hostList(v).join(",") : String(hostsIn(v).length > 1 ? hostsIn(v).join(",") : numberIn(v));
       },
     },
   };
